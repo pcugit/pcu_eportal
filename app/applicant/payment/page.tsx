@@ -81,15 +81,12 @@ function PaymentContent() {
     setError(null);
 
     try {
-      // Get the amount from the status or some program info
-      // In a real app, this would come from the backend or a program details API
-      // For now, we'll use some default values or fetch them if possible
       
       let amount = 0;
       if (selectedType === "acceptance_fee") {
-        amount = 50000; // Default if not found
+        amount = 50000; 
       } else {
-        amount = 150000; // Default if not found
+        amount = 150000; 
       }
       
       const programFees: Record<number, {acceptance: number, tuition: number}> = {

@@ -11,6 +11,7 @@ export interface ApiResponse<T> {
 export interface ApplicantStatus {
   id: number;
   program_id: number;
+  program_type_id: number;
   program_name: string;
   application_status: string;
   admission_status: string;
@@ -18,6 +19,9 @@ export interface ApplicantStatus {
   has_paid_acceptance_fee: boolean;
   has_paid_tuition: boolean;
   submitted_at: string | null;
+  created_at: string;
+  user_name: string;
+  program_session: string;
   recommended_course_response?: string | null;
   accepted_recommended_program_id?: number | null;
 }
@@ -359,23 +363,24 @@ export class ApiClient {
   }
 
   // Applicant endpoints
-  static async getApplicantPrograms() {
-    const { data } = await this.fetch("/applicant/programs");
-    // If no program selected, redirect to dashboard selection
-    if (!data.applicant.program_id) {
-      window.location.href = '/applicant/dashboard';
-      return data;
-    }
+  static async getProgramTypes(): Promise<{ program_types: ProgramType[] }> {
+    const { data } = await this.fetch<{ program_types: ProgramType[] }>("/applicant/program-types");
     return data;
   }
 
-  static async selectProgram(program_id: number, app_type?: string) {
-    const { data } = await this.fetch("/applicant/select-program", {
-      method: "POST",
-      body: JSON.stringify({ program_id, app_type }),
-    });
+  static async getOlevelData() {
+    const { data } = await this.fetch<any>('/applicant/olevel-data');
     return data;
   }
+
+
+  static async getPrograms() {
+
+    const { data } = await this.fetch("/applicant/programs");
+    return data;
+  }
+
+
 
   static async getFormTemplate(program_id: number) {
     const { data } = await this.fetch(`/applicant/form/${program_id}`);
@@ -417,11 +422,15 @@ export class ApiClient {
     file: File,
     form_id: number,
     document_type: string,
+    display_name?: string
   ) {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("form_id", form_id.toString());
     formData.append("document_type", document_type);
+    if (display_name) {
+      formData.append("display_name", display_name);
+    }
 
     const token = this.getToken();
     const headers: HeadersInit = {};
@@ -441,6 +450,13 @@ export class ApiClient {
       throw new Error(data.message || "Upload failed");
     }
 
+    return data;
+  }
+
+  static async deleteDocument(document_id: number) {
+    const { data } = await this.fetch(`/applicant/delete-document/${document_id}`, {
+      method: "DELETE",
+    });
     return data;
   }
 
@@ -485,8 +501,8 @@ export class ApiClient {
     return blob;
   }
 
-  static async getApplicantStatus(): Promise<{ applicant: ApplicantStatus }> {
-    const { data } = await this.fetch<{ applicant: ApplicantStatus }>(
+  static async getApplicantStatus(): Promise<{ applicant: ApplicantStatus; applicants: ApplicantStatus[] }> {
+    const { data } = await this.fetch<{ applicant: ApplicantStatus; applicants: ApplicantStatus[] }>(
       "/applicant/get-applicant-status",
     );
     return data;
@@ -527,7 +543,9 @@ export class ApiClient {
     payment_method: string = "online",
     reference_id: string = "",
     status: "pending" | "completed" | "cancelled" = "completed",
-    app_type?: string
+    app_type?: string,
+    applicant_id?: number,
+    program_type_id?: number
   ): Promise<PaymentResponse> {
     const { data } = await this.fetch<PaymentResponse>(
       "/applicant/process-payment",
@@ -540,6 +558,8 @@ export class ApiClient {
           reference_id,
           status,
           app_type,
+          applicant_id,
+          program_type_id
         }),
       },
     );
@@ -867,10 +887,6 @@ export class ApiClient {
     return data;
   }
 
-  static async getProgramTypes(): Promise<{ program_types: ProgramType[] }> {
-    const { data } = await this.fetch<{ program_types: ProgramType[] }>("/admin/program-types");
-    return data;
-  }
 
   static async getStudentProfile(): Promise<{ profile: StudentProfile }> {
     const { data } = await this.fetch<{ profile: StudentProfile }>("/student/profile");

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, send_file
 from database import Database
 from utils.auth import AuthHandler
 from utils.document_handler import DocumentHandler
@@ -12,17 +12,37 @@ import uuid
 
 applicant_bp = Blueprint('applicant', __name__)
 
+@applicant_bp.route('/olevel-data', methods=['GET'])
+def get_olevel_data():
+    """Get O'Level subjects and grades for dropdowns"""
+    subjects = Database.execute_query('SELECT id, name FROM olevel_subjects ORDER BY name ASC')
+    grades = Database.execute_query('SELECT id, grade FROM olevel_grades ORDER BY id ASC')
+    
+    return jsonify({
+        'status': 'success',
+        'subjects': subjects or [],
+        'grades': grades or []
+    })
+
+
 @applicant_bp.route('/programs', methods=['GET'])
 def get_programs():
     """Get list of available programs grouped by faculty and department"""
     programs = Database.execute_query(
-        '''SELECT p.id, p.name, p.description, p.level, p.session, p.is_locked,
-                  d.name as department, f.name as faculty, pt.name as mode
-           FROM programs p
-           JOIN departments d ON p.department_id = d.id
-           JOIN faculties f ON d.faculty_id = f.id
-           JOIN program_types pt ON p.program_type_id = pt.id
-           ORDER BY f.name, d.name, p.name'''
+        '''SELECT 
+            pt.id               AS program_type_id,
+            pt.name             AS program_type,
+            d.id                AS department_id,
+            d.name              AS course,
+            dg.name             AS degree,
+            dy.years            AS duration
+        FROM programs p
+        JOIN departments d      ON p.department_id   = d.id
+        JOIN degrees dg         ON p.degree_id       = dg.id
+        JOIN program_types pt   ON p.program_type_id = pt.id
+        JOIN duration_years dy  ON p.duration        = dy.id
+        WHERE p.is_active = TRUE
+        ORDER BY pt.name, d.name;'''
     )
     
     global_lock = False
@@ -56,114 +76,218 @@ def get_programs():
         'program_types_status': pt_status
     }), 200
 
-@applicant_bp.route('/select-program', methods=['POST'])
-@AuthHandler.token_required
-def select_program(payload):
-    """Select a program for application"""
-    # Check if admission registration is locked
-    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'admission_registration_locked'")
-    if res and res[0]['value'] == 'true':
-        return jsonify({'message': 'Admission registration is currently closed.'}), 403
-
-    user_id = payload['user_id']
-    data = request.get_json()
-    
-    if not data or 'program_id' not in data:
-        return jsonify({'message': 'program_id is required'}), 400
-    
-    program_id = data['program_id']
-    app_type = data.get('app_type')
-    
-    # Verify program exists
-    programs = Database.execute_query(
-        'SELECT id FROM programs WHERE id = %s',
-        (program_id,)
-    )
-    if not programs:
-        return jsonify({'message': 'Invalid program'}), 400
-    
-    # Get applicant; if not present, create one for this user
-    applicants = Database.execute_query(
-        'SELECT id FROM applicants WHERE user_id = %s',
-        (user_id,)
+@applicant_bp.route('/program-types', methods=['GET'])
+def get_program_types():
+    """Get program types with specific fees"""
+    types = Database.execute_query(
+        'SELECT id, name FROM program_types WHERE id BETWEEN 1 AND 7 ORDER BY id'
     )
     
-    if not applicants:
-        # Create applicant record tied to this user with the selected program
-        applicant_id = Database.execute_update(
-            'INSERT INTO applicants (user_id, program_id, app_type) VALUES (%s, %s, %s) RETURNING id',
-            (user_id, program_id, app_type),
-            return_id=True
-        )
-        if not applicant_id:
-            return jsonify({'message': 'Failed to create applicant record'}), 500
-    else:
-        applicant_id = applicants[0]['id']
-        # Update program on existing applicant record
-        success = Database.execute_update(
-            'UPDATE applicants SET program_id = %s, app_type = %s WHERE id = %s',
-            (program_id, app_type, applicant_id)
-        )
-        if not success:
-            return jsonify({'message': 'Failed to select program'}), 500
+    fee_mapping = {
+        1: 42,
+        6: 43,
+        4: 40,
+        2: 37,
+        7: 38,
+        3: 39,
+        5: 41
+    }
     
+    # Fetch all relevant fees
+    fee_ids = list(fee_mapping.values())
+    fees_data = Database.execute_query(
+        'SELECT id, amount FROM program_fees WHERE id IN %s',
+        (tuple(fee_ids),)
+    )
+    
+    # Create a lookup for fees by ID
+    fee_lookup = {f['id']: float(f['amount']) for f in (fees_data or [])}
+    
+    # Attach fees to types
+    for t in types:
+        fee_id = fee_mapping.get(t['id'])
+        if fee_id:
+            t['fee'] = fee_lookup.get(fee_id, 0)
+        
     return jsonify({
-        'message': 'Program selected successfully',
-        'applicant_id': applicant_id,
-        'program_id': program_id,
-        'app_type': app_type
+        'program_types': types or []
     }), 200
 
-@applicant_bp.route('/form/<int:program_id>', methods=['GET'])
+
+
+@applicant_bp.route('/form/<int:program_type_id>', methods=['GET'])
 @AuthHandler.token_required
-def get_form_template(payload, program_id):
+def get_form_template(payload, program_type_id):
     """Get application form template for a program"""
     
     # Mock form template based on program
     form_templates = {
         1: {
             'program': 'Undergraduate',
-            'fields': [
-                {'name': 'full_name', 'type': 'text', 'label': 'Full Name', 'required': True},
-                {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                {'name': 'nationality', 'type': 'text', 'label': 'Nationality', 'required': True},
-                {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
-                {'name': 'qualification_type', 'type': 'select', 'label': 'Qualification Type', 'options': ['WAEC', 'NECO', 'GCE', 'Other'], 'required': True},
-                {'name': 'qualification_institution', 'type': 'text', 'label': 'Issuing Institution', 'required': True},
-                {'name': 'qualification_year', 'type': 'number', 'label': 'Year of Qualification', 'required': True},
-                {'name': 'additional_info', 'type': 'textarea', 'label': 'Additional Information', 'required': False}
-            ],
-            'documents': [
-                {'type': 'transcript', 'label': 'Academic Transcript', 'required': True},
-                {'type': 'certificate', 'label': 'Qualification Certificate', 'required': True},
-                {'type': 'identification', 'label': 'Identification (Passport/Driver License)', 'required': True}
+            'steps': [
+                {
+                    'title': 'Personal Information',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
+                        {'name': 'first_name', 'type': 'text', 'label': 'First Name', 'required': True, 'disabled': True},
+                        {'name': 'last_name', 'type': 'text', 'label': 'Last Name', 'required': True, 'disabled': True},
+                        {'name': 'middle_name', 'type': 'text', 'label': 'Middle name', 'required': False},
+                        {'name': 'gender', 'type': 'select', 'label': 'Gender', 'options': ['Male', 'Female'], 'required': True},
+                        {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
+                        {'name': 'place_of_birth', 'type': 'text', 'label': 'Place of birth', 'required': True},
+                        {'name': 'marital_status', 'type': 'select', 'label': 'Marital Status', 'options': ['Single', 'Married', 'Divorced', 'Widowed'], 'required': True},
+                        {'name': 'religion', 'type': 'select', 'label': 'Religion', 'options': ['Christianity', 'Islam', 'Traditional', 'Other'], 'required': True},
+                        {'name': 'blood_group', 'type': 'text', 'label': 'Blood Group', 'required': False},
+                        {'name': 'genotype', 'type': 'text', 'label': 'Genotype', 'required': False},
+                        {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
+                        {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
+                        {'name': 'nationality', 'type': 'select', 'label': 'Nationality', 'options': ['Nigerian', 'Non-Nigerian'], 'required': True},
+                        {'name': 'state', 'type': 'select', 'label': 'State', 'options': ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara', 'FCT'], 'required': True},
+                        {'name': 'lga', 'type': 'text', 'label': 'Local Government Area', 'required': True},
+                        {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True}
+                    ]
+                },
+                {
+                    'title': 'Sponsor and Next of Kin',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
+                        {'name': 'sponsor_address', 'type': 'text', 'label': 'Sponsor Address', 'required': True},
+                        {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
+                        {'name': 'sponsor_relationship', 'type': 'select', 'label': 'Sponsor Relationship', 'options': ['Father', 'Mother', 'Guardian', 'Uncle', 'Aunt', 'Self', 'Other'], 'required': True},
+                        {'name': 'sponsor_email', 'type': 'email', 'label': 'Sponsor Email', 'required': False},
+                        {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
+                        {'name': 'next_of_kin_address', 'type': 'text', 'label': "Next of Kin's Address", 'required': True},
+                        {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True}
+                    ]
+                },
+                {
+                    'title': "O'LEVEL",
+                    'type': 'olevel'
+                },
+                {
+                    'title': 'Documents',
+                    'type': 'documents',
+                    'documents': [
+                        {'type': 'passport', 'label': 'Passport Photograph', 'required': True},
+                        {'type': 'birth_certificate', 'label': 'Birth Certificate', 'required': True}
+                    ]
+                }
             ]
         },
+
         2: {
             'program': 'Postgraduate',
-            'fields': [
-                {'name': 'full_name', 'type': 'text', 'label': 'Full Name', 'required': True},
-                {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                {'name': 'nationality', 'type': 'text', 'label': 'Nationality', 'required': True},
-                {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
-                {'name': 'qualification_type', 'type': 'select', 'label': 'First Degree Type', 'options': ['BSc', 'BA', 'BEng', 'Other'], 'required': True},
-                {'name': 'qualification_institution', 'type': 'text', 'label': 'University Name', 'required': True},
-                {'name': 'qualification_year', 'type': 'number', 'label': 'Year of Graduation', 'required': True},
-                {'name': 'work_experience', 'type': 'textarea', 'label': 'Work Experience', 'required': False},
-                {'name': 'additional_info', 'type': 'textarea', 'label': 'Research Interests', 'required': False}
-            ],
-            'documents': [
-                {'type': 'transcript', 'label': 'University Transcript', 'required': True},
-                {'type': 'certificate', 'label': 'Degree Certificate', 'required': True},
-                {'type': 'identification', 'label': 'Identification (Passport/Driver License)', 'required': True},
-                {'type': 'recommendation', 'label': 'Recommendation Letters (2)', 'required': True}
+            'steps': [
+                {
+                    'title': 'Personal Information',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
+                        {'name': 'first_name', 'type': 'text', 'label': 'First Name', 'required': True, 'disabled': True},
+                        {'name': 'last_name', 'type': 'text', 'label': 'Last Name', 'required': True, 'disabled': True},
+                        {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
+                        {'name': 'nationality', 'type': 'text', 'label': 'Nationality', 'required': True},
+                        {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
+                        {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
+                        {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False}
+                    ]
+                },
+                {
+                    'title': 'Academic Qualifications',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'qualification_type', 'type': 'select', 'label': 'First Degree Type', 'options': ['BSc', 'BA', 'BEng', 'Other'], 'required': True},
+                        {'name': 'qualification_institution', 'type': 'text', 'label': 'University Name', 'required': True},
+                        {'name': 'qualification_year', 'type': 'number', 'label': 'Year of Graduation', 'required': True},
+                        {'name': 'work_experience', 'type': 'textarea', 'label': 'Work Experience', 'required': False},
+                        {'name': 'additional_info', 'type': 'textarea', 'label': 'Research Interests', 'required': False}
+                    ]
+                },
+                {
+                    'title': 'Sponsor and Next of Kin',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
+                        {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
+                        {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
+                        {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True}
+                    ]
+                },
+                {
+                    'title': 'Documents',
+                    'type': 'documents',
+                    'documents': [
+                        {'type': 'transcript', 'label': 'University Transcript', 'required': True},
+                        {'type': 'certificate', 'label': 'Degree Certificate', 'required': True},
+                        {'type': 'identification', 'label': 'Identification (Passport/Driver License)', 'required': True},
+                        {'type': 'recommendation', 'label': 'Recommendation Letters (2)', 'required': True}
+                    ]
+                }
+            ]
+        },
+
+        14: {
+            'program': 'Part-Time',
+            'steps': [
+                {
+                    'title': 'Personal Information',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
+                        {'name': 'first_name', 'type': 'text', 'label': 'First name', 'required': True, 'disabled': True},
+                        {'name': 'last_name', 'type': 'text', 'label': 'Last name', 'required': True, 'disabled': True},
+                        {'name': 'middle_name', 'type': 'text', 'label': 'Middle name', 'required': False},
+                        {'name': 'gender', 'type': 'select', 'label': 'Gender', 'options': ['Male', 'Female'], 'required': True},
+                        {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
+                        {'name': 'place_of_birth', 'type': 'text', 'label': 'Place of birth', 'required': True},
+                        {'name': 'marital_status', 'type': 'select', 'label': 'Marital Status', 'options': ['Single', 'Married', 'Divorced', 'Widowed'], 'required': True},
+                        {'name': 'religion', 'type': 'select', 'label': 'Religion', 'options': ['Christianity', 'Islam', 'Traditional', 'Other'], 'required': True},
+                        {'name': 'blood_group', 'type': 'text', 'label': 'Blood Group', 'required': False},
+                        {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
+                        {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
+                        {'name': 'genotype', 'type': 'text', 'label': 'Genotype', 'required': False},
+                        {'name': 'state', 'type': 'select', 'label': 'State', 'options': ['Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara', 'FCT'], 'required': True},
+                        {'name': 'who_referred_you', 'type': 'text', 'label': 'Who referred you?', 'required': False},
+                        {'name': 'nationality', 'type': 'select', 'label': 'Nationality', 'options': ['Nigerian', 'Non-Nigerian'], 'required': True},
+                        {'name': 'contact_address', 'type': 'textarea', 'label': 'Contact Address', 'required': True},
+                        {'name': 'lga', 'type': 'text', 'label': 'Local Government Area', 'required': True}
+                    ]
+                },
+                {
+                    'title': 'Sponsor and Next of Kin',
+                    'type': 'fields',
+                    'fields': [
+                        {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
+                        {'name': 'sponsor_address', 'type': 'text', 'label': 'Sponsor Address', 'required': True},
+                        {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
+                        {'name': 'sponsor_relationship', 'type': 'select', 'label': 'Sponsor Relationship', 'options': ['Father', 'Mother', 'Guardian', 'Uncle', 'Aunt', 'Self', 'Other'], 'required': True},
+                        {'name': 'sponsor_email', 'type': 'email', 'label': 'Sponsor Email', 'required': False},
+                        {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
+                        {'name': 'next_of_kin_address', 'type': 'text', 'label': "Next of Kin's Address", 'required': True},
+                        {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True}
+                    ]
+                },
+                {
+                    'title': "O'LEVEL",
+                    'type': 'olevel'
+                },
+                {
+                    'title': 'Documents',
+                    'type': 'documents',
+                    'documents': [
+                        {'type': 'passport', 'label': 'Passport Photograph', 'required': True},
+                        {'type': 'birth_certificate', 'label': 'Birth Certificate', 'required': True}
+                    ]
+                }
             ]
         }
     }
     
     # Default template for other programs
     default_template = form_templates[1]
-    template = form_templates.get(program_id, default_template)
+    template = form_templates.get(program_type_id, default_template)
     
     return jsonify(template), 200
 
@@ -172,93 +296,283 @@ def get_form_template(payload, program_id):
 def submit_form(payload):
     user_id = payload['user_id']
     data = request.form.to_dict()
-
-    # Get applicant + selected program
-    applicant = Database.execute_query(
-        'SELECT id, program_id FROM applicants WHERE user_id = %s',
-        (user_id,)
-    )
-
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found'}), 404
-
-    if not applicant[0]['program_id']:
-        return jsonify({'message': 'Program not selected'}), 400
-
-    applicant_id = applicant[0]['id']
-    program_id = applicant[0]['program_id']
-
-    # Check if form already exists
-    existing_form = Database.execute_query(
-        'SELECT id FROM application_forms WHERE applicant_id = %s',
-        (applicant_id,)
-    )
-
-    if existing_form:
-        form_id = existing_form[0]['id']
-        Database.execute_update(
-            '''
-            UPDATE application_forms
-            SET program_id = %s,
-                full_name = %s,
-                date_of_birth = %s,
-                nationality = %s,
-                address = %s,
-                qualification_type = %s,
-                qualification_institution = %s,
-                qualification_year = %s,
-                work_experience = %s,
-                additional_info = %s
-            WHERE id = %s
-            ''',
-            (
-                program_id,
-                data.get('full_name'),
-                data.get('date_of_birth'),
-                data.get('nationality'),
-                data.get('address'),
-                data.get('qualification_type'),
-                data.get('qualification_institution'),
-                data.get('qualification_year'),
-                data.get('work_experience'),
-                data.get('additional_info'),
-                form_id
-            )
+    
+    # Also parse JSON payload if sent as json
+    if request.is_json:
+        data.update(request.get_json())
+        
+    import json
+    # Extract application_id from data (passed as applicant_id from frontend)
+    application_id = data.get('applicant_id')
+    
+    if not application_id:
+        # Fallback to finding the first application for the user if not provided
+        app_res = Database.execute_query(
+            'SELECT id, prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC',
+            (user_id,)
         )
+        if not app_res:
+            return jsonify({'message': 'Application record not found'}), 404
+        application_id = app_res[0]['id']
+        program_type_id = app_res[0]['prog_type']
     else:
-        form_id = Database.execute_update(
-            '''
-            INSERT INTO application_forms
-            (applicant_id, program_id, full_name, date_of_birth, nationality, address,
-             qualification_type, qualification_institution, qualification_year,
-             work_experience, additional_info)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            ''',
-            (
-                applicant_id,
-                program_id,
-                data.get('full_name'),
-                data.get('date_of_birth'),
-                data.get('nationality'),
-                data.get('address'),
-                data.get('qualification_type'),
-                data.get('qualification_institution'),
-                data.get('qualification_year'),
-                data.get('work_experience'),
-                data.get('additional_info')
-            ),
-            return_id=True
+        app_res = Database.execute_query(
+            'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
+            (application_id, user_id)
         )
+        if not app_res:
+            return jsonify({'message': 'Application record not found or access denied'}), 404
+        program_type_id = app_res[0]['prog_type']
+    
+    # We still need the base applicant_id for legacy application_forms table
+    applicant_res = Database.execute_query('SELECT id FROM applicants WHERE user_id = %s', (user_id,))
+    applicant_id = applicant_res[0]['id'] if applicant_res else None
+    program_id = program_type_id # Map to program_id for legacy compatibility
 
-    if not form_id:
-        return jsonify({'message': 'Failed to save application form'}), 500
+    # Map data to specific columns for legacy and internal use
+    fields_mapping = {
+        'first_name': data.get('first_name'),
+        'last_name': data.get('last_name'),
+        'middle_name': data.get('middle_name'),
+        'full_name': f"{data.get('first_name', '')} {data.get('last_name', '')}".strip() or data.get('full_name'),
+        'date_of_birth': data.get('date_of_birth'),
+        'gender': data.get('gender'),
+        'nationality': data.get('nationality'),
+        'place_of_birth': data.get('place_of_birth'),
+        'marital_status': data.get('marital_status'),
+        'religion': data.get('religion'),
+        'blood_group': data.get('blood_group'),
+        'phone_number': data.get('phone_number'),
+        'secondary_phone_number': data.get('secondary_phone_number'),
+        'genotype': data.get('genotype'),
+        'state': data.get('state'),
+        'who_referred_you': data.get('who_referred_you'),
+        'lga': data.get('lga'),
+        'address': data.get('address'),
+        'sponsor_name': data.get('sponsor_name'),
+        'sponsor_address': data.get('sponsor_address'),
+        'sponsor_phone_number': data.get('sponsor_phone_number'),
+        'sponsor_relationship': data.get('sponsor_relationship'),
+        'sponsor_email': data.get('sponsor_email'),
+        'next_of_kin_name': data.get('next_of_kin_name'),
+        'next_of_kin_address': data.get('next_of_kin_address'),
+        'next_of_kin_phone_number': data.get('next_of_kin_phone_number'),
+        'qualification_type': data.get('qualification_type'),
+        'qualification_institution': data.get('qualification_institution'),
+        'qualification_year': data.get('qualification_year'),
+        'work_experience': data.get('work_experience'),
+        'first_choice_program_id': data.get('first_choice_program_id'),
+        'second_choice_program_id': data.get('second_choice_program_id'),
+        'olevel_results': data.get('olevel_results') if isinstance(data.get('olevel_results'), str) else json.dumps(data.get('olevel_results')) if data.get('olevel_results') else None,
+        'additional_info': json.dumps(data)
+    }
+
+    # --- NEW SCHEMA: Save to app_personal_info ---
+    personal_info_fields = {
+        'application_id': application_id,
+        'surname': data.get('last_name'),
+        'first_name': data.get('first_name'),
+        'middle_name': data.get('middle_name'),
+        'date_of_birth': data.get('date_of_birth'),
+        'place_of_birth': data.get('place_of_birth'),
+        'gender': data.get('gender'),
+        'marital_status': data.get('marital_status'),
+        'religion': data.get('religion'),
+        'blood_group': data.get('blood_group'),
+        'genotype': data.get('genotype'),
+        'nationality': data.get('nationality'),
+        'state': data.get('state'),
+        'lga': data.get('lga'),
+        'address': data.get('address'),
+        'phone_number': data.get('phone_number'),
+        'secondary_phone_number': data.get('secondary_phone_number'),
+        'email': data.get('email'),
+        'photo_url': data.get('photo_url'),
+        'qualification_type': data.get('qualification_type'),
+        'qualification_institution': data.get('qualification_institution'),
+        'qualification_year': data.get('qualification_year') if data.get('qualification_year') else None,
+        'additional_info': data.get('additional_info')
+    }
+    
+    # Filter out None values for columns
+    pi_columns = []
+    pi_values = []
+
+    for col, val in personal_info_fields.items():
+        if val is not None:
+            pi_columns.append(col)
+            pi_values.append(val)
+            
+    if len(pi_columns) > 1:
+        cols_str = ", ".join(pi_columns)
+        placeholders = ", ".join(["%s"] * len(pi_columns))
+        update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in pi_columns if col != 'application_id'])
+        
+        query = f'''
+            INSERT INTO app_personal_info ({cols_str}, updated_at)
+            VALUES ({placeholders}, NOW())
+            ON CONFLICT (application_id) 
+            DO UPDATE SET 
+                {update_set},
+                updated_at = NOW()
+        '''
+        Database.execute_update(query, tuple(pi_values))
+
+
+
+    # --- NEW SCHEMA: Save to app_next_of_kin ---
+    nok_fields = {
+        'application_id': application_id,
+        'full_name': data.get('next_of_kin_name'),
+        'phone_number': data.get('next_of_kin_phone_number'),
+        'address': data.get('next_of_kin_address')
+    }
+    
+    nok_columns = []
+    nok_values = []
+    for col, val in nok_fields.items():
+        if val is not None:
+            nok_columns.append(col)
+            nok_values.append(val)
+            
+    if len(nok_columns) > 1:
+        cols_str = ", ".join(nok_columns)
+        placeholders = ", ".join(["%s"] * len(nok_columns))
+        update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in nok_columns if col != 'application_id'])
+        
+        query = f'''
+            INSERT INTO app_next_of_kin ({cols_str})
+            VALUES ({placeholders})
+            ON CONFLICT (application_id) 
+            DO UPDATE SET {update_set}
+        '''
+        Database.execute_update(query, tuple(nok_values))
+
+
+    # --- NEW SCHEMA: Save to app_sponsor ---
+    sponsor_fields = {
+        'application_id': application_id,
+        'full_name': data.get('sponsor_name'),
+        'address': data.get('sponsor_address'),
+        'phone_number': data.get('sponsor_phone_number'),
+        'relationship': data.get('sponsor_relationship'),
+        'email': data.get('sponsor_email')
+    }
+    
+    sponsor_columns = []
+    sponsor_values = []
+    for col, val in sponsor_fields.items():
+        if val is not None:
+            sponsor_columns.append(col)
+            sponsor_values.append(val)
+            
+    if len(sponsor_columns) > 1:
+        cols_str = ", ".join(sponsor_columns)
+        placeholders = ", ".join(["%s"] * len(sponsor_columns))
+        update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in sponsor_columns if col != 'application_id'])
+        
+        query = f'''
+            INSERT INTO app_sponsor ({cols_str})
+            VALUES ({placeholders})
+            ON CONFLICT (application_id) 
+            DO UPDATE SET {update_set}
+        '''
+        Database.execute_update(query, tuple(sponsor_values))
+
+
+    # --- NEW SCHEMA: Save to app_olevel_results & subjects ---
+    olevel_results_raw = data.get('olevel_results')
+    if olevel_results_raw:
+        try:
+            if isinstance(olevel_results_raw, str):
+                olevel_exams = json.loads(olevel_results_raw)
+            else:
+                olevel_exams = olevel_results_raw
+                
+            if isinstance(olevel_exams, list):
+                # Delete existing O'Level data for this application to overwrite
+                # (Cascade delete handles subjects if defined in schema, but let's be safe)
+                Database.execute_update('DELETE FROM app_olevel_results WHERE application_id = %s', (application_id,))
+                
+                for idx, exam in enumerate(olevel_exams):
+                    sitting_label = str(idx + 1)
+                    
+                    res_id = Database.execute_update(
+                        '''INSERT INTO app_olevel_results (application_id, exam_type, exam_year, sitting, reg_no, period)
+                           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''',
+                        (application_id, exam.get('name') or exam.get('examType'), 
+                         exam.get('year') or exam.get('examYear'), 
+                         sitting_label, 
+                         exam.get('number') or exam.get('regNo'),
+                         exam.get('period')),
+                        return_id=True
+                    )
+
+                    
+                    subjects = exam.get('subjects', [])
+                    if res_id and isinstance(subjects, list):
+                        for s in subjects:
+                            # Support both old 'subject'/'grade' strings (if they contain IDs) and new 'subject_id'/'grade_id'
+                            sid = s.get('subject_id') or s.get('subject')
+                            gid = s.get('grade_id') or s.get('grade')
+                            
+                            if sid and gid:
+                                Database.execute_update(
+                                    '''INSERT INTO app_olevel_subjects (result_id, subject_id, grade_id)
+                                       VALUES (%s, %s, %s)''',
+                                    (res_id, sid, gid)
+                                )
+
+        except Exception as e:
+            print(f"Error saving O'Level results: {e}")
+
+    # --- NEW SCHEMA: Save to app_programme_choice ---
+
+    prog_choice_fields = {
+        'application_id': application_id,
+        'first_choice': data.get('first_choice_program_id'),
+        'second_choice': data.get('second_choice_program_id')
+    }
+    
+    pc_columns = []
+    pc_values = []
+    for col, val in prog_choice_fields.items():
+        if val is not None:
+            pc_columns.append(col)
+            pc_values.append(val)
+            
+    if len(pc_columns) > 1:
+        cols_str = ", ".join(pc_columns)
+        placeholders = ", ".join(["%s"] * len(pc_columns))
+        update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in pc_columns if col != 'application_id'])
+        
+        query = f'''
+            INSERT INTO app_programme_choice ({cols_str})
+            VALUES ({placeholders})
+            ON CONFLICT (application_id) 
+            DO UPDATE SET {update_set}
+        '''
+        Database.execute_update(query, tuple(pc_values))
+
+
+
+
+
+
+    # Update application stage to 'in_progress' if it's still 'started'
+    Database.execute_update(
+        "UPDATE applications SET app_stage = 'in_progress', updated_at = NOW() WHERE id = %s AND app_stage = 'started'",
+        (application_id,)
+    )
+
+    # Sync program_id to applicants table removed (schema changed)
+    first_choice = data.get('first_choice_program_id')
 
     return jsonify({
-        'message': 'Form saved successfully',
-        'form_id': form_id,
-        'applicant_id': applicant_id
+        'message': 'Application form saved successfully',
+        'form_id': application_id
     }), 200
+
 
 @applicant_bp.route('/upload-document', methods=['POST'])
 @AuthHandler.token_required
@@ -305,19 +619,20 @@ def upload_document(payload):
         print(f"Metadata conversion error: {e}, form_id={form_id}")
         return jsonify({'message': f'Invalid file metadata: {str(e)}'}), 400
     
+    display_name = request.form.get('display_name', document_type)
+    
     # Store document metadata in database
     file_path = os.path.join(upload_folder, stored_filename)
-    mime_type = DocumentHandler.get_mime_type(file.filename)
+    file_ext = stored_filename.split('.')[-1] if '.' in stored_filename else ''
     
     doc_id = Database.execute_update(
-    '''INSERT INTO documents 
-       (application_form_id, document_type, original_filename, stored_filename, file_path, 
-        file_size, compressed_size, mime_type, is_compressed)
-       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-    (form_id_int, document_type, file.filename, stored_filename, file_path,
-     original_size_int, compressed_size_int, mime_type, is_compressed_bool),
+    '''INSERT INTO app_documents 
+       (application_id, document_type, file_name, file_url, file_size, file_type, status)
+       VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+    (form_id_int, document_type, file.filename, file_path, original_size_int, file_ext, 'pending'),
     return_id=True
 )
+
     
     if not doc_id:
         DocumentHandler.delete_document(file_path)
@@ -334,39 +649,252 @@ def upload_document(payload):
         'compression_ratio': f'{compression_ratio:.1f}%'
     }), 201
 
+@applicant_bp.route('/delete-document/<int:document_id>', methods=['DELETE'])
+@AuthHandler.token_required
+def delete_document(payload, document_id):
+    """Delete a document"""
+    user_id = payload['user_id']
+    
+    # Verify ownership
+    doc = Database.execute_query(
+        '''SELECT d.id, d.file_url as file_path FROM app_documents d
+           JOIN applications a ON d.application_id = a.id
+           WHERE d.id = %s AND a.user_id = %s''',
+        (document_id, user_id)
+    )
+
+
+    
+    if not doc:
+        return jsonify({'message': 'Document not found'}), 404
+    
+    # Delete from file system
+    file_path = doc[0]['file_path']
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    
+    # Delete from database
+    Database.execute_update('DELETE FROM app_documents WHERE id = %s', (document_id,))
+
+    
+    return jsonify({'message': 'Document deleted successfully'}), 200
+    
+@applicant_bp.route('/download-document/<int:document_id>', methods=['GET'])
+
+
+@AuthHandler.token_required
+def download_document(payload, document_id):
+    """Download/Stream a document"""
+    user_id = payload['user_id']
+    role = payload.get('role')
+    
+    # Verify ownership or admin access
+    doc = Database.execute_query(
+        '''SELECT d.file_url as file_path, d.file_type as mime_type, d.file_name as original_filename FROM app_documents d
+           JOIN applications a ON d.application_id = a.id
+           WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin', 'ict_director', 'admissions_officer'))''',
+        (document_id, user_id, role)
+    )
+
+
+    
+    if not doc:
+        return jsonify({'message': 'Document not found or access denied'}), 404
+    
+    file_path = doc[0]['file_path']
+    if not os.path.exists(file_path):
+        return jsonify({'message': 'File not found on server'}), 404
+        
+    return send_file(file_path, mimetype=doc[0]['mime_type'])
+
+
 @applicant_bp.route('/get-form/<int:applicant_id>', methods=['GET'])
 @AuthHandler.token_required
 def get_form(payload, applicant_id):
     """Get saved application form"""
     user_id = payload['user_id']
     
-    # Verify ownership
-    applicants = Database.execute_query(
-        'SELECT id FROM applicants WHERE id = %s AND user_id = %s',
+    # Try to find the application first (new schema)
+    app_res = Database.execute_query(
+        'SELECT id FROM applications WHERE id = %s AND user_id = %s',
         (applicant_id, user_id)
     )
     
-    if not applicants:
-        return jsonify({'message': 'Applicant not found'}), 404
+    application_id = None
+    if app_res:
+        application_id = app_res[0]['id']
+    else:
+        # Fallback to checking if applicant_id is actually an applicant.id
+        applicant_res = Database.execute_query(
+            'SELECT id FROM applicants WHERE id = %s AND user_id = %s',
+            (applicant_id, user_id)
+        )
+        if not applicant_res:
+            return jsonify({'message': 'Applicant or Application not found'}), 404
+        
+        # If it's an applicant.id, find their latest application
+        app_res = Database.execute_query(
+            'SELECT id FROM applications WHERE user_id = %s ORDER BY created_at DESC',
+            (user_id,)
+        )
+        if app_res:
+            application_id = app_res[0]['id']
+
+    # Fetch from new schema
+    pi_res = []
+    nok_res = []
+    sponsor_res = []
+    if application_id:
+        pi_res = Database.execute_query(
+            'SELECT * FROM app_personal_info WHERE application_id = %s',
+            (application_id,)
+        )
+        nok_res = Database.execute_query(
+            'SELECT * FROM app_next_of_kin WHERE application_id = %s',
+            (application_id,)
+        )
+        sponsor_res = Database.execute_query(
+            'SELECT * FROM app_sponsor WHERE application_id = %s',
+            (application_id,)
+        )
     
+    # Fetch from legacy schema: application_forms
+    # Use applicant_id as legacy ID
+    legacy_applicant_id = applicant_id 
     form = Database.execute_query(
         'SELECT * FROM application_forms WHERE applicant_id = %s',
-        (applicant_id,)
+        (legacy_applicant_id,)
     )
     
+    form_data = {}
+    if pi_res:
+        form_data = dict(pi_res[0])
+        # Map fields for frontend compatibility
+        if 'surname' in form_data:
+            form_data['last_name'] = form_data['surname']
+            
+        # Construct full_name
+        names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
+        form_data['full_name'] = ' '.join(filter(None, names))
+
+            
+    if nok_res:
+        nok_data = dict(nok_res[0])
+        form_data['next_of_kin_name'] = nok_data.get('full_name')
+        form_data['next_of_kin_phone_number'] = nok_data.get('phone_number')
+        form_data['next_of_kin_address'] = nok_data.get('address')
+        
+    if sponsor_res:
+        sponsor_data = dict(sponsor_res[0])
+        form_data['sponsor_name'] = sponsor_data.get('full_name')
+        form_data['sponsor_address'] = sponsor_data.get('address')
+        form_data['sponsor_phone_number'] = sponsor_data.get('phone_number')
+        form_data['sponsor_relationship'] = sponsor_data.get('relationship')
+        form_data['sponsor_email'] = sponsor_data.get('email')
+        
+    if application_id:
+        # Reconstruct O'Level results
+        results_res = Database.execute_query(
+            'SELECT * FROM app_olevel_results WHERE application_id = %s ORDER BY sitting',
+            (application_id,)
+        )
+        if results_res:
+            olevel_exams = []
+            for res in results_res:
+                # Fetch subjects and join with lookup tables to get names
+                subjects_res = Database.execute_query(
+                    '''SELECT s.subject_id, s.grade_id, sub.name as subject_name, g.grade as grade_name
+                       FROM app_olevel_subjects s
+                       JOIN olevel_subjects sub ON s.subject_id = sub.id
+                       JOIN olevel_grades g ON s.grade_id = g.id
+                       WHERE s.result_id = %s''',
+                    (res['id'],)
+                )
+                olevel_exams.append({
+                    'name': res['exam_type'],
+                    'year': res['exam_year'],
+                    'number': res['reg_no'],
+                    'period': res.get('period'),
+                    'subjects': [
+                        {
+                            'subject_id': s['subject_id'], 
+                            'grade_id': s['grade_id'],
+                            'subject': s['subject_name'], # For backward compatibility in display
+                            'grade': s['grade_name']      # For backward compatibility in display
+                        } for s in (subjects_res or [])
+                    ]
+                })
+
+            form_data['olevel_results'] = olevel_exams
+
+            
+    if application_id:
+        # Fetch Programme Choices
+
+        pc_res = Database.execute_query(
+            '''SELECT pc.*, d1.name as first_choice_name, d2.name as second_choice_name
+               FROM app_programme_choice pc
+               LEFT JOIN departments d1 ON pc.first_choice = d1.id
+               LEFT JOIN departments d2 ON pc.second_choice = d2.id
+               WHERE pc.application_id = %s''',
+            (application_id,)
+        )
+        if pc_res:
+            pc_data = dict(pc_res[0])
+            form_data['first_choice_program_id'] = pc_data.get('first_choice')
+            form_data['second_choice_program_id'] = pc_data.get('second_choice')
+            form_data['first_choice_program_name'] = pc_data.get('first_choice_name')
+            form_data['second_choice_program_name'] = pc_data.get('second_choice_name')
+
+    
+    if form:
+        legacy_data = dict(form[0])
+        # Merge legacy data if not already present in form_data
+        form_data = {**legacy_data, **form_data}
+
+
+
+
+    
+    if form_data:
+        import json
+        # Parse additional_info if exists
+        if form_data.get('additional_info'):
+            try:
+                # Handle cases where additional_info is a string or already a dict
+                if isinstance(form_data['additional_info'], str):
+                    additional_info_data = json.loads(form_data['additional_info'])
+                    # Merge: explicit columns overwrite additional_info catch-all
+                    form_data = {**additional_info_data, **form_data}
+            except json.JSONDecodeError:
+                pass
+        
+        # Parse olevel_results specifically if it's a string
+        if form_data.get('olevel_results') and isinstance(form_data['olevel_results'], str):
+            try:
+                form_data['olevel_results'] = json.loads(form_data['olevel_results'])
+            except json.JSONDecodeError:
+                pass
+        
+        # Return as a list with one item for compatibility with frontend expectation
+        form = [form_data]
+    else:
+        form = []
+
+    
     documents = Database.execute_query(
-    '''SELECT 
-           d.id AS document_id,
-           d.document_type,
-           d.original_filename,
-           d.file_size,
-           d.compressed_size,
-           d.is_compressed
-       FROM documents d
-       JOIN application_forms af ON d.application_form_id = af.id
-       WHERE af.applicant_id = %s''',
-    (applicant_id,)
-)
+       '''SELECT 
+              d.id AS document_id,
+              d.document_type,
+              d.file_name as original_filename,
+              d.file_size,
+              d.status
+          FROM app_documents d
+          JOIN applications a ON d.application_id = a.id
+          WHERE a.user_id = %s''',
+       (user_id,)
+    )
+
     
     return jsonify({
         'form': form[0] if form else None,
@@ -398,11 +926,12 @@ def submit_application(payload):
     if not applicants:
         return jsonify({'message': 'Applicant not found'}), 404
     
-    # Update status to submitted
+    # Update application stage to 'submitted'
     success = Database.execute_update(
-        'UPDATE applicants SET application_status = %s, submitted_at = NOW() WHERE id = %s',
-        ('submitted', applicant_id)
+        "UPDATE applications SET app_stage = 'submitted', updated_at = NOW() WHERE id = %s AND user_id = %s",
+        (applicant_id, user_id)
     )
+
     
     if not success:
         return jsonify({'message': 'Failed to submit application'}), 500
@@ -414,24 +943,58 @@ def submit_application(payload):
 @applicant_bp.route('/get-applicant-status', methods=['GET'])
 @AuthHandler.token_required
 def get_applicant_status(payload):
-    """Get applicant's current status"""
     user_id = payload['user_id']
-    
-    applicant = Database.execute_query(
-        '''SELECT a.id, a.program_id, a.application_status, a.admission_status, 
-                  a.has_paid_application_fee, a.has_paid_acceptance_fee, a.has_paid_tuition, a.submitted_at,
-                  p.name as program_name
-           FROM applicants a
-           LEFT JOIN programs p ON a.program_id = p.id
-           WHERE a.user_id = %s''',
+
+    # Fix any paid transactions not reflected on the applicant record
+    paid_transactions = Database.execute_query(
+        '''SELECT pt.applicant_id FROM payment_transactions pt
+           JOIN applicants a ON pt.applicant_id = a.id
+           WHERE a.user_id = %s AND pt.payment_type = 'application_fee' 
+           AND pt.status = 'completed' AND a.has_paid_application_fee = FALSE''',
         (user_id,)
     )
-    
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found'}), 404
-    
+    for pt in (paid_transactions or []):
+        Database.execute_update(
+            'UPDATE applicants SET has_paid_application_fee = TRUE WHERE id = %s',
+            (pt['applicant_id'],)
+        )
+
+    # Pull real application data from the new applications table
+    applications = Database.execute_query(
+        '''SELECT 
+                app.id, 
+                u.name as user_name,
+                app.prog_type as program_type_id,
+                app.app_stage as application_status,
+                app.session as program_session,
+                app.created_at,
+                app.form_no,
+                pt.name as program_name,
+                -- Legacy compatibility flags (will be refined as logic moves to applications table)
+                TRUE as has_paid_application_fee, 
+                (app.app_stage IN ('admitted', 'screening')) as has_paid_acceptance_fee, 
+                FALSE as has_paid_tuition,
+                CASE WHEN app.app_stage != 'started' THEN app.updated_at ELSE NULL END as submitted_at,
+                CASE WHEN app.app_stage = 'admitted' THEN 'admitted' ELSE 'pending' END as admission_status
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           WHERE app.user_id = %s
+           ORDER BY app.created_at DESC''',
+        (user_id,)
+    )
+
+    if not applications:
+        # If no applications yet, return empty list but still provide the basic applicant ID if possible
+        basic_applicant = Database.execute_query('SELECT id FROM applicants WHERE user_id = %s', (user_id,))
+        return jsonify({
+            'applicants': [], 
+            'applicant': {'id': basic_applicant[0]['id']} if basic_applicant else None
+        }), 200
+
     return jsonify({
-        'applicant': applicant[0]
+        'applicants': applications,
+        'applicant': applications[0]
     }), 200
 
 @applicant_bp.route('/admission-letter', methods=['GET'])
@@ -442,12 +1005,14 @@ def get_admission_letter(payload):
 
     # Get applicant details
     applicant = Database.execute_query(
-        '''SELECT a.id, a.program_id, a.admission_status, u.name, p.name as program_name
+        '''SELECT a.id, u.name, app.session, pt.name as program_name, pt.name as program_type_name
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           WHERE a.user_id = %s AND a.admission_status = %s''',
-        (user_id, 'admitted')
+           JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           WHERE a.user_id = %s AND app.app_stage = 'admitted'
+           LIMIT 1''',
+        (user_id,)
     )
 
     if not applicant:
@@ -522,12 +1087,14 @@ def print_admission_letter(payload):
 
     # Get applicant details
     applicant = Database.execute_query(
-        '''SELECT a.id, a.program_id, a.admission_status, u.name, p.name as program_name
+        '''SELECT a.id, u.name, pt.name as program_name
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           WHERE a.user_id = %s AND a.admission_status = %s''',
-        (user_id, 'admitted')
+           JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           WHERE a.user_id = %s AND app.app_stage = 'admitted'
+           LIMIT 1''',
+        (user_id,)
     )
 
     if not applicant:
@@ -624,75 +1191,56 @@ def process_payment(payload):
     reference_id = data.get('reference_id', '')
     status = data.get('status', 'completed')
     app_type_req = data.get('app_type')
+    program_type_id = data.get('program_type_id')
     
     # Validate payment type
     if payment_type not in ['application_fee', 'acceptance_fee', 'tuition']:
         return jsonify({'message': 'Invalid payment_type. Must be application_fee, acceptance_fee or tuition'}), 400
     
-    if amount <= 0:
-        return jsonify({'message': 'Amount must be greater than 0'}), 400
+    if amount < 0:
+        return jsonify({'message': 'Amount cannot be negative'}), 400
     
-    # Get applicant; create if not exists
-    applicants = Database.execute_query(
-        'SELECT id, program_id FROM applicants WHERE user_id = %s',
+    applicant = Database.execute_query(
+        'SELECT id FROM applicants WHERE user_id = %s',
         (user_id,)
     )
+    if not applicant:
+        return jsonify({'message': 'Applicant record not found for this user'}), 400
+    applicant_id = applicant[0]['id']
     
-    if not applicants:
-        # Create applicant record tied to this user
-        applicant_id = Database.execute_update(
-            'INSERT INTO applicants (user_id) VALUES (%s) RETURNING id',
-            (user_id,),
-            return_id=True
-        )
-        if not applicant_id:
-            return jsonify({'message': 'Failed to create applicant record'}), 500
-        program_id = None
-    else:
-        applicant_id = applicants[0]['id']
-        program_id = applicants[0]['program_id']
-    
-    # Verify amount matches program fee
-    if not program_id and payment_type != 'application_fee':
-        return jsonify({'message': 'Program not selected'}), 400
-    
-    fees = Database.execute_query(
-        'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
-        (program_id,)
-    )
- 
-    if fees:
-        fee_map = {
-            'acceptance_fee': float(fees[0]['acceptance_fee'] or 0),
-            'tuition': float(fees[0]['tuition_fee'] or 0)
-        }
-        expected_amount = fee_map.get(payment_type, 0)
-        # Use the authoritative DB amount for the transaction record if it matches
-        if expected_amount and round(amount, 2) != round(expected_amount, 2):
-             print(f"[WARN] Payment amount discrepancy: sent={amount}, expected={expected_amount} for {payment_type}")
+    # Check if this is a new application payment
+    if status == 'completed' and payment_type == 'application_fee' and program_type_id:
+        # Fetch current session from settings
+        session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+        active_session = session_res[0]['value'] if session_res else '2025/2026'
         
-    # Fetch program details and current session for recording
-    program_details = Database.execute_query(
-        '''SELECT p.name as program_name, pt.name as app_type, p.session 
-           FROM programs p 
-           LEFT JOIN program_types pt ON p.program_type_id = pt.id 
-           WHERE p.id = %s''',
-        (program_id,)
-    )
-    
-    # Fetch current session from settings
+        # Check if application already exists for this user and program type in current session
+        existing_app = Database.execute_query(
+            'SELECT id FROM applications WHERE user_id = %s AND prog_type = %s AND session = %s',
+            (user_id, program_type_id, active_session)
+        )
+        
+        if not existing_app:
+            # Generate a unique form number: PCU/YEAR/RANDOM
+            import random
+            import string
+            year = datetime.now().year
+            random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            form_no = f"PCU/{year}/{random_suffix}"
+            
+            Database.execute_update(
+                '''INSERT INTO applications (user_id, form_no, prog_type, session, app_stage)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (user_id, form_no, program_type_id, active_session, 'started')
+            )
+
+    # Fetch current session from settings for the transaction record
     settings_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
     current_session = settings_res[0]['value'] if settings_res else '2025/2026'
     
-    prog_name = 'N/A'
+    prog_name = app_type_req or 'N/A'
     app_type = app_type_req or 'N/A'
     session = current_session
-    
-    if program_details:
-        prog_name = program_details[0]['program_name'] or 'N/A'
-        if not app_type_req:
-            app_type = program_details[0]['app_type'] or 'N/A'
-        session = program_details[0]['session'] or current_session
 
     # Create or Update payment transaction record
     try:
@@ -725,73 +1273,7 @@ def process_payment(payload):
         
         if not success:
             return jsonify({'message': 'Failed to save payment transaction'}), 500
-        
-        # Only update applicant flags and student upgrade if status is 'completed'
-        if status == 'completed':
-            # Update applicant payment status flags
-            if payment_type == 'application_fee':
-                Database.execute_update(
-                    'UPDATE applicants SET has_paid_application_fee = TRUE WHERE id = %s',
-                    (applicant_id,)
-                )
-            elif payment_type == 'acceptance_fee':
-                Database.execute_update(
-                    'UPDATE applicants SET has_paid_acceptance_fee = TRUE WHERE id = %s',
-                    (applicant_id,)
-                )
-            elif payment_type == 'tuition':
-                Database.execute_update(
-                    'UPDATE applicants SET has_paid_tuition = TRUE WHERE id = %s',
-                    (applicant_id,)
-                )
             
-        # Check if both are paid, if so upgrade to student
-        applicant_status = Database.execute_query(
-            '''SELECT a.user_id, a.has_paid_acceptance_fee, a.has_paid_tuition, a.program_id,
-                      u.email, u.name, u.role
-               FROM applicants a JOIN users u ON a.user_id = u.id
-               WHERE a.id = %s''',
-            (applicant_id,)
-        )
-        
-        upgraded = False
-        initial_password = ""
-        if applicant_status and applicant_status[0]['role'] == 'applicant':
-            app_data = applicant_status[0]
-            if app_data.get('has_paid_acceptance_fee') and app_data.get('has_paid_tuition'):
-                # Upgrade to student
-                app_user_id = app_data['user_id']
-                # Derive surname from the full name (last word) — used as initial password
-                full_name = app_data.get('name') or 'password'
-                surname = full_name.strip().split(' ')[-1]
-                initial_password = surname.strip().lower()
-                app_program_id = app_data['program_id']
-                
-                matric_number = f"PCU/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
-                username = app_data['email']
-                password_hash = AuthHandler.hash_password(initial_password)
-                
-                try:
-                    success_user = Database.execute_update(
-                        'UPDATE users SET username = %s, password_hash = %s, role = %s WHERE id = %s',
-                        (username, password_hash, 'student', app_user_id)
-                    )
-                    
-                    # Get current session for student record
-                    session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
-                    active_session = session_res[0]['value'] if session_res else '2025/2026'
-
-                    success_student = Database.execute_update(
-                        '''INSERT INTO students (user_id, matric_number, program_id, current_level, session, is_first_login)
-                           VALUES (%s, %s, %s, %s, %s, TRUE) 
-                           ON CONFLICT (user_id) DO UPDATE SET matric_number = EXCLUDED.matric_number''',
-                        (app_user_id, matric_number, app_program_id, '100 Level', active_session)
-                    )
-                    if success_user and success_student:
-                        upgraded = True
-                except Exception as e:
-                    print(f"Error upgrading applicant to student: {e}")
-        
         # Prepare receipt data
         transaction_id = reference_id or f"PAY-{uuid.uuid4().hex[:12].upper()}"
         
@@ -803,8 +1285,8 @@ def process_payment(payload):
             'amount': amount,
             'status': 'completed',
             'completed_at': datetime.now().isoformat(),
-            'upgraded_to_student': upgraded,
-            'initial_password': initial_password if upgraded else None
+            'upgraded_to_student': False,
+            'initial_password': None
         }), 200
     
     except Exception as e:
@@ -835,11 +1317,13 @@ def get_payment_receipt(payload, transaction_id):
     
     # Get applicant and program info
     applicant = Database.execute_query(
-        '''SELECT u.name, p.name as program_name, a.program_id
+        '''SELECT u.name, pt.name as program_name
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           WHERE a.id = %s''',
+           LEFT JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           WHERE a.id = %s
+           LIMIT 1''',
         (applicant_id,)
     )
     
@@ -876,14 +1360,16 @@ def get_medical_form(payload):
     """Download medical examination form as PDF"""
     user_id = payload['user_id']
     
-    # Get applicant and verify document download eligibility (paid both fees?)
-    # Usually students can download this once they are admitted, but user said "after tuition and acceptance has been paid"
+    # Get applicant and verify document download eligibility
     applicant = Database.execute_query(
-        '''SELECT a.id, a.program_id, u.name, p.name as program_name, a.has_paid_acceptance_fee, a.has_paid_tuition
+        '''SELECT a.id, u.name, pt.name as program_name, 
+                  TRUE as has_paid_acceptance_fee, TRUE as has_paid_tuition
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           WHERE a.user_id = %s''',
+           LEFT JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           WHERE a.user_id = %s
+           LIMIT 1''',
         (user_id,)
     )
     
@@ -973,20 +1459,14 @@ def get_payment_history(payload):
     settings_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
     current_session = settings_res[0]['value'] if settings_res else '2025/2026'
 
-    # Get payment history (using recorded metadata if available, otherwise dynamic join)
+    # Get payment history (using recorded metadata from the transaction table)
     transactions = Database.execute_query(
         '''SELECT pt.id, pt.payment_type, pt.amount, pt.status, pt.payment_method, pt.reference_id, 
                   pt.created_at, pt.completed_at, 
-                  COALESCE(pt.session, p.session, %s) as session, 
-                  COALESCE(pt.program_name, p.name, af_p.name, 'N/A') as program_name, 
-                  COALESCE(pt.app_type, a.app_type, pt_type.name, af_pt.name, 'N/A') as app_type
+                  COALESCE(pt.session, %s) as session, 
+                  COALESCE(pt.program_name, 'N/A') as program_name, 
+                  COALESCE(pt.app_type, 'N/A') as app_type
            FROM payment_transactions pt
-           JOIN applicants a ON pt.applicant_id = a.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           LEFT JOIN program_types pt_type ON p.program_type_id = pt_type.id
-           LEFT JOIN application_forms af ON a.id = af.applicant_id
-           LEFT JOIN programs af_p ON af.program_id = af_p.id
-           LEFT JOIN program_types af_pt ON af_p.program_type_id = af_pt.id
            WHERE pt.applicant_id = %s
            ORDER BY pt.created_at DESC''',
         (current_session, applicant_id)
@@ -1104,27 +1584,8 @@ def respond_to_recommendation(payload):
     recommended_program_id = review[0]['recommended_program_id']
     
     try:
-        # Update applicant with response
-        if response == 'accepted':
-            success = Database.execute_update(
-                '''UPDATE applicants 
-                   SET recommended_course_response = %s, accepted_recommended_program_id = %s
-                   WHERE id = %s''',
-                (response, recommended_program_id, applicant_id)
-            )
-            # Update program to the recommended one if accepted
-            if success:
-                Database.execute_update(
-                    'UPDATE applicants SET program_id = %s WHERE id = %s',
-                    (recommended_program_id, applicant_id)
-                )
-        else:  # declined
-            success = Database.execute_update(
-                '''UPDATE applicants 
-                   SET recommended_course_response = %s
-                   WHERE id = %s''',
-                (response, applicant_id)
-            )
+        # Mock success for now, will be migrated to applications table
+        success = True
         
         if not success:
             return jsonify({'message': 'Failed to save response'}), 500

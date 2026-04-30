@@ -31,6 +31,7 @@ def signup():
         first_name = parts[0]
         last_name  = parts[1] if len(parts) > 1 else ''
     
+    middle_name = data.get('middle_name', '').strip()
     full_name = f"{first_name} {last_name}".strip()
 
     if not all(k in data for k in ['email', 'password', 'phone_number']):
@@ -65,8 +66,8 @@ def signup():
         return jsonify({'message': 'Failed to create account'}), 500
  
     Database.execute_update(
-        'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
-        (user_id, None)
+        'INSERT INTO applicants (user_id, first_name, last_name, middle_name, phone) VALUES (%s, %s, %s, %s, %s)',
+        (user_id, first_name, last_name, middle_name, data['phone_number'])
     )
     
     token = AuthHandler.generate_token(user_id, 'applicant')
@@ -80,6 +81,7 @@ def signup():
             'last_name': last_name,
             'name': full_name,
             'email': data['email'],
+            'phone_number': data['phone_number'],
             'role': 'applicant'
         }
     }), 201
@@ -94,7 +96,7 @@ def login():
     
     # Query user by email or username — new schema has no first_name/last_name
     users = Database.execute_query(
-        'SELECT id, name, email, username, password_hash, role, status FROM users WHERE email = %s OR username = %s',
+        'SELECT id, name, email, username, password_hash, role, status, phone_number FROM users WHERE email = %s OR username = %s',
         (data['email'], data['email'])
     )
     
@@ -120,11 +122,16 @@ def login():
     extra_data = {}
     if user['role'] == 'applicant':
         applicants = Database.execute_query(
-            'SELECT id, program_id, application_status, admission_status FROM applicants WHERE user_id = %s',
+            'SELECT id FROM applicants WHERE user_id = %s',
             (user['id'],)
         )
         if applicants:
             extra_data['applicant'] = applicants[0]
+            
+            # Pull academic session from system settings
+            session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+            if session_res:
+                extra_data['applicant']['session'] = session_res[0]['value']
             
     elif user['role'] == 'student':
         students = Database.execute_query(
@@ -146,6 +153,7 @@ def login():
             'first_name': first_name,
             'last_name': last_name,
             'email': user['email'],
+            'phone_number': user.get('phone_number'),
             'username': user.get('username'),
             'role': user['role']
         },
@@ -159,7 +167,7 @@ def verify_token(payload):
     user_id = payload['user_id']
     
     user = Database.execute_query(
-        'SELECT id, name, email, username, role FROM users WHERE id = %s',
+        'SELECT id, name, email, username, role, phone_number FROM users WHERE id = %s',
         (user_id,)
     )
     
@@ -176,11 +184,16 @@ def verify_token(payload):
     extra_data = {}
     if user_data['role'] == 'applicant':
         applicants = Database.execute_query(
-            'SELECT id, program_id, application_status, admission_status FROM applicants WHERE user_id = %s',
+            'SELECT id FROM applicants WHERE user_id = %s',
             (user_id,)
         )
         if applicants:
             extra_data['applicant'] = applicants[0]
+            
+            # Pull academic session from system settings
+            session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+            if session_res:
+                extra_data['applicant']['session'] = session_res[0]['value']
             
     elif user_data['role'] == 'student':
         students = Database.execute_query(
@@ -201,6 +214,7 @@ def verify_token(payload):
             'first_name': first_name,
             'last_name': last_name,
             'email': user_data['email'],
+            'phone_number': user_data.get('phone_number'),
             'username': user_data.get('username'),
             'role': user_data['role']
         },

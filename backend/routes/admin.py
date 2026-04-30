@@ -17,17 +17,18 @@ def get_applications(payload):
     program_id = request.args.get('program_id')
     
     query = '''SELECT a.id, a.user_id, u.name, u.email, u.phone_number, 
-                      a.program_id, p.name as program_name, a.application_status,
+                      app.prog_type as program_id, pt.name as program_name, a.application_status,
                       a.admission_status, a.submitted_at
                FROM applicants a
                JOIN users u ON a.user_id = u.id
-               LEFT JOIN programs p ON a.program_id = p.id
+               LEFT JOIN applications app ON a.user_id = app.user_id
+               LEFT JOIN program_types pt ON app.prog_type = pt.id
                WHERE a.application_status = %s'''
     
     params = [status]
     
     if program_id:
-        query += ' AND a.program_id = %s'
+        query += ' AND app.prog_type = %s'
         params.append(program_id)
     
     query += ' ORDER BY a.submitted_at DESC'
@@ -48,11 +49,12 @@ def get_application_details(payload, applicant_id):
     # Get applicant details
     applicant = Database.execute_query(
         '''SELECT a.id, a.user_id, u.name, u.email, u.phone_number,
-                  a.program_id, p.name as program_name, a.application_status,
+                  app.prog_type as program_id, pt.name as program_name, a.application_status,
                   a.admission_status, a.submitted_at
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
+           LEFT JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
            WHERE a.id = %s''',
         (applicant_id,)
     )
@@ -78,11 +80,11 @@ def get_application_details(payload, applicant_id):
     # Get review history
     reviews = Database.execute_query(
         '''SELECT ar.id, ar.reviewed_by, u.name as reviewed_by_name, ar.review_notes,
-                  ar.recommendation, ar.recommended_program_id, p.name as recommended_program,
+                  ar.recommendation, ar.recommended_program_id, pt.name as recommended_program,
                   ar.reviewed_at
            FROM application_reviews ar
            LEFT JOIN users u ON ar.reviewed_by = u.id
-           LEFT JOIN programs p ON ar.recommended_program_id = p.id
+           LEFT JOIN program_types pt ON ar.recommended_program_id = pt.id
            WHERE ar.applicant_id = %s
            ORDER BY ar.reviewed_at DESC''',
         (applicant_id,)
@@ -172,15 +174,13 @@ def send_admission_letter(payload):
     
     # Get applicant details with all program info
     applicant = Database.execute_query(
-        '''SELECT u.id, u.name, u.email, a.program_id, 
-           p.name as program_name, p.level, d.name as department, f.name as faculty, 
-           pt.name as mode, p.session, p.resumption_date
+        '''SELECT u.id, u.name, u.email, app.prog_type as program_id, 
+           pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty, 
+           pt.name as mode, app.session, 'TBD' as resumption_date
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           LEFT JOIN departments d ON p.department_id = d.id
-           LEFT JOIN faculties f ON d.faculty_id = f.id
-           LEFT JOIN program_types pt ON p.program_type_id = pt.id
+           LEFT JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
            WHERE a.id = %s AND a.application_status = %s''',
         (applicant_id, 'accepted')
     )
@@ -286,14 +286,12 @@ def preview_admission_letter(payload):
 
     # Get applicant details with all program info
     applicant = Database.execute_query(
-        '''SELECT u.id, u.name, u.email, a.program_id, p.name as program_name,
-           p.level, d.name as department, f.name as faculty, pt.name as mode, p.session, p.resumption_date
+        '''SELECT u.id, u.name, u.email, app.prog_type as program_id, pt.name as program_name,
+           '100 Level' as level, 'N/A' as department, 'N/A' as faculty, pt.name as mode, app.session, 'TBD' as resumption_date
            FROM applicants a
            JOIN users u ON a.user_id = u.id
-           LEFT JOIN programs p ON a.program_id = p.id
-           LEFT JOIN departments d ON p.department_id = d.id
-           LEFT JOIN faculties f ON d.faculty_id = f.id
-           LEFT JOIN program_types pt ON p.program_type_id = pt.id
+           LEFT JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
            WHERE a.id = %s AND a.application_status = %s''',
         (applicant_id, 'accepted')
     )
@@ -378,15 +376,13 @@ def send_batch_letters(payload):
             
             # Get applicant details
             applicant = Database.execute_query(
-                '''SELECT u.id, u.name, u.email, a.program_id, 
-                   p.name as program_name, p.level, d.name as department, f.name as faculty, 
-                   pt.name as mode, p.session, p.resumption_date
+                '''SELECT u.id, u.name, u.email, app.prog_type as program_id, 
+                   pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty, 
+                   pt.name as mode, app.session, 'TBD' as resumption_date
                    FROM applicants a
                    JOIN users u ON a.user_id = u.id
-                   LEFT JOIN programs p ON a.program_id = p.id
-                   LEFT JOIN departments d ON p.department_id = d.id
-                   LEFT JOIN faculties f ON d.faculty_id = f.id
-                   LEFT JOIN program_types pt ON p.program_type_id = pt.id
+                   LEFT JOIN applications app ON a.user_id = app.user_id
+                   LEFT JOIN program_types pt ON app.prog_type = pt.id
                    WHERE a.id = %s AND a.application_status = %s''',
                 (applicant_id, 'accepted')
             )
@@ -595,10 +591,11 @@ def get_statistics(payload):
     
 
     by_program = Database.execute_query(
-        '''SELECT p.name, COUNT(*) as count
+        '''SELECT pt.name, COUNT(*) as count
            FROM applicants a
-           LEFT JOIN programs p ON a.program_id = p.id
-           GROUP BY a.program_id, p.name'''
+           LEFT JOIN applications app ON a.user_id = app.user_id
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           GROUP BY app.prog_type, pt.name'''
     )
     stats['by_program'] = by_program or []
     
@@ -623,19 +620,13 @@ def get_letter_templates(payload):
 def get_faculty_departments(payload):
     """Get faculties and departments with pending applicants awaiting admission letters"""
     query = '''SELECT 
-                f.name as faculty,
-                d.name as department,
+                'N/A' as faculty,
+                'N/A' as department,
                 COUNT(a.id) as pending_count
-            FROM programs p
-            JOIN departments d ON p.department_id = d.id
-            JOIN faculties f ON d.faculty_id = f.id
-            JOIN applicants a ON p.id = a.program_id
-            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
+            FROM applicants a
             WHERE a.application_status = 'accepted'
-              AND (alt.status IS NULL OR alt.status = 'pending')
-            GROUP BY f.name, d.name
-            HAVING COUNT(a.id) > 0
-            ORDER BY f.name, d.name'''
+            GROUP BY faculty, department
+            ORDER BY faculty, department'''
     
     results = Database.execute_query(query)
     
@@ -658,16 +649,12 @@ def get_faculty_departments(payload):
 @AuthHandler.admissions_officer_required
 def get_department_applicants(payload, department_name):
     """Get pending applicants for a department awaiting admission letters"""
-    query = '''SELECT a.id, u.name, u.email, p.name as program_name, f.name as faculty, d.name as department
+    query = '''SELECT a.id, u.name, u.email, pt.name as program_name, 'N/A' as faculty, 'N/A' as department
             FROM applicants a
             JOIN users u ON a.user_id = u.id
-            JOIN programs p ON a.program_id = p.id
-            JOIN departments d ON p.department_id = d.id
-            JOIN faculties f ON d.faculty_id = f.id
-            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
-            WHERE d.name = %s
-              AND a.application_status = 'accepted'
-              AND (alt.status IS NULL OR alt.status = 'pending')
+            LEFT JOIN applications app ON a.user_id = app.user_id
+            LEFT JOIN program_types pt ON app.prog_type = pt.id
+            WHERE a.application_status = 'accepted'
             ORDER BY u.name ASC'''
     
     applicants = Database.execute_query(query, (department_name,))
@@ -713,15 +700,13 @@ def send_department_letters(payload):
                 ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
                 
                 applicant = Database.execute_query(
-                    '''SELECT u.id, u.name, u.email, a.program_id, 
-                       p.name as program_name, p.level, d.name as department, f.name as faculty, 
-                       pt.name as mode, p.session, p.resumption_date
+                    '''SELECT u.id, u.name, u.email, app.prog_type as program_id, 
+                       pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty, 
+                       pt.name as mode, app.session, 'TBD' as resumption_date
                        FROM applicants a
                        JOIN users u ON a.user_id = u.id
-                       LEFT JOIN programs p ON a.program_id = p.id
-                       LEFT JOIN departments d ON p.department_id = d.id
-                       LEFT JOIN faculties f ON d.faculty_id = f.id
-                       LEFT JOIN program_types pt ON p.program_type_id = pt.id
+                       LEFT JOIN applications app ON a.user_id = app.user_id
+                       LEFT JOIN program_types pt ON app.prog_type = pt.id
                        WHERE a.id = %s AND a.application_status = %s''',
                     (applicant_id, 'accepted')
                 )
@@ -1218,13 +1203,6 @@ def get_departments(payload):
         )
     return jsonify({'departments': departments or []}), 200
 
-@admin_bp.route('/program-types', methods=['GET'])
-@AuthHandler.token_required
-@AuthHandler.admissions_officer_required
-def get_program_types(payload):
-    """Get all program types (Undergraduate, Postgraduate, etc.)"""
-    types = Database.execute_query('SELECT * FROM program_types ORDER BY name')
-    return jsonify({'program_types': types or []}), 200
 
 
 @admin_bp.route('/program/<int:program_id>', methods=['PUT'])

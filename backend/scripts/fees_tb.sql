@@ -1,0 +1,611 @@
+-- ============================================================
+-- PRECIOUS CORNERSTONE UNIVERSITY, IBADAN
+-- Fee Schedule: 2025/2026 Academic Session
+-- ============================================================
+
+
+-- ============================================================
+-- 1. FEE COMPONENTS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS fee_components (
+    id          SERIAL       PRIMARY KEY,
+    name        VARCHAR(200) NOT NULL UNIQUE,
+    description TEXT,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO fee_components (name, description) VALUES
+    ('Tuition & Accommodation', 'Annual tuition and accommodation fees per student'),
+    ('Other Sundry Fees',       'Sundry/miscellaneous fees per annum'),
+    ('Digital Training',        'Digital Training for ALL STUDENTS by Google for Education')
+ON CONFLICT (name) DO NOTHING;
+
+
+-- ============================================================
+-- 2. INSTALLMENT PLANS  (A / B / C / D)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS installment_plans (
+    id           SERIAL        PRIMARY KEY,
+    label        CHAR(1)       NOT NULL UNIQUE,
+    name         VARCHAR(150)  NOT NULL,
+    percentage   NUMERIC(5,2)  NOT NULL,
+    due_trigger  VARCHAR(200)  NOT NULL,
+    created_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO installment_plans (label, name, percentage, due_trigger) VALUES
+    ('A', '1st Installment', 50.00, 'Payable before resumption for 1st Semester in October'),
+    ('B', '2nd Installment', 20.00, 'Payable before 1st Semester Exams'),
+    ('C', '3rd Installment', 20.00, 'Payable before resumption for 2nd Semester'),
+    ('D', '4th Installment', 10.00, 'Payable before 2nd Semester Exams')
+ON CONFLICT (label) DO NOTHING;
+
+
+-- ============================================================
+-- 3. PROGRAM FEES
+--    One row per: faculty × level × entry_mode × fee_component × session
+-- ============================================================
+CREATE TABLE IF NOT EXISTS program_fees (
+    id                   SERIAL         PRIMARY KEY,
+    program_type         VARCHAR(50)    NOT NULL,
+    fee_component_id     INTEGER        NOT NULL REFERENCES fee_components(id),
+    level                INTEGER        CHECK (level IN (100, 200, 300, 400)),
+    faculty_id           INTEGER        REFERENCES faculties(id),
+    amount               NUMERIC(12,2)  NOT NULL,
+    academic_session_id  INTEGER        NOT NULL REFERENCES academic_sessions(id),
+    entry_mode_id        INTEGER        REFERENCES entry_modes(id),
+    created_at           TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+
+    UNIQUE (program_type, fee_component_id, level, faculty_id, entry_mode_id, academic_session_id)
+);
+
+-- -------------------------------------------------------
+-INSERT INTO program_fees (faculty_id, level, entry_mode_id, fee_component_id, amount, academic_session_id, program_type)
+VALUES
+
+-- ===========================================================
+-- FACULTY OF PURE AND APPLIED SCIENCES
+-- ===========================================================
+
+-- 100L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),              517000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                    305000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'), 80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+-- 200L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),              517000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                    295000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'), 80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+-- 200L (Direct Entry)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),              517000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                    340000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'), 80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+
+-- 300L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),              517000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                    320000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'), 80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+-- 300L (Direct Entry)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),              517000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                    365000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'), 80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+
+-- 400L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),              517000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                    360000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'), 80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+
+-- ===========================================================
+-- FACULTY OF SOCIAL & MANAGEMENT SCIENCES
+-- ===========================================================
+
+INSERT INTO program_fees (faculty_id, level, entry_mode_id, fee_component_id, amount, academic_session_id, program_type)
+VALUES
+
+-- 100L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),               500000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                     272000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'),  80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+-- 200L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),               500000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                     262000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'),  80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+-- 200L (Direct Entry)
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),               500000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                     307000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'),  80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+
+-- 300L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),               500000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                     287000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'),  80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+
+-- 300L (Direct Entry)
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),               500000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                     332000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, (SELECT id FROM entry_modes WHERE name = 'Direct Entry'), (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'),  80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 6),
+
+-- 400L (UTME / standard)
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM fee_components WHERE name = 'Tuition & Accommodation'),               500000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM fee_components WHERE name = 'Other Sundry Fees'),                     327000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM fee_components WHERE name = 'Digital Training (Google for Education)'),  80000, (SELECT id FROM academic_sessions WHERE is_active = TRUE), 1)
+
+ON CONFLICT (program_type, fee_component_id, level, faculty_id, entry_mode_id, academic_session_id) DO NOTHING;
+
+
+-- ============================================================
+-- 4. FEE INSTALLMENTS
+--    Explicit installment amounts per faculty × level × entry_mode
+--    (Total = sum of all 3 components for that column)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS fee_installments (
+    id                  SERIAL         PRIMARY KEY,
+    faculty_id          INTEGER        NOT NULL REFERENCES faculties(id),
+    level               INTEGER        NOT NULL CHECK (level IN (100, 200, 300, 400)),
+    entry_mode_id       INTEGER        REFERENCES entry_modes(id),
+    installment_plan_id INTEGER        NOT NULL REFERENCES installment_plans(id),
+    amount              NUMERIC(12,2)  NOT NULL,
+    academic_session_id    VARCHAR(20)    NOT NULL DEFAULT (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1),
+    created_at          TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+    UNIQUE (faculty_id, level, entry_mode_id, installment_plan_id, academic_session_id)
+);
+
+INSERT INTO fee_installments
+    (faculty_id, level, entry_mode_id, installment_plan_id, amount, academic_session_id)
+VALUES
+
+-- ===========================================================
+-- FACULTY OF PURE AND APPLIED SCIENCES  (Total row values)
+-- ===========================================================
+--                                               Total:  902,000  892,000  937,000  917,000  962,000  957,000
+
+-- 100L  | A=451000  B=180400  C=180400  D=90200
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='A'), 451000, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='B'), 180400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='C'), 180400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='D'),  90200, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 200L standard | A=446000  B=178400  C=178400  D=89200
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='A'), 446000, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='B'), 178400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='C'), 178400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='D'),  89200, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 200L DE | A=468500  B=187400  C=187400  D=93700
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='A'), 468500, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='B'), 187400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='C'), 187400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='D'),  93700, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 300L standard | A=458500  B=183400  C=183400  D=91700
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='A'), 458500, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='B'), 183400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='C'), 183400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='D'),  91700, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 300L DE | A=481000  B=192400  C=192400  D=96200
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='A'), 481000, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='B'), 192400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='C'), 192400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='D'),  96200, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 400L | A=478500  B=191400  C=191400  D=95700
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='A'), 478500, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='B'), 191400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='C'), 191400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='D'),  95700, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+
+-- ===========================================================
+-- FACULTY OF SOCIAL & MANAGEMENT SCIENCES (Total row values)
+-- ===========================================================
+--                                               Total:  852,000  842,000  887,000  867,000  912,000  907,000
+
+-- 100L | A=426000  B=170400  C=170400  D=85200
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='A'), 426000, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='B'), 170400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='C'), 170400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 100, NULL, (SELECT id FROM installment_plans WHERE label='D'),  85200, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 200L standard | A=421000  B=168400  C=168400  D=84200
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='A'), 421000, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='B'), 168400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='C'), 168400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200, NULL, (SELECT id FROM installment_plans WHERE label='D'),  84200, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 200L DE | A=443500  B=177400  C=177400  D=88700
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='A'), 443500, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='B'), 177400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='C'), 177400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 200,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='D'),  88700, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 300L standard | A=433500  B=173400  C=173400  D=86700
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='A'), 433500, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='B'), 173400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='C'), 173400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300, NULL, (SELECT id FROM installment_plans WHERE label='D'),  86700, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 300L DE | A=456000  B=182400  C=182400  D=91200
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='A'), 456000, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='B'), 182400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='C'), 182400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 300,
+ (SELECT id FROM entry_modes WHERE name='Direct Entry'),
+ (SELECT id FROM installment_plans WHERE label='D'),  91200, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- 400L | A=453500  B=181400  C=181400  D=90700
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='A'), 453500, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='B'), 181400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='C'), 181400, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+((SELECT id FROM faculties WHERE name ILIKE '%Social%'), 400, NULL, (SELECT id FROM installment_plans WHERE label='D'),  90700, (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1))
+
+ON CONFLICT (faculty_id, level, entry_mode_id, installment_plan_id, academic_session_id) DO NOTHING;
+
+
+INSERT INTO program_fees (faculty_id, level, entry_mode_id, fee_component_id, amount, academic_session_id)
+VALUES
+
+-- Acceptance Fee — 100L (both faculties)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100,
+ (SELECT id FROM entry_modes WHERE name = 'UTME'),
+ (SELECT id FROM fee_components WHERE name = 'Acceptance Fee'), 40000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+((SELECT id FROM faculties WHERE name ILIKE '%Management%'), 100,
+ (SELECT id FROM entry_modes WHERE name = 'UTME'),
+ (SELECT id FROM fee_components WHERE name = 'Acceptance Fee'), 40000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- Acceptance Fee — 200L DE (both faculties)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Acceptance Fee'), 40000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+((SELECT id FROM faculties WHERE name ILIKE '%Management%'), 200,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Acceptance Fee'), 40000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- Acceptance Fee — 300L DE (both faculties)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Acceptance Fee'), 40000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+((SELECT id FROM faculties WHERE name ILIKE '%Management%'), 300,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Acceptance Fee'), 40000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- Application Form Fee — 100L (both faculties)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 100,
+ (SELECT id FROM entry_modes WHERE name = 'UTME'),
+ (SELECT id FROM fee_components WHERE name = 'Application Form Fee'), 10000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+((SELECT id FROM faculties WHERE name ILIKE '%Management%'), 100,
+ (SELECT id FROM entry_modes WHERE name = 'UTME'),
+ (SELECT id FROM fee_components WHERE name = 'Application Form Fee'), 10000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- Application Form Fee — 200L DE (both faculties)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 200,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Application Form Fee'), 10000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+((SELECT id FROM faculties WHERE name ILIKE '%Management%'), 200,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Application Form Fee'), 10000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+-- Application Form Fee — 300L DE (both faculties)
+((SELECT id FROM faculties WHERE name ILIKE '%Pure%Applied%'), 300,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Application Form Fee'), 10000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)),
+
+((SELECT id FROM faculties WHERE name ILIKE '%Management%'), 300,
+ (SELECT id FROM entry_modes WHERE name = 'Direct Entry'),
+ (SELECT id FROM fee_components WHERE name = 'Application Form Fee'), 10000,
+ (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1))
+
+ON CONFLICT (faculty_id, level, entry_mode_id, fee_component_id, academic_session_id) DO NOTHING;
+
+-- ============================================================
+-- 6. PAYMENT POLICIES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS payment_policies (
+    id                SERIAL         PRIMARY KEY,
+    academic_session_id  VARCHAR(20)    NOT NULL UNIQUE DEFAULT (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1),
+    payment_portal    VARCHAR(255),
+    penalty_amount    NUMERIC(12,2),
+    penalty_note      TEXT,
+    full_policy_text  TEXT,
+    created_at        TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO payment_policies
+    (academic_session_id, payment_portal, penalty_amount, penalty_note, full_policy_text)
+VALUES (
+    (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1),
+    'https://portal.pcu.edu.ng',
+    10000.00,
+    'All fees must be paid through the University payment portal. Violation attracts N10,000 penalty.',
+    '50% of Total fees must be paid before resumption in October; 20% must be paid before 1st Semester Exams; 20% must be paid before resumption for 2nd Semester; then the balance of 10% must be paid before 2nd Semester Exams.'
+)
+ON CONFLICT (academic_session_id) DO NOTHING;
+
+
+-- ============================================================
+-- 7. VERIFICATION QUERIES  (run these to confirm data)
+-- ============================================================
+
+-- Total fees per faculty/level (should match image totals)
+-- SELECT
+--     f.name                                         AS faculty,
+--     pf.level,
+--     em.name                                        AS entry_mode,
+--     SUM(pf.amount)                                 AS total_fees
+-- FROM program_fees pf
+-- JOIN faculties   f  ON f.id  = pf.faculty_id
+-- LEFT JOIN entry_modes em ON em.id = pf.entry_mode_id
+-- WHERE pf.academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)
+-- GROUP BY f.name, pf.level, em.name
+-- ORDER BY f.name, pf.level, em.name;
+
+-- Installment breakdown per faculty/level
+-- SELECT
+--     f.name        AS faculty,
+--     fi.level,
+--     em.name       AS entry_mode,
+--     ip.label,
+--     ip.name       AS installment,
+--     ip.percentage || '%' AS pct,
+--     fi.amount
+-- FROM fee_installments fi
+-- JOIN faculties       f  ON f.id  = fi.faculty_id
+-- JOIN installment_plans ip ON ip.id = fi.installment_plan_id
+-- LEFT JOIN entry_modes  em ON em.id = fi.entry_mode_id
+-- WHERE fi.academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)
+-- ORDER BY f.name, fi.level, em.name, ip.label;
+
+CREATE TABLE applications (
+    id          SERIAL          PRIMARY KEY,
+    user_id     INT             NOT NULL,
+    form_no     VARCHAR(20)     UNIQUE NOT NULL,
+    prog_type   INTEGER         NOT NULL REFERENCES program_types(id),
+    app_stage   VARCHAR(20)     NOT NULL DEFAULT 'started' CHECK (app_stage IN ('started', 'in_progress', 'submitted', 'screening', 'admitted', 'rejected')),
+
+    session     VARCHAR(20)     NOT NULL,
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE app_personal_info (
+    id                       SERIAL          PRIMARY KEY,
+    application_id           INTEGER         NOT NULL REFERENCES applications(id),
+
+    -- Name
+    surname                  VARCHAR(100),
+    first_name               VARCHAR(100),
+    middle_name              VARCHAR(100),
+
+    -- Bio
+    date_of_birth            DATE,
+    place_of_birth           VARCHAR(100),
+    gender                   VARCHAR(10)     CHECK (gender IN ('Male', 'Female')),
+    marital_status           VARCHAR(20)     CHECK (marital_status IN ('Single', 'Married', 'Divorced', 'Widowed')),
+    religion                 VARCHAR(20)     CHECK (religion IN ('Christianity', 'Islam', 'Traditional', 'Other')),
+    blood_group              VARCHAR(5),
+    genotype                 VARCHAR(5),
+
+    -- Origin
+    nationality              VARCHAR(20)     CHECK (nationality IN ('Nigerian', 'Non-Nigerian')),
+    state                    VARCHAR(50),
+    lga                      VARCHAR(100),
+    address                  TEXT,
+
+    -- Contact
+    phone_number             VARCHAR(20),
+    secondary_phone_number   VARCHAR(20),
+    email                    VARCHAR(100),
+    photo_url                VARCHAR(255),
+
+    -- Qualification
+    qualification_type       VARCHAR(20)     CHECK (qualification_type IN ('WAEC', 'NECO', 'GCE', 'Other')),
+    qualification_institution VARCHAR(200),
+    qualification_year       SMALLINT,
+
+    -- Extra
+    additional_info          TEXT,
+
+    created_at               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+-- Next of Kin
+CREATE TABLE app_next_of_kin (
+    id              SERIAL          PRIMARY KEY,
+    application_id  INTEGER         NOT NULL REFERENCES applications(id),
+    full_name       VARCHAR(200),
+    phone_number    VARCHAR(20),
+    address         TEXT
+);
+
+-- Sponsor
+CREATE TABLE app_sponsor (
+    id              SERIAL          PRIMARY KEY,
+    application_id  INTEGER         NOT NULL REFERENCES applications(id),
+    full_name       VARCHAR(200),
+    address         TEXT,
+    phone_number    VARCHAR(20),
+    relationship    VARCHAR(20)     CHECK (relationship IN ('Father', 'Mother', 'Guardian', 'Uncle', 'Aunt', 'Self', 'Other')),
+    email           VARCHAR(100)
+);
+
+CREATE TABLE app_olevel_results (
+    id              SERIAL          PRIMARY KEY,
+    application_id  INTEGER         NOT NULL REFERENCES applications(id),
+    exam_type       VARCHAR(20)     CHECK (exam_type IN ('WAEC', 'NECO', 'NABTEB', 'GCE')),
+    exam_year       SMALLINT,
+    sitting         VARCHAR(20),
+    reg_no          VARCHAR(50),
+    period          VARCHAR(50)     -- e.g. 'MAY/JUNE'
+);
+
+CREATE TABLE app_olevel_subjects (
+    id              SERIAL          PRIMARY KEY,
+    result_id       INTEGER         NOT NULL REFERENCES app_olevel_results(id) ON DELETE CASCADE,
+    subject_id      INTEGER         NOT NULL REFERENCES olevel_subjects(id),
+    grade_id        INTEGER         NOT NULL REFERENCES olevel_grades(id)
+);
+
+SELECT s.subject, s.grade
+FROM app_olevel_results r
+JOIN app_olevel_subjects s ON s.result_id = r.id
+WHERE r.application_id = 42;
+
+CREATE TABLE app_jamb_info (
+    id              SERIAL          PRIMARY KEY,
+    application_id  INTEGER         NOT NULL REFERENCES applications(id),
+    jamb_reg_no     VARCHAR(20),
+    jamb_score      SMALLINT,
+    first_choice    VARCHAR(100),
+    course_picked   VARCHAR(100)
+);
+
+CREATE TABLE app_programme_choice (
+    id              SERIAL      PRIMARY KEY,
+    application_id  INTEGER     NOT NULL REFERENCES applications(id),
+    first_choice    INTEGER     REFERENCES departments(id),
+    second_choice   INTEGER     REFERENCES departments(id)
+);
+
+CREATE TABLE applicants (
+    id          SERIAL          PRIMARY KEY,
+    user_id     INTEGER         UNIQUE NOT NULL REFERENCES users(id),
+    first_name  VARCHAR(100),
+    last_name   VARCHAR(100),
+    middle_name  VARCHAR(100),
+    phone       VARCHAR(20),
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+-- O'Level Subjects lookup table
+CREATE TABLE olevel_subjects (
+    id       SERIAL        PRIMARY KEY,
+    name     VARCHAR(100)  NOT NULL UNIQUE
+);
+
+INSERT INTO olevel_subjects (name) VALUES
+('English Language'),
+('Mathematics'),
+('Physics'),
+('Biology'),
+('Chemistry'),
+('Yoruba'),
+('Igbo'),
+('Hausa'),
+('Economics'),
+('Agricultural Science'),
+('Christian Religious Studies'),
+('Islamic Religious Studies'),
+('History'),
+('Geography'),
+('Literature In English'),
+('Further Mathematics'),
+('Civic Education'),
+('Commerce'),
+('Financial Accounting'),
+('Technical Drawing'),
+('Fine Art'),
+('Music'),
+('French');
+
+-- O'Level Grades lookup table
+CREATE TABLE olevel_grades (
+    id    SERIAL       PRIMARY KEY,
+    grade VARCHAR(5)   NOT NULL UNIQUE
+);
+
+INSERT INTO olevel_grades (grade) VALUES
+('A1'), ('B2'), ('B3'), ('C4'), ('C5'), ('C6'), ('D7'), ('E8'), ('F9'), ('AR');
+
+CREATE TABLE programs (
+    id                  SERIAL          PRIMARY KEY,
+    department_id       INTEGER         NOT NULL REFERENCES departments(id),
+    degree_id           INTEGER         NOT NULL REFERENCES degrees(id),
+    program_type_id     INTEGER         NOT NULL REFERENCES program_types(id),
+    duration_years      DECIMAL(3,1),                  -- e.g. 2.0, 4.0
+    is_active           BOOLEAN         DEFAULT TRUE,
+	created_at			TIMESTAMPTZ 	NOT NULL DEFAULT NOW(),
+	updated_at			TIMESTAMPTZ		NOT NULL DEFAULT NOW(),
+
+    -- Prevent duplicate program combinations
+    CONSTRAINT uq_program UNIQUE (department_id, degree_id, program_type_id)
+);
+
+UPDATE programs SET duration = 4 WHERE id = 1;
+UPDATE programs SET duration = 4 WHERE id = 2;
+UPDATE programs SET duration = 4 WHERE id = 3;
+UPDATE programs SET duration = 4 WHERE id = 4;
+UPDATE programs SET duration = 4 WHERE id = 5;
+UPDATE programs SET duration = 2 WHERE id = 6;
+UPDATE programs SET duration = 3 WHERE id = 7;
+UPDATE programs SET duration = 2 WHERE id = 8;
+UPDATE programs SET duration = 2 WHERE id = 9;
+UPDATE programs SET duration = 2 WHERE id = 10;
+UPDATE programs SET duration = 2 WHERE id = 11;
+UPDATE programs SET duration = 2 WHERE id = 12;
+UPDATE programs SET duration = 2 WHERE id = 13;
+UPDATE programs SET duration = 2 WHERE id = 14;
+UPDATE programs SET duration = 2 WHERE id = 15;
+UPDATE programs SET duration = 2 WHERE id = 16;
+UPDATE programs SET duration = 2 WHERE id = 17;
+UPDATE programs SET duration = 2 WHERE id = 18;
+UPDATE programs SET duration = 3 WHERE id = 19;
+UPDATE programs SET duration = 3 WHERE id = 20;
+UPDATE programs SET duration = 3 WHERE id = 21;
+UPDATE programs SET duration = 3 WHERE id = 22;

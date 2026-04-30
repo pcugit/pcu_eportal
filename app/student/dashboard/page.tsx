@@ -27,7 +27,7 @@ import {
   Download,
   Settings,
 } from "lucide-react";
-import { useProgramGuard } from "@/hooks/useProgramGuard";
+
 import FirstLoginPasswordChange from "@/components/FirstLoginPasswordChange";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 
@@ -58,7 +58,7 @@ export default function StudentDashboard() {
     }
   };
 
-  useProgramGuard();
+
 
   const fetchExtraData = async () => {
     if (!isAuthenticated) return;

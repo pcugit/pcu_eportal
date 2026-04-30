@@ -24,7 +24,7 @@ import {
   ShieldCheck,
   Save
 } from "lucide-react";
-import { useProgramGuard } from "@/hooks/useProgramGuard";
+
 
 export default function CourseRegistration() {
   const router = useRouter();
@@ -48,7 +48,7 @@ export default function CourseRegistration() {
   const [isGlobalLocked, setIsGlobalLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useProgramGuard();
+
 
   const loadCourses = async () => {
     try {

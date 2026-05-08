@@ -2,18 +2,18 @@
 
 import React, { useState, useEffect } from "react";
 import { ApiClient, PaymentTransaction } from "@/lib/api";
-import { 
-  CreditCard, 
-  ArrowLeft, 
-  Search, 
-  Download, 
-  CheckCircle2, 
-  Clock, 
+import {
+  CreditCard,
+  ArrowLeft,
+  Search,
+  Download,
+  CheckCircle2,
+  Clock,
   ChevronRight,
   TrendingUp,
   ShieldCheck,
   Receipt,
-  X
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,8 +26,8 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [downloading, setDownloading] = useState<number | null>(null);
-  
+  const [downloading, setDownloading] = useState<string | null>(null);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -50,14 +50,14 @@ export default function TransactionsPage() {
     fetchHistory();
   }, []);
 
-  const handleDownload = async (txId: number) => {
-    setDownloading(txId);
+  const handleDownload = async (receipt_no: string) => {
+    setDownloading(receipt_no);
     try {
-      const blob = await ApiClient.downloadPaymentReceipt(txId);
+      const blob = await ApiClient.downloadPaymentReceipt(receipt_no);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `receipt-${txId}.pdf`;
+      a.download = `receipt-${receipt_no}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -68,17 +68,22 @@ export default function TransactionsPage() {
     }
   };
 
-  const filteredTransactions = transactions.filter(tx => 
-    (tx.payment_type?.toLowerCase() || "").includes(search.toLowerCase()) ||
-    (tx.reference_id?.toLowerCase() || "").includes(search.toLowerCase()) ||
-    (tx.app_type?.toLowerCase() || "").includes(search.toLowerCase())
+  const filteredTransactions = transactions.filter(
+    (tx) =>
+      (tx.payment_type?.toLowerCase() || "").includes(search.toLowerCase()) ||
+      (tx.reference_no?.toLowerCase() || "").includes(search.toLowerCase()) ||
+      (tx.receipt_no?.toLowerCase() || "").includes(search.toLowerCase()) ||
+      (tx.client_name?.toLowerCase() || "").includes(search.toLowerCase()),
   );
 
   // Pagination logic
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredTransactions.slice(indexOfFirstItem, indexOfLastItem);
+  const currentItems = filteredTransactions.slice(
+    indexOfFirstItem,
+    indexOfLastItem,
+  );
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
@@ -97,8 +102,12 @@ export default function TransactionsPage() {
     <div className="min-h-screen bg-white pb-20">
       <div className="max-w-[95%] mx-auto px-4 py-8">
         <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-slate-900">Transaction History</h1>
-            <p className="text-slate-500 text-sm">View and manage your portal payments</p>
+          <h1 className="text-2xl font-semibold text-slate-900">
+            Transaction History
+          </h1>
+          <p className="text-slate-500 text-sm">
+            View and manage your portal payments
+          </p>
         </div>
 
         {/* Content Section */}
@@ -106,14 +115,17 @@ export default function TransactionsPage() {
           {/* Controls */}
           <div className="flex flex-col sm:flex-row gap-4 items-center mb-4">
             <div className="relative flex-grow w-full max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <Input 
-                placeholder="Search..." 
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+              />
+              <Input
+                placeholder="Search..."
                 className="pl-10 h-10 bg-white border-slate-200 rounded-md focus:ring-0 focus:border-slate-400"
                 value={search}
                 onChange={(e) => {
-                    setSearch(e.target.value);
-                    setCurrentPage(1);
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
                 }}
               />
             </div>
@@ -125,29 +137,41 @@ export default function TransactionsPage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase w-10 text-center">#</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Reference</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase text-center">
-                        Amount (₦)
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase w-10 text-center">
+                      #
                     </th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Payment Ref</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Status</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Purpose</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">App. Type</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Session</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Date</th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase text-right">Action</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                      Receipt No
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                      Reference No
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase text-center">
+                      Amount (₦)
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                      Purpose
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">
+                      Date
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase text-right">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {error ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-12">
+                      <td colSpan={8} className="text-center py-12">
                         <div className="space-y-3">
                           <p className="text-red-500 text-sm">{error}</p>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={fetchHistory}
                             className="text-xs h-8"
                           >
@@ -158,13 +182,21 @@ export default function TransactionsPage() {
                     </tr>
                   ) : currentItems.length > 0 ? (
                     currentItems.map((tx, index) => (
-                      <tr key={tx.transaction_id} className="hover:bg-slate-50 transition-colors">
+                      <tr
+                        key={tx.transaction_id}
+                        className="hover:bg-slate-50 transition-colors"
+                      >
                         <td className="px-4 py-4 text-sm text-slate-500 text-center">
                           {indexOfFirstItem + index + 1}
                         </td>
                         <td className="px-4 py-4">
-                          <span className="text-sm text-slate-700">
-                            {tx.reference_id || '---'}
+                          <span className="text-sm font-mono text-slate-700">
+                            {tx.receipt_no || "---"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-sm font-mono text-slate-600 text-xs">
+                            {tx.reference_no || "---"}
                           </span>
                         </td>
                         <td className="px-4 py-4 text-center">
@@ -173,59 +205,48 @@ export default function TransactionsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-4">
-                          <span className="text-xs text-slate-500">
-                            TXN-{tx.transaction_id}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                          {tx.status === 'completed' ? (
-                            <span className="text-xs text-slate-600">
-                              Success
-                            </span>
-                          ) : tx.status === 'cancelled' ? (
-                            <span className="text-xs text-slate-600">
-                              Cancelled
+                          {tx.is_successful ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-1 rounded">
+                              <CheckCircle2 size={14} />
+                              Successful
                             </span>
                           ) : (
-                            <span className="text-xs text-slate-600">
-                              Pending
+                            <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-1 rounded">
+                              <X size={14} />
+                              Failed
                             </span>
                           )}
                         </td>
                         <td className="px-4 py-4">
                           <span className="text-sm text-slate-600 capitalize">
-                            {tx.payment_type === 'application_fee' ? 'Application Form' : tx.payment_type.replace(/_/g, ' ')}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                           <span className="text-sm text-slate-600">
-                            {tx.app_type !== 'N/A' ? tx.app_type : 'N/A'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                           <span className="text-sm text-slate-600">
-                            {tx.session || 'N/A'}
+                            {tx.payment_type === "application_fee"
+                              ? "Application Form"
+                              : tx.payment_type.replace(/_/g, " ")}
                           </span>
                         </td>
                         <td className="px-4 py-4">
                           <div className="text-sm text-slate-700">
-                            {tx.completed_at ? format(new Date(tx.completed_at), "dd/MM/yyyy, h:mm a") : 
-                             tx.created_at ? format(new Date(tx.created_at), "dd/MM/yyyy, h:mm a") : '---'}
+                            {tx.created_at
+                              ? format(
+                                  new Date(tx.created_at),
+                                  "dd/MM/yyyy, h:mm a",
+                                )
+                              : "---"}
                           </div>
                         </td>
                         <td className="px-4 py-4 text-right">
-                          {tx.status === 'completed' && (
-                            <Button 
-                              onClick={() => handleDownload(tx.transaction_id)}
-                              disabled={downloading === tx.transaction_id}
+                          {tx.is_successful && (
+                            <Button
+                              onClick={() => handleDownload(tx.receipt_no)}
+                              disabled={downloading === tx.receipt_no}
                               variant="outline"
                               className="h-8 px-3 text-xs border-slate-200 hover:bg-slate-50 rounded"
                             >
-                               {downloading === tx.transaction_id ? (
-                                 <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-                               ) : (
-                                 "Print"
-                               )}
+                              {downloading === tx.receipt_no ? (
+                                <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                "Print"
+                              )}
                             </Button>
                           )}
                         </td>
@@ -233,9 +254,11 @@ export default function TransactionsPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={10} className="text-center py-12">
+                      <td colSpan={8} className="text-center py-12">
                         <p className="text-slate-500 text-sm">
-                          {search ? "No matches found for your search" : "No transactions found"}
+                          {search
+                            ? "No matches found for your search"
+                            : "No transactions found"}
                         </p>
                       </td>
                     </tr>
@@ -249,7 +272,7 @@ export default function TransactionsPage() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-4">
               <div className="text-xs text-slate-500">
-                  Page {currentPage} of {totalPages}
+                Page {currentPage} of {totalPages}
               </div>
               <div className="flex items-center gap-1">
                 <Button
@@ -260,20 +283,24 @@ export default function TransactionsPage() {
                 >
                   Previous
                 </Button>
-                
+
                 <div className="flex items-center gap-1">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((number) => (
-                    <Button
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                    (number) => (
+                      <Button
                         key={number}
                         onClick={() => paginate(number)}
-                        variant={currentPage === number ? "secondary" : "outline"}
+                        variant={
+                          currentPage === number ? "secondary" : "outline"
+                        }
                         className={`h-8 w-8 text-xs p-0 rounded border-slate-200 ${
-                        currentPage === number ? "bg-slate-100" : ""
+                          currentPage === number ? "bg-slate-100" : ""
                         }`}
-                    >
+                      >
                         {number}
-                    </Button>
-                    ))}
+                      </Button>
+                    ),
+                  )}
                 </div>
 
                 <Button

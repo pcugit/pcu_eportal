@@ -29,8 +29,23 @@ def update_setting(payload):
         return jsonify({'message': 'key and value required'}), 400
     
     key = data['key']
-    value = str(data['value']).lower() # Normalize for boolean-like strings
+    raw_value = str(data['value'])
+    value = raw_value.lower() if key != 'current_academic_session' else raw_value # Don't lower session names like 2025/2026
     
+    if key == 'current_academic_session':
+        # 1. Set all sessions to inactive
+        Database.execute_update("UPDATE academic_sessions SET is_active = FALSE")
+        
+        # 2. Check if this session exists
+        existing = Database.execute_query("SELECT id FROM academic_sessions WHERE name = %s", (value,))
+        
+        if existing:
+            # 3. Update existing session to active
+            Database.execute_update("UPDATE academic_sessions SET is_active = TRUE, updated_at = NOW() WHERE name = %s", (value,))
+        else:
+            # 4. Insert new active session
+            Database.execute_update("INSERT INTO academic_sessions (name, is_active, created_at, updated_at) VALUES (%s, TRUE, NOW(), NOW())", (value,))
+
     success = Database.execute_update(
         'UPDATE system_settings SET value = %s, updated_at = NOW() WHERE key = %s',
         (value, key)

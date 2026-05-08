@@ -63,11 +63,12 @@ interface DynamicProgramForm {
 
 export default function ApplicantDashboard() {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, refreshStatus } = useAuth();
   const [status, setStatus] = useState<ApplicantStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [admissionLetter, setAdmissionLetter] = useState<AdmissionLetterData | null>(null);
   const [showLetter, setShowLetter] = useState(false);
+  const [showAdmissionModal, setShowAdmissionModal] = useState(false);
   
   const [applicants, setApplicants] = useState<ApplicantStatus[]>([]);
   const [programTypes, setProgramTypes] = useState<DynamicProgramForm[]>([]);
@@ -111,6 +112,9 @@ export default function ApplicantDashboard() {
       setApplicants(response.applicants || []);
 
       if (response.applicant?.admission_status === "admitted") {
+        if (!response.applicant.has_paid_acceptance_fee) {
+          setShowAdmissionModal(true);
+        }
         try {
           const letterResponse = await ApiClient.getAdmissionLetter();
           setAdmissionLetter(letterResponse);
@@ -160,12 +164,21 @@ export default function ApplicantDashboard() {
       await new Promise(resolve => setTimeout(resolve, 2500));
       
       // 2. Process payment on backend
-      await ApiClient.processPayment('application_fee', selectedForm.fee, 'online', referenceId, 'completed', selectedForm.name, undefined, selectedForm.typeId);
+      await ApiClient.processPayment('application_fee', selectedForm.fee, 'online', 'completed', selectedForm.name, selectedForm.typeId);
       
-      // Clear cache and reload status IMMEDIATELY
+      // 3. Refresh the JWT so role upgrades from freshapplicant → applicant immediately
+      await ApiClient.verifyToken().then((res: any) => {
+        if (res.token) ApiClient.setToken(res.token);
+        if (res.user) {
+          // Update localStorage so next page load has the right role
+          localStorage.setItem('auth_user', JSON.stringify(res.user));
+        }
+      }).catch(() => {});
+
+      // 4. Reload dashboard data with fresh role
       ApiClient.clearCache();
-      await loadStatus(); 
-      
+      await loadStatus();
+
       setPaymentStep('success');
       
       // 4. Redirect back to selection after short delay
@@ -189,7 +202,7 @@ export default function ApplicantDashboard() {
       setShowCancelModal(false);
       
       if (selectedForm && referenceId) {
-        ApiClient.processPayment('application_fee', selectedForm.fee, 'online', referenceId, 'cancelled', selectedForm.name)
+        ApiClient.processPayment('application_fee', selectedForm.fee, 'online', 'cancelled', selectedForm.name, selectedForm.typeId)
           .catch(e => console.error("Error recording cancellation:", e));
       }
       
@@ -265,8 +278,8 @@ export default function ApplicantDashboard() {
                   <td className="p-4 text-sm text-slate-600">-</td>
                   <td className="p-4 text-sm text-slate-600 uppercase font-bold">{app.program_name}</td>
                   <td className="p-4 text-sm">
-                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${app.application_status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                        {app.application_status === 'submitted' ? 'complete' : 'pending'}
+                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${['submitted', 'screening', 'admitted', 'accepted', 'rejected'].includes(app.application_status) ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {['submitted', 'screening', 'admitted', 'accepted', 'rejected'].includes(app.application_status) ? 'complete' : 'pending'}
                      </span>
                   </td>
                   <td className="p-4 text-sm text-slate-600">{app.program_session}</td>
@@ -346,20 +359,46 @@ export default function ApplicantDashboard() {
                 <div className="space-y-10">
                    <div>
                       {currentApp.admission_status === 'admitted' && (
-                        <div className="mb-8 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-100 shadow-sm text-left">
-                          <div className="flex items-center gap-4 mb-4">
-                             <div className="p-3 bg-green-500 rounded-lg text-white shadow-lg shadow-green-500/30">
-                               <FileText className="h-6 w-6" />
-                             </div>
-                             <div>
-                               <h5 className="font-black text-green-800 text-lg">Congratulations!</h5>
-                               <p className="text-green-600 font-medium text-sm">You have been offered admission.</p>
-                             </div>
+                        currentApp.admission_letter_sent ? (
+                          <div className="mb-8 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-100 shadow-sm text-left">
+                            <div className="flex items-center gap-4 mb-4">
+                               <div className="p-3 bg-green-500 rounded-lg text-white shadow-lg shadow-green-500/30">
+                                 <FileText className="h-6 w-6" />
+                               </div>
+                               <div>
+                                 <h5 className="font-black text-green-800 text-lg">Admission Letter Available</h5>
+                                 <p className="text-green-600 font-medium text-sm">Your official admission letter is ready to be printed.</p>
+                               </div>
+                            </div>
+                            <Button onClick={() => setShowLetter(true)} className="bg-green-600 hover:bg-green-700 text-white font-bold shadow-sm">
+                              <Printer className="w-4 h-4 mr-2" /> View Admission Letter
+                            </Button>
                           </div>
-                          <Button onClick={() => setShowLetter(true)} className="bg-green-600 hover:bg-green-700 text-white font-bold shadow-sm">
-                            <Printer className="w-4 h-4 mr-2" /> View Admission Letter
-                          </Button>
-                        </div>
+                        ) : !currentApp.has_paid_acceptance_fee ? (
+                          <div className="mb-8 bg-gradient-to-br from-amber-50 to-yellow-50 rounded-xl p-6 border border-amber-100 shadow-sm text-left">
+                            <div className="flex items-center gap-4">
+                               <div className="p-3 bg-amber-500 rounded-lg text-white shadow-lg shadow-amber-500/30">
+                                 <AlertCircle className="h-6 w-6" />
+                               </div>
+                               <div>
+                                 <h5 className="font-black text-amber-800 text-lg">Acceptance Fee Payment Required</h5>
+                                 <p className="text-amber-600 font-medium text-sm">Please pay your acceptance fee to secure your admission. Your admission letter will be provided after payment is confirmed.</p>
+                               </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mb-8 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100 shadow-sm text-left">
+                            <div className="flex items-center gap-4">
+                               <div className="p-3 bg-blue-500 rounded-lg text-white shadow-lg shadow-blue-500/30">
+                                 <CheckCircle2 className="h-6 w-6" />
+                               </div>
+                               <div>
+                                 <h5 className="font-black text-blue-800 text-lg">Acceptance Fee Paid</h5>
+                                 <p className="text-blue-600 font-medium text-sm">Your payment is confirmed. Please wait while the admission officer generates and sends your admission letter.</p>
+                               </div>
+                            </div>
+                          </div>
+                        )
                       )}
                    </div>
 
@@ -688,6 +727,28 @@ export default function ApplicantDashboard() {
                     Close
                   </Button>
                 </div>
+              </div>
+          </div>
+        )}
+
+        {showAdmissionModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+             <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
+                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <CheckCircle2 className="w-10 h-10 text-green-600" />
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-3xl font-black text-slate-900 tracking-tight">Congratulations!</h3>
+                  <p className="text-slate-600 font-medium text-lg leading-snug px-2">
+                    You have been offered admission. Please proceed to pay your acceptance fee to secure your spot.
+                  </p>
+                </div>
+                <Button 
+                  onClick={() => setShowAdmissionModal(false)}
+                  className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-xl shadow-lg shadow-green-600/30"
+                >
+                  View Details & Pay
+                </Button>
               </div>
           </div>
         )}

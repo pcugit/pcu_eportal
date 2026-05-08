@@ -145,7 +145,7 @@ export function GlobalNav() {
     router.replace("/");
   };
 
-  const isApplicantPortal = isAuthenticated && user?.role === 'applicant';
+  const isApplicantPortal = isAuthenticated && (user?.role === 'applicant' || user?.role === 'freshapplicant');
   const isStudentPortal = isAuthenticated && user?.role === 'student';
   const isAdminPortal = isAuthenticated && user?.role === 'admissions_officer';
   const isRegistrarPortal = isAuthenticated && user?.role === 'registrar';

@@ -18,6 +18,7 @@ export interface ApplicantStatus {
   has_paid_application_fee: boolean;
   has_paid_acceptance_fee: boolean;
   has_paid_tuition: boolean;
+  admission_letter_sent: boolean;
   submitted_at: string | null;
   created_at: string;
   user_name: string;
@@ -137,27 +138,24 @@ export interface AdmissionLetterData {
 }
 
 export interface PaymentTransaction {
-  transaction_id: number;
+  transaction_id: string;
   payment_type: string;
   amount: number;
-  status: string;
-  payment_method: string;
-  reference_id: string;
+  is_successful: boolean;
+  reference_no: string;
+  receipt_no: string;
   created_at: string | null;
-  completed_at: string | null;
-  session?: string;
-  program_name?: string;
-  app_type?: string;
+  client_name?: string;
 }
 
 export interface PaymentResponse {
   message: string;
-  transaction_id: string;
-  applicant_id: number;
+  reference_no: string;
+  receipt_no: string;
   payment_type: string;
   amount: number;
-  status: string;
-  completed_at: string;
+  is_successful: boolean;
+  created_at: string;
   upgraded_to_student?: boolean;
   initial_password?: string;
 }
@@ -319,7 +317,13 @@ export class ApiClient {
   ) {
     const { data } = await this.fetch("/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ first_name, last_name, email, password, phone_number }),
+      body: JSON.stringify({
+        first_name,
+        last_name,
+        email,
+        password,
+        phone_number,
+      }),
     });
     return data;
   }
@@ -364,23 +368,21 @@ export class ApiClient {
 
   // Applicant endpoints
   static async getProgramTypes(): Promise<{ program_types: ProgramType[] }> {
-    const { data } = await this.fetch<{ program_types: ProgramType[] }>("/applicant/program-types");
+    const { data } = await this.fetch<{ program_types: ProgramType[] }>(
+      "/applicant/program-types",
+    );
     return data;
   }
 
   static async getOlevelData() {
-    const { data } = await this.fetch<any>('/applicant/olevel-data');
+    const { data } = await this.fetch<any>("/applicant/olevel-data");
     return data;
   }
 
-
   static async getPrograms() {
-
     const { data } = await this.fetch("/applicant/programs");
     return data;
   }
-
-
 
   static async getFormTemplate(program_id: number) {
     const { data } = await this.fetch(`/applicant/form/${program_id}`);
@@ -422,7 +424,7 @@ export class ApiClient {
     file: File,
     form_id: number,
     document_type: string,
-    display_name?: string
+    display_name?: string,
   ) {
     const formData = new FormData();
     formData.append("file", file);
@@ -454,9 +456,12 @@ export class ApiClient {
   }
 
   static async deleteDocument(document_id: number) {
-    const { data } = await this.fetch(`/applicant/delete-document/${document_id}`, {
-      method: "DELETE",
-    });
+    const { data } = await this.fetch(
+      `/applicant/delete-document/${document_id}`,
+      {
+        method: "DELETE",
+      },
+    );
     return data;
   }
 
@@ -465,10 +470,16 @@ export class ApiClient {
     return data;
   }
 
-  static async getAcceptanceFee(): Promise<{ acceptance_fee: number; fee_name: string; found: boolean }> {
-    const { data } = await this.fetch<{ acceptance_fee: number; fee_name: string; found: boolean }>(
-      '/applicant/acceptance-fee'
-    );
+  static async getAcceptanceFee(): Promise<{
+    acceptance_fee: number;
+    fee_name: string;
+    found: boolean;
+  }> {
+    const { data } = await this.fetch<{
+      acceptance_fee: number;
+      fee_name: string;
+      found: boolean;
+    }>("/applicant/acceptance-fee");
     return data;
   }
 
@@ -486,18 +497,21 @@ export class ApiClient {
     templateId?: string,
   ) {
     const token = this.getToken();
-    const res = await fetch(`${API_BASE_URL}/admission_officer/preview-admission-letter`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    const res = await fetch(
+      `${API_BASE_URL}/admission_officer/preview-admission-letter`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          applicant_id: applicantId,
+          admission_date: admissionDate,
+          template_id: templateId,
+        }),
       },
-      body: JSON.stringify({
-        applicant_id: applicantId,
-        admission_date: admissionDate,
-        template_id: templateId,
-      }),
-    });
+    );
 
     if (!res.ok) {
       const txt = await res.text();
@@ -508,10 +522,14 @@ export class ApiClient {
     return blob;
   }
 
-  static async getApplicantStatus(): Promise<{ applicant: ApplicantStatus; applicants: ApplicantStatus[] }> {
-    const { data } = await this.fetch<{ applicant: ApplicantStatus; applicants: ApplicantStatus[] }>(
-      "/applicant/get-applicant-status",
-    );
+  static async getApplicantStatus(): Promise<{
+    applicant: ApplicantStatus;
+    applicants: ApplicantStatus[];
+  }> {
+    const { data } = await this.fetch<{
+      applicant: ApplicantStatus;
+      applicants: ApplicantStatus[];
+    }>("/applicant/get-applicant-status");
     return data;
   }
 
@@ -548,11 +566,12 @@ export class ApiClient {
     payment_type: "application_fee" | "acceptance_fee" | "tuition",
     amount: number,
     payment_method: string = "online",
-    reference_id: string = "",
     status: "pending" | "completed" | "cancelled" = "completed",
     app_type?: string,
-    applicant_id?: number,
-    program_type_id?: number
+    program_type_id?: number,
+    fee_component_id?: number,
+    installment_plan_id?: number,
+    client_name?: string,
   ): Promise<PaymentResponse> {
     const { data } = await this.fetch<PaymentResponse>(
       "/applicant/process-payment",
@@ -562,11 +581,12 @@ export class ApiClient {
           payment_type,
           amount,
           payment_method,
-          reference_id,
           status,
           app_type,
-          applicant_id,
-          program_type_id
+          program_type_id,
+          fee_component_id,
+          installment_plan_id,
+          client_name,
         }),
       },
     );
@@ -584,14 +604,14 @@ export class ApiClient {
     return data;
   }
 
-  static async downloadPaymentReceipt(transaction_id: number): Promise<Blob> {
+  static async downloadPaymentReceipt(receipt_no: string): Promise<Blob> {
     const token = this.getToken();
     const headers: Record<string, string> = {
       ...(token && { Authorization: `Bearer ${token}` }),
     };
 
     const response = await fetch(
-      `${API_BASE_URL}/applicant/payment-receipt/${transaction_id}`,
+      `${API_BASE_URL}/applicant/payment-receipt/${receipt_no}`,
       {
         method: "GET",
         headers,
@@ -676,7 +696,9 @@ export class ApiClient {
   }
 
   static async getApplicationDetails(applicant_id: number) {
-    const { data } = await this.fetch(`/admission_officer/application/${applicant_id}`);
+    const { data } = await this.fetch(
+      `/admission_officer/application/${applicant_id}`,
+    );
     return data;
   }
 
@@ -703,10 +725,13 @@ export class ApiClient {
     admission_date?: string,
     template_id?: string,
   ) {
-    const { data } = await this.fetch("/admission_officer/send-admission-letter", {
-      method: "POST",
-      body: JSON.stringify({ applicant_id, admission_date, template_id }),
-    });
+    const { data } = await this.fetch(
+      "/admission_officer/send-admission-letter",
+      {
+        method: "POST",
+        body: JSON.stringify({ applicant_id, admission_date, template_id }),
+      },
+    );
     return data;
   }
 
@@ -715,10 +740,13 @@ export class ApiClient {
     admission_date?: string,
     template_id?: string,
   ): Promise<SendResult> {
-    const { data } = await this.fetch<SendResult>("/admission_officer/send-batch-letters", {
-      method: "POST",
-      body: JSON.stringify({ applicant_ids, admission_date, template_id }),
-    });
+    const { data } = await this.fetch<SendResult>(
+      "/admission_officer/send-batch-letters",
+      {
+        method: "POST",
+        body: JSON.stringify({ applicant_ids, admission_date, template_id }),
+      },
+    );
     return data;
   }
 
@@ -735,10 +763,22 @@ export class ApiClient {
     return data;
   }
 
-  static async getRecentActivity(limit = 15): Promise<{ activities: Array<{ type: string; label: string; event_time: string | null }> }> {
-    const { data } = await this.fetch<{ activities: Array<{ type: string; label: string; event_time: string | null }> }>(
-      `/admission_officer/recent-activity?limit=${limit}`
-    );
+  static async getRecentActivity(
+    limit = 15,
+  ): Promise<{
+    activities: Array<{
+      type: string;
+      label: string;
+      event_time: string | null;
+    }>;
+  }> {
+    const { data } = await this.fetch<{
+      activities: Array<{
+        type: string;
+        label: string;
+        event_time: string | null;
+      }>;
+    }>(`/admission_officer/recent-activity?limit=${limit}`);
     return data;
   }
 
@@ -750,78 +790,80 @@ export class ApiClient {
   }
 
   static async getLetterTemplate(template_id: number) {
-    const { data } = await this.fetch(`/admission_officer/letter-template/${template_id}`);
+    const { data } = await this.fetch(
+      `/admission_officer/letter-template/${template_id}`,
+    );
     return data;
   }
 
   // New letter management endpoints
   static async getFacultyDepartments(): Promise<FacultyDepartmentsResponse> {
-  const { data } = await this.fetch<FacultyDepartmentsResponse>(
-    "/admission_officer/faculty-departments"
-  );
-  return data;
-}
+    const { data } = await this.fetch<FacultyDepartmentsResponse>(
+      "/admission_officer/faculty-departments",
+    );
+    return data;
+  }
 
   static async getDepartmentApplicants(
-  departmentName: string
-): Promise<DepartmentApplicantsResponse> {
-  const { data } = await this.fetch<DepartmentApplicantsResponse>(
-    `/admission_officer/department-applicants/${encodeURIComponent(departmentName)}`
-  );
-  return data;
-}
+    departmentName: string,
+  ): Promise<DepartmentApplicantsResponse> {
+    const { data } = await this.fetch<DepartmentApplicantsResponse>(
+      `/admission_officer/department-applicants/${encodeURIComponent(departmentName)}`,
+    );
+    return data;
+  }
 
   static async sendDepartmentLetters(
-  departmentName: string,
-  applicantIds: number[],
-  admissionDate?: string
-): Promise<SendDepartmentLettersResponse> {
-  const { data } = await this.fetch<SendDepartmentLettersResponse>(
-    "/admission_officer/send-department-letters",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        department_name: departmentName,
-        applicant_ids: applicantIds,
-        admission_date: admissionDate,
-      }),
-    }
-  );
-  return data;
-}
+    departmentName: string,
+    applicantIds: number[],
+    admissionDate?: string,
+  ): Promise<SendDepartmentLettersResponse> {
+    const { data } = await this.fetch<SendDepartmentLettersResponse>(
+      "/admission_officer/send-department-letters",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          department_name: departmentName,
+          applicant_ids: applicantIds,
+          admission_date: admissionDate,
+        }),
+      },
+    );
+    return data;
+  }
 
   static async getLetterStatusSummary(): Promise<LetterStatusSummaryResponse> {
-  const { data } = await this.fetch<LetterStatusSummaryResponse>(
-    "/admission_officer/letter-status-summary"
-  );
-  return data;
-}
+    const { data } = await this.fetch<LetterStatusSummaryResponse>(
+      "/admission_officer/letter-status-summary",
+    );
+    return data;
+  }
 
   static async resendLetter(
-  applicantId: number,
-  admissionDate?: string
-): Promise<{ message: string }> {
-  const { data } = await this.fetch<{ message: string }>(
-    `/admission_officer/resend-letter/${applicantId}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ admission_date: admissionDate }),
-    }
-  );
-  return data;
-}
+    applicantId: number,
+    admissionDate?: string,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      `/admission_officer/resend-letter/${applicantId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ admission_date: admissionDate }),
+      },
+    );
+    return data;
+  }
 
   // Recommendation endpoints
   static async getRecommendations(): Promise<RecommendationResponse> {
     const { data } = await this.fetch<RecommendationResponse>(
-      "/applicant/get-recommendations"
+      "/applicant/get-recommendations",
     );
     return data;
   }
 
   static async respondToRecommendation(
     review_id: number,
-    response: "accepted" | "declined"
+    response: "accepted" | "declined",
   ) {
     const { data } = await this.fetch("/applicant/respond-to-recommendation", {
       method: "POST",
@@ -831,69 +873,109 @@ export class ApiClient {
   }
 
   // ================= Stage 2: Student Endpoints =================
-  static async changePassword(new_password: string): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>("/student/change-password", {
-      method: "POST",
-      body: JSON.stringify({ new_password }),
-    });
+  static async changePassword(
+    new_password: string,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      "/student/change-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ new_password }),
+      },
+    );
     return data;
   }
 
-  static async getStudentCourses(semester: string = "First"): Promise<CourseRegistrationResponse> {
-    const { data } = await this.fetch<CourseRegistrationResponse>(`/student/courses?semester=${semester}`);
+  static async getStudentCourses(
+    semester: string = "First",
+  ): Promise<CourseRegistrationResponse> {
+    const { data } = await this.fetch<CourseRegistrationResponse>(
+      `/student/courses?semester=${semester}`,
+    );
     return data;
   }
 
-  static async registerCourses(course_ids: number[], semester: string): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>("/student/register-courses", {
-      method: "POST",
-      body: JSON.stringify({ course_ids, semester }),
-    });
+  static async registerCourses(
+    course_ids: number[],
+    semester: string,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      "/student/register-courses",
+      {
+        method: "POST",
+        body: JSON.stringify({ course_ids, semester }),
+      },
+    );
     return data;
   }
 
-  static async searchCourses(query: string): Promise<{ courses: CourseData[] }> {
-    const { data } = await this.fetch<{ courses: CourseData[] }>(`/student/courses/search?q=${encodeURIComponent(query)}`);
+  static async searchCourses(
+    query: string,
+  ): Promise<{ courses: CourseData[] }> {
+    const { data } = await this.fetch<{ courses: CourseData[] }>(
+      `/student/courses/search?q=${encodeURIComponent(query)}`,
+    );
     return data;
   }
 
   // ===== Admission Officer Management (Stage 2) =====
   static async getAdminPrograms(): Promise<{ programs: any[] }> {
-    const { data } = await this.fetch<{ programs: any[] }>("/admission_officer/programs");
+    const { data } = await this.fetch<{ programs: any[] }>(
+      "/admission_officer/programs",
+    );
     return data;
   }
 
-  static async updateProgram(programId: number, data: any): Promise<{ message: string }> {
-    const { data: responseData } = await this.fetch<{ message: string }>(`/admission_officer/program/${programId}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
+  static async updateProgram(
+    programId: number,
+    data: any,
+  ): Promise<{ message: string }> {
+    const { data: responseData } = await this.fetch<{ message: string }>(
+      `/admission_officer/program/${programId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      },
+    );
     return responseData;
   }
 
-  static async getStudents(filters?: { program_id?: number; level?: string }): Promise<{ students: any[] }> {
+  static async getStudents(filters?: {
+    program_id?: number;
+    level?: string;
+  }): Promise<{ students: any[] }> {
     let url = "/admission_officer/students";
     const params = new URLSearchParams();
-    if (filters?.program_id) params.append("program_id", filters.program_id.toString());
+    if (filters?.program_id)
+      params.append("program_id", filters.program_id.toString());
     if (filters?.level) params.append("level", filters.level);
     if (params.toString()) url += `?${params.toString()}`;
     const { data } = await this.fetch<{ students: any[] }>(url);
     return data;
   }
 
-  static async getStudentRegistration(studentId: number, semester: string = "First"): Promise<{ registration: any; courses: any[] }> {
-    const { data } = await this.fetch<{ registration: any; courses: any[] }>(`/admission_officer/student/${studentId}/registration?semester=${semester}`);
+  static async getStudentRegistration(
+    studentId: number,
+    semester: string = "First",
+  ): Promise<{ registration: any; courses: any[] }> {
+    const { data } = await this.fetch<{ registration: any; courses: any[] }>(
+      `/admission_officer/student/${studentId}/registration?semester=${semester}`,
+    );
     return data;
   }
 
   // ===== New Schema Endpoints =====
 
   static async getFaculties(): Promise<{ faculties: Faculty[] }> {
-    const { data } = await this.fetch<{ faculties: Faculty[] }>("/admission_officer/faculties");
+    const { data } = await this.fetch<{ faculties: Faculty[] }>(
+      "/admission_officer/faculties",
+    );
     return data;
   }
 
-  static async getDepartments(facultyId?: number): Promise<{ departments: Department[] }> {
+  static async getDepartments(
+    facultyId?: number,
+  ): Promise<{ departments: Department[] }> {
     const url = facultyId
       ? `/admission_officer/departments?faculty_id=${facultyId}`
       : "/admission_officer/departments";
@@ -901,9 +983,10 @@ export class ApiClient {
     return data;
   }
 
-
   static async getStudentProfile(): Promise<{ profile: StudentProfile }> {
-    const { data } = await this.fetch<{ profile: StudentProfile }>("/student/profile");
+    const { data } = await this.fetch<{ profile: StudentProfile }>(
+      "/student/profile",
+    );
     return data;
   }
 
@@ -916,21 +999,37 @@ export class ApiClient {
   }
 
   static async createStaff(payload: {
-    name: string; email: string; password: string; role: string;
-    phone_number?: string; staff_id?: string; title?: string;
-    department_id?: number; faculty_id?: number;
+    name: string;
+    email: string;
+    password: string;
+    role: string;
+    phone_number?: string;
+    staff_id?: string;
+    title?: string;
+    department_id?: number;
+    faculty_id?: number;
   }): Promise<{ message: string; user_id: number }> {
-    const { data } = await this.fetch<{ message: string; user_id: number }>("/staff/create", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    const { data } = await this.fetch<{ message: string; user_id: number }>(
+      "/staff/create",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
     return data;
   }
 
-  static async updateStaff(userId: number, updates: {
-    role?: string; status?: string; department_id?: number;
-    faculty_id?: number; title?: string; staff_id?: string;
-  }): Promise<{ message: string }> {
+  static async updateStaff(
+    userId: number,
+    updates: {
+      role?: string;
+      status?: string;
+      department_id?: number;
+      faculty_id?: number;
+      title?: string;
+      staff_id?: string;
+    },
+  ): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>(`/staff/${userId}`, {
       method: "PUT",
       body: JSON.stringify(updates),
@@ -939,33 +1038,52 @@ export class ApiClient {
   }
 
   static async assignCourse(payload: {
-    staff_id: number; course_id: number; session: string; semester: string;
+    staff_id: number;
+    course_id: number;
+    session: string;
+    semester: string;
   }): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>("/staff/assign-course", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    const { data } = await this.fetch<{ message: string }>(
+      "/staff/assign-course",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
     return data;
   }
 
-  static async getAssignedCourses(session?: string, semester?: string): Promise<{ courses: any[] }> {
+  static async getAssignedCourses(
+    session?: string,
+    semester?: string,
+  ): Promise<{ courses: any[] }> {
     const p = new URLSearchParams();
     if (session) p.append("session", session);
     if (semester) p.append("semester", semester);
-    const { data } = await this.fetch<{ courses: any[] }>(`/staff/courses?${p.toString()}`);
+    const { data } = await this.fetch<{ courses: any[] }>(
+      `/staff/courses?${p.toString()}`,
+    );
     return data;
   }
 
-  static async getCourseStudents(courseId: number, session?: string, semester?: string): Promise<{ students: any[] }> {
+  static async getCourseStudents(
+    courseId: number,
+    session?: string,
+    semester?: string,
+  ): Promise<{ students: any[] }> {
     const p = new URLSearchParams();
     if (session) p.append("session", session);
     if (semester) p.append("semester", semester);
-    const { data } = await this.fetch<{ students: any[] }>(`/staff/courses/${courseId}/students?${p.toString()}`);
+    const { data } = await this.fetch<{ students: any[] }>(
+      `/staff/courses/${courseId}/students?${p.toString()}`,
+    );
     return data;
   }
 
   static async enterScores(payload: {
-    course_id: number; session: string; semester: string;
+    course_id: number;
+    session: string;
+    semester: string;
     scores: { student_id: number; ca_score: number; exam_score: number }[];
   }): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>("/scores/enter", {
@@ -975,7 +1093,11 @@ export class ApiClient {
     return data;
   }
 
-  static async submitScores(courseId: number, session: string, semester: string): Promise<{ message: string }> {
+  static async submitScores(
+    courseId: number,
+    session: string,
+    semester: string,
+  ): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>("/scores/submit", {
       method: "POST",
       body: JSON.stringify({ course_id: courseId, session, semester }),
@@ -984,7 +1106,9 @@ export class ApiClient {
   }
 
   static async getStudentScores(studentId: number): Promise<{ scores: any[] }> {
-    const { data } = await this.fetch<{ scores: any[] }>(`/scores/student/${studentId}`);
+    const { data } = await this.fetch<{ scores: any[] }>(
+      `/scores/student/${studentId}`,
+    );
     return data;
   }
 
@@ -993,22 +1117,35 @@ export class ApiClient {
     return data;
   }
 
-  static async getHodResults(filters?: { status?: string; semester?: string; level?: string }): Promise<{ results: any[] }> {
+  static async getHodResults(filters?: {
+    status?: string;
+    semester?: string;
+    level?: string;
+  }): Promise<{ results: any[] }> {
     const p = new URLSearchParams(filters as any).toString();
     const { data } = await this.fetch<{ results: any[] }>(`/hod/results?${p}`);
     return data;
   }
 
   static async approveScore(scoreId: number): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>(`/hod/scores/${scoreId}/approve`, { method: "POST" });
+    const { data } = await this.fetch<{ message: string }>(
+      `/hod/scores/${scoreId}/approve`,
+      { method: "POST" },
+    );
     return data;
   }
 
-  static async rejectScore(scoreId: number, reason?: string): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>(`/hod/scores/${scoreId}/reject`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    });
+  static async rejectScore(
+    scoreId: number,
+    reason?: string,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      `/hod/scores/${scoreId}/reject`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
     return data;
   }
 
@@ -1017,7 +1154,11 @@ export class ApiClient {
     return data;
   }
 
-  static async getDeanResults(filters?: { status?: string; session?: string; semester?: string }): Promise<{ results: any[] }> {
+  static async getDeanResults(filters?: {
+    status?: string;
+    session?: string;
+    semester?: string;
+  }): Promise<{ results: any[] }> {
     const p = new URLSearchParams(filters as any).toString();
     const { data } = await this.fetch<{ results: any[] }>(`/dean/results?${p}`);
     return data;
@@ -1029,23 +1170,33 @@ export class ApiClient {
   }
 
   static async getAllStudents(search?: string): Promise<{ students: any[] }> {
-    const url = search ? `/registrar/students?search=${encodeURIComponent(search)}` : "/registrar/students";
+    const url = search
+      ? `/registrar/students?search=${encodeURIComponent(search)}`
+      : "/registrar/students";
     const { data } = await this.fetch<{ students: any[] }>(url);
     return data;
   }
 
   static async getTranscript(studentId: number): Promise<any> {
-    const { data } = await this.fetch<any>(`/registrar/student/${studentId}/transcript`);
+    const { data } = await this.fetch<any>(
+      `/registrar/student/${studentId}/transcript`,
+    );
     return data;
   }
 
   static async signTranscript(logId: number): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>(`/registrar/transcripts/${logId}/sign`, { method: "POST" });
+    const { data } = await this.fetch<{ message: string }>(
+      `/registrar/transcripts/${logId}/sign`,
+      { method: "POST" },
+    );
     return data;
   }
 
   static async issueTranscript(logId: number): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>(`/registrar/transcripts/${logId}/issue`, { method: "POST" });
+    const { data } = await this.fetch<{ message: string }>(
+      `/registrar/transcripts/${logId}/issue`,
+      { method: "POST" },
+    );
     return data;
   }
 
@@ -1054,19 +1205,29 @@ export class ApiClient {
     return data;
   }
 
-  static async updateGlobalSettings(settings: Record<string, string>): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>("/admission_officer/settings", {
-      method: "POST",
-      body: JSON.stringify(settings),
-    });
+  static async updateGlobalSettings(
+    settings: Record<string, string>,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      "/admission_officer/settings",
+      {
+        method: "POST",
+        body: JSON.stringify(settings),
+      },
+    );
     return data;
   }
 
-  static async createLecturer(lecturerData: any): Promise<{ message: string; user_id: number }> {
-    const { data } = await this.fetch<{ message: string; user_id: number }>("/admission_officer/staff/lecturer", {
-      method: "POST",
-      body: JSON.stringify(lecturerData),
-    });
+  static async createLecturer(
+    lecturerData: any,
+  ): Promise<{ message: string; user_id: number }> {
+    const { data } = await this.fetch<{ message: string; user_id: number }>(
+      "/admission_officer/staff/lecturer",
+      {
+        method: "POST",
+        body: JSON.stringify(lecturerData),
+      },
+    );
     return data;
   }
 }

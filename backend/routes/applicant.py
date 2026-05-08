@@ -9,8 +9,11 @@ from config import Config
 from datetime import datetime
 import os
 import uuid
+import secrets
+import string
+from datetime import date
 
-applicant_bp = Blueprint('applicant', __name__)
+applicant_bp = Blueprint('Applicant', __name__)
 
 @applicant_bp.route('/olevel-data', methods=['GET'])
 def get_olevel_data():
@@ -36,12 +39,13 @@ def get_programs():
             d.name              AS course,
             dg.name             AS degree,
             dy.years            AS duration
-        FROM programs p
-        JOIN departments d      ON p.department_id   = d.id
-        JOIN degrees dg         ON p.degree_id       = dg.id
-        JOIN program_types pt   ON p.program_type_id = pt.id
-        JOIN duration_years dy  ON p.duration        = dy.id
-        WHERE p.is_active = TRUE
+        FROM program_setup ps
+        JOIN degree_program dp      ON ps.degree_program_id = dp.id
+        JOIN program_types pt       ON dp.program_type_id   = pt.id
+        JOIN degrees dg             ON dp.degree_id         = dg.id
+        JOIN departments d          ON ps.department_id     = d.id
+        JOIN duration_years dy      ON dp.duration_id       = dy.id
+        WHERE ps.is_active = TRUE
         ORDER BY pt.name, d.name;'''
     )
     
@@ -119,6 +123,11 @@ def get_program_types():
 @AuthHandler.token_required
 def get_form_template(payload, program_type_id):
     """Get application form template for a program"""
+    
+    # Guard route so only 'applicant' can access
+    role = payload.get('role', '')
+    if role != 'Applicant':
+        return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
     
     # Mock form template based on program
     form_templates = {
@@ -294,6 +303,10 @@ def get_form_template(payload, program_type_id):
 @applicant_bp.route('/submit-form', methods=['POST'])
 @AuthHandler.token_required
 def submit_form(payload):
+    role = payload.get('role', '')
+    if role != 'applicant':
+        return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
+        
     user_id = payload['user_id']
     data = request.form.to_dict()
     
@@ -333,10 +346,9 @@ def submit_form(payload):
         application_id = app_res[0]['id']
         program_type_id = app_res[0]['prog_type']
     
-    # We still need the base applicant_id for legacy application_forms table
-    applicant_res = Database.execute_query('SELECT id FROM applicants WHERE user_id = %s', (user_id,))
-    applicant_id = applicant_res[0]['id'] if applicant_res else None
-    program_id = program_type_id # Map to program_id for legacy compatibility
+    # No applicants table anymore; use the application_id directly for form records
+    applicant_id = None
+    program_id = program_type_id
 
     # Map data to specific columns for legacy and internal use
     fields_mapping = {
@@ -383,7 +395,7 @@ def submit_form(payload):
             return None
         return val
 
-    # --- NEW SCHEMA: Save to app_personal_info ---
+    # --- NEW SCHEMA: Save to biodata ---
     personal_info_fields = {
         'application_id': application_id,
         'surname': clean_val('last_name'),
@@ -425,7 +437,7 @@ def submit_form(payload):
         update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in pi_columns if col != 'application_id'])
         
         query = f'''
-            INSERT INTO app_personal_info ({cols_str}, updated_at)
+            INSERT INTO biodata ({cols_str}, updated_at)
             VALUES ({placeholders}, NOW())
             ON CONFLICT (application_id) 
             DO UPDATE SET 
@@ -577,7 +589,7 @@ def submit_form(payload):
 
     # Update application stage to 'in_progress' if it's still 'started'
     Database.execute_update(
-        "UPDATE applications SET app_stage = 'in_progress', updated_at = NOW() WHERE id = %s AND app_stage = 'started'",
+        "UPDATE applications SET applicant_stage = 'in_progress', updated_at = NOW() WHERE id = %s AND applicant_stage = 'started'",
         (application_id,)
     )
 
@@ -736,6 +748,10 @@ def download_document(payload, document_id):
 @AuthHandler.token_required
 def get_form(payload, applicant_id):
     """Get saved application form"""
+    role = payload.get('role', '')
+    if role != 'applicant':
+        return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
+        
     user_id = payload['user_id']
     
     # Try to find the application first (new schema)
@@ -748,21 +764,7 @@ def get_form(payload, applicant_id):
     if app_res:
         application_id = app_res[0]['id']
     else:
-        # Fallback to checking if applicant_id is actually an applicant.id
-        applicant_res = Database.execute_query(
-            'SELECT id FROM applicants WHERE id = %s AND user_id = %s',
-            (applicant_id, user_id)
-        )
-        if not applicant_res:
-            return jsonify({'message': 'Applicant or Application not found'}), 404
-        
-        # If it's an applicant.id, find their latest application
-        app_res = Database.execute_query(
-            'SELECT id FROM applications WHERE user_id = %s ORDER BY created_at DESC',
-            (user_id,)
-        )
-        if app_res:
-            application_id = app_res[0]['id']
+        return jsonify({'message': 'Application not found'}), 404
 
     # Fetch from new schema
     pi_res = []
@@ -770,7 +772,7 @@ def get_form(payload, applicant_id):
     sponsor_res = []
     if application_id:
         pi_res = Database.execute_query(
-            'SELECT * FROM app_personal_info WHERE application_id = %s',
+            'SELECT * FROM biodata WHERE application_id = %s',
             (application_id,)
         )
         nok_res = Database.execute_query(
@@ -782,13 +784,7 @@ def get_form(payload, applicant_id):
             (application_id,)
         )
     
-    # Fetch from legacy schema: application_forms
-    # Use applicant_id as legacy ID
-    legacy_applicant_id = applicant_id 
-    form = Database.execute_query(
-        'SELECT * FROM application_forms WHERE applicant_id = %s',
-        (legacy_applicant_id,)
-    )
+    form = []
     
     form_data = {}
     if pi_res:
@@ -966,7 +962,7 @@ def submit_application(payload):
     
     # Update application stage to 'submitted'
     success = Database.execute_update(
-        "UPDATE applications SET app_stage = 'submitted', updated_at = NOW() WHERE id = %s AND user_id = %s",
+        "UPDATE applications SET applicant_stage = 'submitted', updated_at = NOW() WHERE id = %s AND user_id = %s",
         (applicant_id, user_id)
     )
 
@@ -983,52 +979,37 @@ def submit_application(payload):
 def get_applicant_status(payload):
     user_id = payload['user_id']
 
-    # Fix any paid transactions not reflected on the applicant record
-    paid_transactions = Database.execute_query(
-        '''SELECT pt.applicant_id FROM payment_transactions pt
-           JOIN applicants a ON pt.applicant_id = a.id
-           WHERE a.user_id = %s AND pt.payment_type = 'application_fee' 
-           AND pt.status = 'completed' AND a.has_paid_application_fee = FALSE''',
-        (user_id,)
-    )
-    for pt in (paid_transactions or []):
-        Database.execute_update(
-            'UPDATE applicants SET has_paid_application_fee = TRUE WHERE id = %s',
-            (pt['applicant_id'],)
-        )
-
-    # Pull real application data from the new applications table
     applications = Database.execute_query(
         '''SELECT 
                 app.id, 
-                u.name as user_name,
+                u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as user_name,
                 app.prog_type as program_type_id,
-                app.app_stage as application_status,
-                app.session as program_session,
+                app.applicant_stage as application_status,
+                COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) as program_session,
                 app.created_at,
                 app.form_no,
                 pt.name as program_name,
                 -- Application fee: always TRUE if record exists (paid at creation)
                 TRUE as has_paid_application_fee,
-                -- Acceptance fee: TRUE only if app_stage is 'accepted' (paid and confirmed)
-                (app.app_stage = 'accepted') as has_paid_acceptance_fee,
+                -- Acceptance fee: TRUE only if applicant_stage is 'accepted'
+                (app.applicant_stage = 'accepted') as has_paid_acceptance_fee,
+                COALESCE(app.admission_letter_sent, FALSE) as admission_letter_sent,
                 FALSE as has_paid_tuition,
-                CASE WHEN app.app_stage != 'started' THEN app.updated_at ELSE NULL END as submitted_at,
-                CASE WHEN app.app_stage IN ('admitted', 'accepted') THEN 'admitted' ELSE 'pending' END as admission_status
+                CASE WHEN app.applicant_stage != 'started' THEN app.updated_at ELSE NULL END as submitted_at,
+                CASE WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 'admitted' ELSE 'pending' END as admission_status
            FROM applications app
            JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
+           LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
            WHERE app.user_id = %s
            ORDER BY app.created_at DESC''',
         (user_id,)
     )
 
     if not applications:
-        # If no applications yet, return empty list but still provide the basic applicant ID if possible
-        basic_applicant = Database.execute_query('SELECT id FROM applicants WHERE user_id = %s', (user_id,))
         return jsonify({
             'applicants': [], 
-            'applicant': {'id': basic_applicant[0]['id']} if basic_applicant else None
+            'applicant': None
         }), 200
 
     return jsonify({
@@ -1042,15 +1023,16 @@ def get_admission_letter(payload):
     """Get admission letter data for the authenticated applicant"""
     user_id = payload['user_id']
 
-    # Get applicant details — only allow if acceptance fee has been paid (app_stage = 'accepted')
+    # Get applicant details — only allow if acceptance fee has been paid (applicant_stage = 'accepted')
     applicant = Database.execute_query(
-        '''SELECT a.id, u.name, app.session, pt.name as program_name, pt.name as program_type_name,
-                  app.app_stage
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           JOIN applications app ON a.user_id = app.user_id
+        '''SELECT app.id, u.name, app.academic_sessions, app.prog_type as program_id,
+                  pt.name as program_name, pt.name as program_type_name,
+                  app.applicant_stage
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.user_id = %s AND app.app_stage IN ('admitted', 'accepted')
+           WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted')
+           ORDER BY app.updated_at DESC
            LIMIT 1''',
         (user_id,)
     )
@@ -1058,7 +1040,7 @@ def get_admission_letter(payload):
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
 
-    if applicant[0]['app_stage'] != 'accepted':
+    if applicant[0]['applicant_stage'] != 'accepted':
         return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
@@ -1088,12 +1070,13 @@ def get_admission_letter(payload):
         (applicant_data['program_id'],)
     )
 
-    # Get global settings
-    settings = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('current_academic_session', 'current_semester')")
-    settings_dict = {s['key']: s['value'] for s in (settings or [])}
+    # Get current academic session from academic_sessions table
+    session_res = Database.execute_query("SELECT name FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    session = session_res[0]['name'] if session_res else '2025/2026'
     
-    session = settings_dict.get('current_academic_session', '2025/2026')
-    active_semester = settings_dict.get('current_semester', 'First Semester')
+    # Get semester from system settings
+    semester_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_semester'")
+    active_semester = semester_res[0]['value'] if semester_res else 'First Semester'
 
     if program_details:
         pd = program_details[0]
@@ -1130,12 +1113,12 @@ def print_admission_letter(payload):
 
     # Get applicant details
     applicant = Database.execute_query(
-        '''SELECT a.id, u.name, pt.name as program_name
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           JOIN applications app ON a.user_id = app.user_id
+        '''SELECT app.id, u.name, app.prog_type as program_id, pt.name as program_name
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.user_id = %s AND app.app_stage = 'admitted'
+           WHERE app.user_id = %s AND app.applicant_stage = 'admitted'
+           ORDER BY app.updated_at DESC
            LIMIT 1''',
         (user_id,)
     )
@@ -1173,11 +1156,9 @@ def print_admission_letter(payload):
         (applicant_data['program_id'],)
     )
 
-    # Get global settings
-    settings = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('current_academic_session', 'current_semester')")
-    settings_dict = {s['key']: s['value'] for s in (settings or [])}
-    
-    session = settings_dict.get('current_academic_session', '2025/2026')
+    # Get current academic session from academic_sessions table
+    session_res = Database.execute_query("SELECT name FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    session = session_res[0]['name'] if session_res else '2025/2026'
 
     if program_details:
         pd = program_details[0]
@@ -1225,7 +1206,7 @@ def get_acceptance_fee(payload):
     # Get applicant's program type from their admitted application
     app_res = Database.execute_query(
         """SELECT prog_type FROM applications 
-           WHERE user_id = %s AND app_stage IN ('admitted', 'accepted') 
+           WHERE user_id = %s AND applicant_stage IN ('admitted', 'accepted') 
            ORDER BY updated_at DESC LIMIT 1""",
         (user_id,)
     )
@@ -1242,7 +1223,7 @@ def get_acceptance_fee(payload):
            JOIN fee_components fc ON fc.id = pf.fee_component_id
            WHERE pf.fee_component_id = 7
              AND pf.program_type = %s
-             AND pf.academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)
+             AND pf.academic_sessions_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)
            LIMIT 1""",
         (prog_type,)
     )
@@ -1269,6 +1250,21 @@ def get_acceptance_fee(payload):
         'found': bool(fee_res)
     }), 200
 
+
+def generate_reference_no():
+    """Generate a hard-to-guess reference number: REF-{DATE}-{RANDOM_HEX}"""
+    date_str = date.today().strftime('%Y%m%d')
+    random_hex = secrets.token_hex(8)  # 16 hex characters
+    return f"REF-{date_str}-{random_hex.upper()}"
+
+
+def generate_receipt_no():
+    """Generate a hard-to-guess receipt number: pcu-{DATE}-{RANDOM_HEX}"""
+    date_str = date.today().strftime('%Y%m%d')
+    random_hex = secrets.token_hex(8)  # 16 hex characters
+    return f"pcu-{date_str}-{random_hex.upper()}"
+
+
 @applicant_bp.route('/process-payment', methods=['POST'])
 @AuthHandler.token_required
 def process_payment(payload):
@@ -1284,112 +1280,100 @@ def process_payment(payload):
     payment_type = data.get('payment_type')
     amount = float(data.get('amount', 0))
     payment_method = data.get('payment_method', 'online')
-    reference_id = data.get('reference_id', '')
     status = data.get('status', 'completed')
     app_type_req = data.get('app_type')
     program_type_id = data.get('program_type_id')
+    fee_component_id = data.get('fee_component_id')
+    installment_plan_id = data.get('installment_plan_id')
     
     # Validate payment type
     if payment_type not in ['application_fee', 'acceptance_fee', 'tuition']:
         return jsonify({'message': 'Invalid payment_type. Must be application_fee, acceptance_fee or tuition'}), 400
     
+    # Ensure installment_plan_id is only used for tuition
+    if payment_type != 'tuition':
+        installment_plan_id = None
+    
     if amount < 0:
         return jsonify({'message': 'Amount cannot be negative'}), 400
     
-    applicant = Database.execute_query(
-        'SELECT id FROM applicants WHERE user_id = %s',
-        (user_id,)
-    )
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found for this user'}), 400
-    applicant_id = applicant[0]['id']
+    # Fetch active academic session ID and name
+    session_res = Database.execute_query("SELECT id, name FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    if not session_res:
+        return jsonify({'message': 'No active academic session found in system.'}), 500
+    
+    current_session_id = session_res[0]['id']
+    current_session_name = session_res[0]['name']
     
     # Check if this is a new application payment
     if status == 'completed' and payment_type == 'application_fee' and program_type_id:
-        # Fetch current session from settings
-        session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
-        active_session = session_res[0]['value'] if session_res else '2025/2026'
-        
         # Check if application already exists for this user and program type in current session
         existing_app = Database.execute_query(
-            'SELECT id FROM applications WHERE user_id = %s AND prog_type = %s AND session = %s',
-            (user_id, program_type_id, active_session)
+            'SELECT id FROM applications WHERE user_id = %s AND prog_type = %s AND academic_session_id = %s',
+            (user_id, program_type_id, current_session_id)
         )
         
         if not existing_app:
             # Generate a unique form number: PCU/YEAR/RANDOM
-            import random
-            import string
             year = datetime.now().year
-            random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            random_suffix = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
             form_no = f"PCU/{year}/{random_suffix}"
             
             Database.execute_update(
-                '''INSERT INTO applications (user_id, form_no, prog_type, session, app_stage)
+                '''INSERT INTO applications (user_id, form_no, prog_type, academic_session_id, applicant_stage)
                    VALUES (%s, %s, %s, %s, %s)''',
-                (user_id, form_no, program_type_id, active_session, 'started')
+                (user_id, form_no, program_type_id, current_session_id, 'started')
             )
 
-    # Fetch current session from settings for the transaction record
-    settings_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
-    current_session = settings_res[0]['value'] if settings_res else '2025/2026'
-    
-    prog_name = app_type_req or 'N/A'
-    app_type = app_type_req or 'N/A'
-    session = current_session
+    # Determine transaction success
+    is_successful = status == 'completed'
 
     # Create or Update payment transaction record
     try:
-        # Check if transaction with this reference exists
-        existing = None
-        if reference_id:
-            existing = Database.execute_query(
-                'SELECT id FROM payment_transactions WHERE reference_id = %s',
-                (reference_id,)
-            )
+        # Generate unique reference and receipt numbers
+        reference_no = generate_reference_no()
+        receipt_no = generate_receipt_no()
         
-        if existing:
-            success = Database.execute_update(
-                '''UPDATE payment_transactions 
-                   SET status = %s, completed_at = %s, amount = %s, payment_method = %s,
-                       program_name = %s, app_type = %s, session = %s
-                   WHERE reference_id = %s''',
-                (status, datetime.now() if status == 'completed' else None, amount, payment_method, 
-                 prog_name, app_type, session, reference_id)
-            )
-        else:
-            success = Database.execute_update(
-                '''INSERT INTO payment_transactions 
-                   (applicant_id, payment_type, amount, status, payment_method, reference_id, 
-                    completed_at, program_name, app_type, session)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
-                (applicant_id, payment_type, amount, status, payment_method, reference_id, 
-                 datetime.now() if status == 'completed' else None, prog_name, app_type, session)
-            )
+        # Insert payment transaction with new schema
+        success = Database.execute_update(
+            '''INSERT INTO payment_transactions 
+               (user_id, fee_component_id, academic_session_id, installment_plan_id, 
+                amount, pay_details, reference_no, receipt_no, tran_status, tran_type, 
+                client_name, is_successful, created_at, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())''',
+            (user_id, fee_component_id, 
+             current_session_id,
+             installment_plan_id,
+             amount, app_type_req or 'N/A', reference_no, receipt_no, 
+             status, payment_type, data.get('client_name') or 'N/A', is_successful)
+        )
         
         if not success:
             return jsonify({'message': 'Failed to save payment transaction'}), 500
             
-        # If acceptance fee paid, advance app_stage from 'admitted' → 'accepted'
-        if status == 'completed' and payment_type == 'acceptance_fee':
+        if is_successful and payment_type == 'application_fee':
             Database.execute_update(
-                """UPDATE applications
-                   SET app_stage = 'accepted', updated_at = NOW()
-                   WHERE user_id = %s AND app_stage = 'admitted'""",
+                "UPDATE users SET user_type_id = 2, updated_at = NOW() WHERE id = %s",
                 (user_id,)
             )
-            
-        # Prepare receipt data
-        transaction_id = reference_id or f"PAY-{uuid.uuid4().hex[:12].upper()}"
+
+        # If acceptance fee paid, advance applicant_stage from 'admitted' → 'accepted'
+        if is_successful and payment_type == 'acceptance_fee':
+            Database.execute_update(
+                """UPDATE applications
+                   SET applicant_stage = 'accepted', updated_at = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'admitted'""",
+                (user_id,)
+            )
         
         return jsonify({
             'message': 'Payment processed successfully',
-            'transaction_id': transaction_id,
-            'applicant_id': applicant_id,
+            'reference_no': reference_no,
+            'receipt_no': receipt_no,
             'payment_type': payment_type,
             'amount': amount,
-            'status': 'completed',
-            'completed_at': datetime.now().isoformat(),
+            'is_successful': is_successful,
+            'created_at': datetime.now().isoformat(),
             'upgraded_to_student': False,
             'initial_password': None
         }), 200
@@ -1398,58 +1382,53 @@ def process_payment(payload):
         print(f"Payment processing error: {e}")
         return jsonify({'message': 'Error processing payment'}), 500
 
-@applicant_bp.route('/payment-receipt/<int:transaction_id>', methods=['GET'])
+@applicant_bp.route('/payment-receipt/<receipt_no>', methods=['GET'])
 @AuthHandler.token_required
-def get_payment_receipt(payload, transaction_id):
+def get_payment_receipt(payload, receipt_no):
     """Download payment receipt as PDF"""
     user_id = payload['user_id']
     
     # Get transaction and verify ownership
     transaction = Database.execute_query(
-        '''SELECT pt.id, pt.applicant_id, pt.payment_type, pt.amount, pt.created_at, 
-                  pt.reference_id, pt.payment_method
+        '''SELECT pt.id, pt.user_id, pt.tran_type, pt.amount, pt.created_at, 
+                  pt.reference_no, pt.receipt_no, pt.client_name
            FROM payment_transactions pt
-           JOIN applicants a ON pt.applicant_id = a.id
-           WHERE pt.id = %s AND a.user_id = %s''',
-        (transaction_id, user_id)
+           WHERE pt.receipt_no = %s AND pt.user_id = %s''',
+        (receipt_no, user_id)
     )
     
     if not transaction:
         return jsonify({'message': 'Payment receipt not found'}), 404
     
     trans_data = transaction[0]
-    applicant_id = trans_data['applicant_id']
     
-    # Get applicant and program info
-    applicant = Database.execute_query(
-        '''SELECT u.name, pt.name as program_name
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           LEFT JOIN applications app ON a.user_id = app.user_id
-           LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.id = %s
+    # Get user and program info
+    user = Database.execute_query(
+        '''SELECT u.name
+           FROM users u
+           WHERE u.id = %s
            LIMIT 1''',
-        (applicant_id,)
+        (user_id,)
     )
     
-    if not applicant:
-        return jsonify({'message': 'Applicant not found'}), 404
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
     
-    applicant_data = applicant[0]
+    user_data = user[0]
     
     # Generate PDF receipt
-    receipt_id = f"RCP-{trans_data['id']:06d}"
+    receipt_id = trans_data['receipt_no']
     payment_date = trans_data['created_at'].strftime('%d %B %Y') if trans_data['created_at'] else datetime.now().strftime('%d %B %Y')
     
     pdf_bytes = PaymentReceiptGenerator.generate_payment_receipt_pdf(
         receipt_id=receipt_id,
-        applicant_name=applicant_data['name'],
-        program_name=applicant_data['program_name'] or 'N/A',
-        payment_type=trans_data['payment_type'],
+        applicant_name=user_data['name'],
+        program_name=trans_data['client_name'] or 'N/A',
+        payment_type=trans_data['tran_type'],
         amount=float(trans_data['amount']),
         payment_date=payment_date,
-        reference_number=trans_data['reference_id'] or '',
-        payment_method=trans_data['payment_method'] or 'Online',
+        reference_number=trans_data['reference_no'] or '',
+        payment_method='Online',
         currency='NGN'
     )
     
@@ -1467,13 +1446,13 @@ def get_medical_form(payload):
     
     # Get applicant and verify document download eligibility
     applicant = Database.execute_query(
-        '''SELECT a.id, u.name, pt.name as program_name, 
+        '''SELECT app.id, u.name, pt.name as program_name,
                   TRUE as has_paid_acceptance_fee, TRUE as has_paid_tuition
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           LEFT JOIN applications app ON a.user_id = app.user_id
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.user_id = %s
+           WHERE app.user_id = %s
+           ORDER BY app.updated_at DESC
            LIMIT 1''',
         (user_id,)
     )
@@ -1546,35 +1525,17 @@ def get_affidavit_form(payload):
 @applicant_bp.route('/payment-history', methods=['GET'])
 @AuthHandler.token_required
 def get_payment_history(payload):
-    """Get payment history for the applicant"""
+    """Get payment history for the user"""
     user_id = payload['user_id']
-    
-    # Get applicant
-    applicant = Database.execute_query(
-        'SELECT id FROM applicants WHERE user_id = %s',
-        (user_id,)
-    )
-    
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found'}), 404
-    
-    applicant_id = applicant[0]['id']
-    
-    # Get current session from settings for fallback
-    settings_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
-    current_session = settings_res[0]['value'] if settings_res else '2025/2026'
 
-    # Get payment history (using recorded metadata from the transaction table)
+    # Get payment history using new schema
     transactions = Database.execute_query(
-        '''SELECT pt.id, pt.payment_type, pt.amount, pt.status, pt.payment_method, pt.reference_id, 
-                  pt.created_at, pt.completed_at, 
-                  COALESCE(pt.session, %s) as session, 
-                  COALESCE(pt.program_name, 'N/A') as program_name, 
-                  COALESCE(pt.app_type, 'N/A') as app_type
+        '''SELECT pt.id, pt.tran_type, pt.amount, pt.is_successful, pt.reference_no, pt.receipt_no, 
+                  pt.created_at, pt.client_name
            FROM payment_transactions pt
-           WHERE pt.applicant_id = %s
+           WHERE pt.user_id = %s
            ORDER BY pt.created_at DESC''',
-        (current_session, applicant_id)
+        (user_id,)
     )
     
     # Format transactions
@@ -1582,16 +1543,13 @@ def get_payment_history(payload):
     for trans in (transactions or []):
         formatted_transactions.append({
             'transaction_id': trans['id'],
-            'payment_type': trans['payment_type'],
+            'payment_type': trans['tran_type'],
             'amount': float(trans['amount']),
-            'status': trans['status'],
-            'payment_method': trans['payment_method'],
-            'reference_id': trans['reference_id'],
+            'is_successful': trans['is_successful'],
+            'reference_no': trans['reference_no'],
+            'receipt_no': trans['receipt_no'],
             'created_at': trans['created_at'].isoformat() if trans['created_at'] else None,
-            'completed_at': trans['completed_at'].isoformat() if trans['completed_at'] else None,
-            'session': trans['session'] or 'N/A',
-            'program_name': trans['program_name'] or 'N/A',
-            'app_type': trans['app_type'] or 'N/A'
+            'client_name': trans['client_name'] or 'N/A'
         })
     
     return jsonify({
@@ -1605,28 +1563,26 @@ def get_recommendations(payload):
     """Get recommended courses for the applicant"""
     user_id = payload['user_id']
     
-    # Get applicant
-    applicant = Database.execute_query(
-        'SELECT id FROM applicants WHERE user_id = %s',
+    application = Database.execute_query(
+        'SELECT id FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
         (user_id,)
     )
     
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found'}), 404
+    if not application:
+        return jsonify({'message': 'Application record not found'}), 404
     
-    applicant_id = applicant[0]['id']
+    application_id = application[0]['id']
     
-    # Get all reviews with recommendations for this applicant
+    # Get all reviews with recommendations for this application
     recommendations = Database.execute_query(
         '''SELECT ar.id, ar.review_notes, ar.recommended_program_id, p.name as program_name,
                   ar.reviewed_at, ar.reviewed_by, u.name as reviewed_by_name,
-                  a.recommended_course_response, a.accepted_recommended_program_id
+                  ar.recommended_course_response, ar.accepted_recommended_program_id
            FROM application_reviews ar
            LEFT JOIN programs p ON ar.recommended_program_id = p.id
            LEFT JOIN users u ON ar.reviewed_by = u.id
-           LEFT JOIN applicants a ON a.id = %s
-           WHERE ar.applicant_id = %s AND ar.recommendation = %s''',
-        (applicant_id, applicant_id, 'recommend_other_program')
+           WHERE ar.application_id = %s AND ar.recommendation = %s''',
+        (application_id, 'recommend_other_program')
     )
     
     # Format recommendations
@@ -1665,21 +1621,21 @@ def respond_to_recommendation(payload):
         return jsonify({'message': 'response must be either "accepted" or "declined"'}), 400
     
     # Verify ownership and get review details
-    applicant = Database.execute_query(
-        'SELECT id FROM applicants WHERE user_id = %s',
+    application = Database.execute_query(
+        'SELECT id FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
         (user_id,)
     )
     
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found'}), 404
+    if not application:
+        return jsonify({'message': 'Application record not found'}), 404
     
-    applicant_id = applicant[0]['id']
+    applicant_id = application[0]['id']
     
     # Get the review to verify it exists and get program details
     review = Database.execute_query(
-        '''SELECT ar.id, ar.applicant_id, ar.recommended_program_id
+        '''SELECT ar.id, ar.application_id, ar.recommended_program_id
            FROM application_reviews ar
-           WHERE ar.id = %s AND ar.applicant_id = %s''',
+           WHERE ar.id = %s AND ar.application_id = %s''',
         (review_id, applicant_id)
     )
     

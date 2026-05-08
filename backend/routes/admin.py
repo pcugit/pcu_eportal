@@ -74,7 +74,7 @@ def get_application_details(payload, applicant_id):
     
     # Get application form comprehensively
     application_id = applicant_id
-    pi_res = Database.execute_query('SELECT * FROM app_personal_info WHERE application_id = %s', (application_id,))
+    pi_res = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
     nok_res = Database.execute_query('SELECT * FROM app_next_of_kin WHERE application_id = %s', (application_id,))
     sponsor_res = Database.execute_query('SELECT * FROM app_sponsor WHERE application_id = %s', (application_id,))
     
@@ -163,11 +163,10 @@ def get_application_details(payload, applicant_id):
     # Get review history
     reviews = Database.execute_query(
         '''SELECT ar.id, ar.reviewed_by, u.name as reviewed_by_name, ar.review_notes,
-                  ar.decision, ar.recommendation as recommended_program_id, p.name as recommended_program,
+                  ar.decision, ar.recommendation as recommended_program_id,
                   ar.reviewed_at
            FROM application_reviews ar
            LEFT JOIN users u ON ar.reviewed_by = u.id
-           LEFT JOIN programs p ON ar.recommendation = p.id
            WHERE ar.application_id = %s
            ORDER BY ar.reviewed_at DESC''',
         (applicant_id,)
@@ -296,7 +295,7 @@ def send_admission_letter(payload):
         other_fees_str = f"₦{other_fees:,.2f}"
     
     # Get dynamic session
-    session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+    session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     default_session = session_res[0]['value'] if session_res else '2025/2026'
 
     # Generate PDF using the selected template
@@ -318,10 +317,10 @@ def send_admission_letter(payload):
         body_html=''
     )
     
-    # Update admission status
+    # Mark admission letter as sent on the application record
     Database.execute_update(
-        'UPDATE applicants SET admission_status = %s WHERE id = %s',
-        ('admitted', applicant_id)
+        'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+        (applicant_id,)
     )
     
     # Send email with PDF attachment
@@ -464,14 +463,13 @@ def send_batch_letters(payload):
             
             # Get applicant details
             applicant = Database.execute_query(
-                '''SELECT u.id, u.name, u.email, app.prog_type as program_id, 
-                   pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty, 
+                '''SELECT u.id, u.name, u.email, app.prog_type as program_id,
+                   pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty,
                    pt.name as mode, app.session, 'TBD' as resumption_date
-                   FROM applicants a
-                   JOIN users u ON a.user_id = u.id
-                   LEFT JOIN applications app ON a.user_id = app.user_id
+                   FROM applications app
+                   JOIN users u ON app.user_id = u.id
                    LEFT JOIN program_types pt ON app.prog_type = pt.id
-                   WHERE a.id = %s AND a.application_status = %s''',
+                   WHERE app.id = %s AND app.app_stage = %s''',
                 (applicant_id, 'accepted')
             )
             
@@ -516,10 +514,10 @@ def send_batch_letters(payload):
                 body_html=''
             )
             
-            # Update admission status
+            # Mark admission letter as sent
             Database.execute_update(
-                'UPDATE applicants SET admission_status = %s WHERE id = %s',
-                ('admitted', applicant_id)
+                'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+                (applicant_id,)
             )
             
             # Add to batch list
@@ -643,10 +641,10 @@ def revoke_admission(payload):
     
     applicant_id = data['applicant_id']
     
-    # Update admission status
+    # Update admission status on the applications table
     success = Database.execute_update(
-        'UPDATE applicants SET admission_status = %s WHERE id = %s',
-        ('admission_revoked', applicant_id)
+        "UPDATE applications SET app_stage = 'rejected', updated_at = NOW() WHERE id = %s",
+        (applicant_id,)
     )
     
     if not success:
@@ -924,8 +922,8 @@ def send_department_letters(payload):
                     tuition_fee_str = f"₦{tuition_fee:,.2f}"
                     other_fees_str = f"₦{other_fees:,.2f}"
                 
-                # Get dynamic session
-                session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+                # Get dynamic session from academic_sessions table
+                session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
                 default_session = session_res[0]['value'] if session_res else '2025/2026'
 
                 # Generate PDF
@@ -1058,13 +1056,13 @@ def send_department_letters(payload):
 @AuthHandler.admissions_officer_required
 def get_letter_status_summary(payload):
     """Get summary of all letter statuses: sent, failed, pending"""
-    query = '''SELECT a.id, u.name, u.email, p.name as program_name, 
+    query = '''SELECT app.id, u.name, u.email, pt.name as program_name,
                 alt.status, alt.sent_at, alt.error_message, alt.retry_count
-            FROM applicants a
-            JOIN users u ON a.user_id = u.id
-            LEFT JOIN programs p ON a.program_id = p.id
-            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
-            WHERE a.application_status = 'accepted'
+            FROM applications app
+            JOIN users u ON app.user_id = u.id
+            LEFT JOIN program_types pt ON app.prog_type = pt.id
+            LEFT JOIN admission_letter_tracking alt ON app.id = alt.applicant_id
+            WHERE app.app_stage = 'accepted'
             ORDER BY alt.status, alt.sent_at DESC'''
     
     results = Database.execute_query(query)
@@ -1128,16 +1126,13 @@ def resend_letter(payload, applicant_id):
         
         # Get applicant
         applicant = Database.execute_query(
-            '''SELECT u.id, u.name, u.email, a.program_id, 
-               p.name as program_name, p.level, d.name as department, f.name as faculty, 
-               pt.name as mode, p.session, p.resumption_date
-               FROM applicants a
-               JOIN users u ON a.user_id = u.id
-               LEFT JOIN programs p ON a.program_id = p.id
-               LEFT JOIN departments d ON p.department_id = d.id
-               LEFT JOIN faculties f ON d.faculty_id = f.id
-               LEFT JOIN program_types pt ON p.program_type_id = pt.id
-               WHERE a.id = %s AND a.application_status = %s''',
+            '''SELECT u.id, u.name, u.email, app.prog_type as program_id,
+               pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty,
+               pt.name as mode, app.session, 'TBD' as resumption_date
+               FROM applications app
+               JOIN users u ON app.user_id = u.id
+               LEFT JOIN program_types pt ON app.prog_type = pt.id
+               WHERE app.id = %s AND app.app_stage = %s''',
             (applicant_id, 'accepted')
         )
         
@@ -1276,16 +1271,13 @@ def preview_letter(payload, applicant_id):
         
         # Get applicant
         applicant = Database.execute_query(
-            '''SELECT u.id, u.name, u.email, a.program_id, 
-               p.name as program_name, p.level, d.name as department, f.name as faculty, 
-               pt.name as mode, p.session, p.resumption_date
-               FROM applicants a
-               JOIN users u ON a.user_id = u.id
-               LEFT JOIN programs p ON a.program_id = p.id
-               LEFT JOIN departments d ON p.department_id = d.id
-               LEFT JOIN faculties f ON d.faculty_id = f.id
-               LEFT JOIN program_types pt ON p.program_type_id = pt.id
-               WHERE a.id = %s AND a.application_status = %s''',
+            '''SELECT u.id, u.name, u.email, app.prog_type as program_id,
+               pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty,
+               pt.name as mode, app.session, 'TBD' as resumption_date
+               FROM applications app
+               JOIN users u ON app.user_id = u.id
+               LEFT JOIN program_types pt ON app.prog_type = pt.id
+               WHERE app.id = %s AND app.app_stage = %s''',
             (applicant_id, 'accepted')
         )
         
@@ -1352,14 +1344,21 @@ def preview_letter(payload, applicant_id):
 def get_programs(payload):
     """Retrieve all academic programs for management"""
     programs = Database.execute_query(
-        '''SELECT p.*, pf.acceptance_fee, pf.tuition_fee, pf.other_fees, 
-           d.name as department, f.name as faculty, pt.name as mode
-           FROM programs p
-           LEFT JOIN departments d ON p.department_id = d.id
-           LEFT JOIN faculties f ON d.faculty_id = f.id
-           LEFT JOIN program_types pt ON p.program_type_id = pt.id
-           LEFT JOIN program_fees pf ON p.id = pf.program_id
-           ORDER BY p.name'''
+        '''SELECT 
+            pt.id               AS program_type_id,
+            pt.name             AS program_type,
+            d.id                AS department_id,
+            d.name              AS course,
+            dg.name             AS degree,
+            dy.years            AS duration
+        FROM program_setup ps
+        JOIN degree_program dp      ON ps.degree_program_id = dp.id
+        JOIN program_types pt       ON dp.program_type_id   = pt.id
+        JOIN degrees dg             ON dp.degree_id         = dg.id
+        JOIN departments d          ON ps.department_id     = d.id
+        JOIN duration_years dy      ON dp.duration_id       = dy.id
+        WHERE ps.is_active = TRUE
+        ORDER BY pt.name, d.name;'''
     )
     return jsonify({'programs': programs or []}), 200
 
@@ -1437,7 +1436,7 @@ def update_program(payload, program_id):
 
     try:
         Database.execute_update(
-            f"UPDATE programs SET {', '.join(updates)}, updated_at = NOW() WHERE id = %s",
+            f"UPDATE program_setup SET {', '.join(updates)}, updated_at = NOW() WHERE id = %s",
             tuple(params)
         )
         return jsonify({'message': 'Program updated successfully'}), 200
@@ -1452,11 +1451,11 @@ def get_students(payload):
     program_id = request.args.get('program_id')
     level = request.args.get('level')
     
-    query = '''SELECT s.id, u.name, u.email, s.matric_number, p.name as program_name, 
+    query = '''SELECT s.id, u.name, u.email, s.matric_number, pt.name as program_name,
                       s.current_level, s.session, s.is_first_login
-               FROM students s 
-               JOIN users u ON s.user_id = u.id 
-               LEFT JOIN programs p ON s.program_id = p.id
+               FROM students s
+               JOIN users u ON s.user_id = u.id
+               LEFT JOIN program_types pt ON s.program_id = pt.id
                WHERE 1=1'''
     params = []
     
@@ -1476,7 +1475,7 @@ def get_students(payload):
 def get_student_registration(payload, student_id):
     """View a student's course registration details"""
     # Get dynamic session
-    session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+    session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     default_session = session_res[0]['value'] if session_res else '2025/2026'
 
     semester = request.args.get('semester', 'First')

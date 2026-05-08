@@ -55,22 +55,22 @@ def signup():
     
     password_hash = AuthHandler.hash_password(data['password'])
     
-    # Insert — new schema has only 'name', no first_name/last_name columns
+    import random
+    base_username = data['email'].split('@')[0][:40]
+    generated_username = f"{base_username}{random.randint(1000, 9999)}"
+
+    # Insert into new schema
+    # Use user_type_id 1 (freshapplicant) until a form is purchased
     user_id = Database.execute_update(
-        'INSERT INTO users (name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-        (full_name, data['email'], password_hash, data['phone_number'], 'applicant'),
+        'INSERT INTO users (firstname, surname, middlename, email, password_hash, phone_number, user_type_id, username) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
+        (first_name, last_name, middle_name, data['email'], password_hash, data['phone_number'], 1, generated_username),
         return_id=True
     )
     
     if not user_id:
         return jsonify({'message': 'Failed to create account'}), 500
  
-    Database.execute_update(
-        'INSERT INTO applicants (user_id, first_name, last_name, middle_name, phone) VALUES (%s, %s, %s, %s, %s)',
-        (user_id, first_name, last_name, middle_name, data['phone_number'])
-    )
-    
-    token = AuthHandler.generate_token(user_id, 'applicant')
+    token = AuthHandler.generate_token(user_id, 'freshapplicant')
     
     return jsonify({
         'message': 'Account created successfully',
@@ -82,6 +82,7 @@ def signup():
             'name': full_name,
             'email': data['email'],
             'phone_number': data['phone_number'],
+            'username': generated_username,
             'role': 'applicant'
         }
     }), 201
@@ -94,9 +95,14 @@ def login():
     if not data or not all(k in data for k in ['email', 'password']):
         return jsonify({'message': 'Missing email or password'}), 400
     
-    # Query user by email or username — new schema has no first_name/last_name
+    # Query user by email or username, joining user_types and roles to get the role string
     users = Database.execute_query(
-        'SELECT id, name, email, username, password_hash, role, status, phone_number FROM users WHERE email = %s OR username = %s',
+        '''SELECT u.id, u.firstname, u.surname, u.middlename, u.email, u.username, 
+                  u.password_hash, u.user_type_id, u.phone_number, r.name AS role 
+           FROM users u
+           LEFT JOIN user_types ut ON ut.id = u.user_type_id
+           LEFT JOIN roles r ON r.id = ut.role_id
+           WHERE u.email = %s OR u.username = %s''',
         (data['email'], data['email'])
     )
     
@@ -105,35 +111,46 @@ def login():
     
     user = users[0]
     
-    if user['status'] != 'active':
-        return jsonify({'message': 'Account is inactive or suspended'}), 403
-    
     if not AuthHandler.verify_password(data['password'], user['password_hash']):
         return jsonify({'message': 'Invalid credentials'}), 401
     
-    token = AuthHandler.generate_token(user['id'], user['role'])
+    # Extract role directly from the query result
+    # Fallback to 'freshapplicant' if role is not set or the join failed
+    raw_role = user.get('role')
+    if raw_role:
+        role = raw_role.lower()  # Normalize to lower case for token and logic ('freshapplicant', 'applicant', 'student')
+    else:
+        user_type_id = user.get('user_type_id', 1)
+        if user_type_id == 1:
+            role = 'freshapplicant'
+        elif user_type_id == 2:
+            role = 'applicant'
+        else:
+            role = 'applicant' # fallback
+
+    token = AuthHandler.generate_token(user['id'], role)
     
-    # Derive first_name / last_name from the single 'name' field for frontend compatibility
-    name_parts = (user['name'] or '').split(' ', 1)
-    first_name = name_parts[0]
-    last_name  = name_parts[1] if len(name_parts) > 1 else ''
+    first_name = user.get('firstname', '')
+    last_name = user.get('surname', '')
+    middle_name = user.get('middlename', '')
+    full_name = f"{first_name} {middle_name} {last_name}".replace("  ", " ").strip()
 
     # Get applicant or student status
     extra_data = {}
-    if user['role'] == 'applicant':
-        applicants = Database.execute_query(
-            'SELECT id FROM applicants WHERE user_id = %s',
+    if role == 'applicant':
+        applications = Database.execute_query(
+            'SELECT id, applicant_stage FROM applications WHERE user_id = %s',
             (user['id'],)
         )
-        if applicants:
-            extra_data['applicant'] = applicants[0]
+        if applications:
+            extra_data['applicant'] = applications[0]
             
-            # Pull academic session from system settings
-            session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+            # Pull academic session from academic_sessions table
+            session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
             if session_res:
                 extra_data['applicant']['session'] = session_res[0]['value']
             
-    elif user['role'] == 'student':
+    elif role == 'student':
         students = Database.execute_query(
             '''SELECT s.id, s.matric_number, s.program_id, s.current_level, s.session, s.is_first_login, p.name as program_name 
                FROM students s 
@@ -149,13 +166,13 @@ def login():
         'token': token,
         'user': {
             'id': user['id'],
-            'name': user['name'],
+            'name': full_name,
             'first_name': first_name,
             'last_name': last_name,
             'email': user['email'],
             'phone_number': user.get('phone_number'),
             'username': user.get('username'),
-            'role': user['role']
+            'role': role
         },
         **extra_data
     }), 200
@@ -167,7 +184,12 @@ def verify_token(payload):
     user_id = payload['user_id']
     
     user = Database.execute_query(
-        'SELECT id, name, email, username, role, phone_number FROM users WHERE id = %s',
+        '''SELECT u.id, u.firstname, u.surname, u.middlename, u.email, u.username, 
+                  u.user_type_id, u.phone_number, r.name AS role 
+           FROM users u
+           LEFT JOIN user_types ut ON ut.id = u.user_type_id
+           LEFT JOIN roles r ON r.id = ut.role_id
+           WHERE u.id = %s''',
         (user_id,)
     )
     
@@ -175,27 +197,39 @@ def verify_token(payload):
         return jsonify({'message': 'User not found'}), 404
         
     user_data = user[0]
+    
+    raw_role = user_data.get('role')
+    if raw_role:
+        role = raw_role.lower()
+    else:
+        user_type_id = user_data.get('user_type_id', 1)
+        if user_type_id == 1:
+            role = 'freshapplicant'
+        elif user_type_id == 2:
+            role = 'applicant'
+        else:
+            role = 'applicant'
 
-    # Derive first_name / last_name from the single 'name' field for frontend compatibility
-    name_parts = (user_data['name'] or '').split(' ', 1)
-    first_name = name_parts[0]
-    last_name  = name_parts[1] if len(name_parts) > 1 else ''
+    first_name = user_data.get('firstname', '')
+    last_name = user_data.get('surname', '')
+    middle_name = user_data.get('middlename', '')
+    full_name = f"{first_name} {middle_name} {last_name}".replace("  ", " ").strip()
     
     extra_data = {}
-    if user_data['role'] == 'applicant':
-        applicants = Database.execute_query(
-            'SELECT id FROM applicants WHERE user_id = %s',
+    if role == 'applicant':
+        applications = Database.execute_query(
+            'SELECT id, applicant_stage FROM applications WHERE user_id = %s',
             (user_id,)
         )
-        if applicants:
-            extra_data['applicant'] = applicants[0]
+        if applications:
+            extra_data['applicant'] = applications[0]
             
-            # Pull academic session from system settings
-            session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+            # Pull academic session from academic_sessions table
+            session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
             if session_res:
                 extra_data['applicant']['session'] = session_res[0]['value']
             
-    elif user_data['role'] == 'student':
+    elif role == 'student':
         students = Database.execute_query(
             '''SELECT s.id, s.matric_number, s.program_id, s.current_level, s.session, s.is_first_login, p.name as program_name 
                FROM students s 
@@ -210,13 +244,13 @@ def verify_token(payload):
         'message': 'Token is valid',
         'user': {
             'id': user_data['id'],
-            'name': user_data['name'],
+            'name': full_name,
             'first_name': first_name,
             'last_name': last_name,
             'email': user_data['email'],
             'phone_number': user_data.get('phone_number'),
             'username': user_data.get('username'),
-            'role': user_data['role']
+            'role': role
         },
         **extra_data
     }), 200

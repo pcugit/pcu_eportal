@@ -576,15 +576,13 @@ INSERT INTO olevel_grades (grade) VALUES
 CREATE TABLE programs (
     id                  SERIAL          PRIMARY KEY,
     department_id       INTEGER         NOT NULL REFERENCES departments(id),
-    degree_id           INTEGER         NOT NULL REFERENCES degrees(id),
-    program_type_id     INTEGER         NOT NULL REFERENCES program_types(id),
-    duration_years      DECIMAL(3,1),                  -- e.g. 2.0, 4.0
+    degree_program_id   INTEGER         NOT NULL REFERENCES degree_program(id),
     is_active           BOOLEAN         DEFAULT TRUE,
 	created_at			TIMESTAMPTZ 	NOT NULL DEFAULT NOW(),
 	updated_at			TIMESTAMPTZ		NOT NULL DEFAULT NOW(),
 
     -- Prevent duplicate program combinations
-    CONSTRAINT uq_program UNIQUE (department_id, degree_id, program_type_id)
+    CONSTRAINT uq_program UNIQUE (department_id, degree_program_id)
 );
 
 UPDATE programs SET duration = 4 WHERE id = 1;
@@ -632,3 +630,17 @@ CREATE TABLE application_reviews (
 CREATE INDEX idx_app_reviews_application_id ON application_reviews(application_id);
 CREATE INDEX idx_app_reviews_reviewed_by    ON application_reviews(reviewed_by);
 CREATE INDEX idx_app_reviews_decision       ON application_reviews(decision);
+
+SELECT 
+    p.id AS program_id,
+    d.name AS department_name,
+    dg.name AS degree_name,
+    pt.name AS program_type_name,
+    dy.years AS duration
+FROM programs p
+JOIN departments d ON p.department_id = d.id
+JOIN degree_program dp ON p.degree_program_id = dp.id
+JOIN degrees dg ON dp.degree_id = dg.id
+JOIN program_types pt ON dp.program_type_id = pt.id
+JOIN duration_years dy ON dp.duration_id = dy.id
+ORDER BY d.name, dg.name, pt.name;

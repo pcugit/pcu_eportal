@@ -111,7 +111,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyToken = useCallback(async () => {
     try {
-      const response = await ApiClient.verifyToken() as { user: User; student?: StudentData; applicant?: ApplicantData };
+      const response = await ApiClient.verifyToken() as { token?: string; user: User; student?: StudentData; applicant?: ApplicantData };
+      // Save fresh token if backend returned one (role may have changed e.g. freshapplicant→applicant)
+      if (response.token) {
+        ApiClient.setToken(response.token);
+      }
       saveUserAndRole(response.user);
       
       if (response.applicant) {

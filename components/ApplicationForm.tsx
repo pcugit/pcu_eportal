@@ -225,6 +225,7 @@ export default function ApplicationForm({
   const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, any>>({});
   const [formId, setFormId] = useState<number | null>(null);
   const [availablePrograms, setAvailablePrograms] = useState<any[]>([]);
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
   const [olevelSubjects, setOlevelSubjects] = useState<any[]>([]);
   const [olevelGrades, setOlevelGrades] = useState<any[]>([]);
 
@@ -310,63 +311,67 @@ export default function ApplicationForm({
   // Load existing form data
   useEffect(() => {
     const loadExistingForm = async () => {
-      const initialData: Record<string, string> = {};
-      if (user) {
+    const initialData: Record<string, string> = {};
+    if (user) {
         initialData['email'] = user.email || '';
         initialData['phone_number'] = user.phone_number || '';
         if (user.name) {
-           const parts = user.name.split(' ');
-           initialData['first_name'] = parts[0] || '';
-           initialData['last_name'] = parts.slice(1).join(' ') || '';
+            const parts = user.name.split(' ');
+            initialData['first_name'] = parts[0] || '';
+            initialData['last_name'] = parts.slice(1).join(' ') || '';
         }
-      }
-      
-      setFormData(prev => ({ ...initialData, ...prev }));
+    }
 
-      if (!applicantId) return;
-      try {
+    setFormData(prev => ({ ...initialData, ...prev }));
+
+    if (!applicantId) return;
+    if (!ApiClient.getToken()) return;
+
+    try {
         const response: any = await ApiClient.getForm(applicantId);
         if (response.form) {
-          setFormId(response.form.id);
-          setFormData(prev => ({ ...prev, ...response.form }));
-          
-          if (response.form.olevel_results) {
-              try {
-                 const res = response.form.olevel_results;
-                 const parsed = typeof res === 'string' ? JSON.parse(res) : res;
-                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    // Ensure each sitting has 10 subjects for the UI
-                    const padded = parsed.map((exam: any) => ({
-                        ...exam,
-                        subjects: [
-                            ...(exam.subjects || []),
-                            ...Array.from({ length: Math.max(0, 10 - (exam.subjects?.length || 0)) }, () => ({ subject_id: '', grade_id: '' }))
-                        ].slice(0, 10)
-                    }));
-                    setOlevelExams(padded);
-                 }
-              } catch (e) {
-                 console.error("Failed to parse O'Level results:", e);
-              }
-          }
+            setFormId(response.form.id);
+            setFormData(prev => ({ ...prev, ...response.form }));
 
+            if (response.form.available_courses) {
+                setAvailableCourses(response.form.available_courses);
+            }
 
+            if (response.form.olevel_results) {
+                try {
+                    const res = response.form.olevel_results;
+                    const parsed = typeof res === 'string' ? JSON.parse(res) : res;
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        const padded = parsed.map((exam: any) => ({
+                            ...exam,
+                            subjects: [
+                                ...(exam.subjects || []),
+                                ...Array.from({ length: Math.max(0, 10 - (exam.subjects?.length || 0)) }, () => ({ subject_id: '', grade_id: '' }))
+                            ].slice(0, 10)
+                        }));
+                        setOlevelExams(padded);
+                    }
+                } catch (e) {
+                    console.error("Failed to parse O'Level results:", e);
+                }
+            }
         }
-          if (response.documents && response.documents.length > 0) {
+
+        if (response.documents && response.documents.length > 0) {
             const docs: Record<string, any> = {};
             response.documents.forEach((doc: any) => {
-              docs[doc.document_type] = doc;
+                docs[doc.document_type] = doc;
             });
             setUploadedDocuments(docs);
-          }
-          // If form exists, consider all steps up to the current one as reachable
-          if (response.form) {
-             setMaxStepReached(steps.length - 1);
-          }
-        } catch (err) {
-          console.error('Error loading form:', err);
         }
-      };
+
+        if (response.form) {
+            setMaxStepReached(steps.length - 1);
+        }
+    } catch (err) {
+        console.error('Error loading form:', err);
+    }
+};
       loadExistingForm();
     }, [applicantId, user, steps.length]);
 
@@ -757,66 +762,55 @@ export default function ApplicationForm({
                 </div>
             )}
             
-            {step.type === 'course' && (
-                <div className="space-y-6">
+{step.type === 'course' && (
+    <div className="space-y-6">
+        <div className="grid md:grid-cols-2 gap-8">
+            <div className="space-y-2">
+                <Label>First Choice Course*</Label>
+                <Select
+                    value={formData.first_choice_program_id?.toString() || ''}
+                    onValueChange={(val) => {
+                        setFormData(prev => ({ ...prev, first_choice_program_id: val }));
+                        setIsDirty(true);
+                    }}
+                >
+                    <SelectTrigger className="h-12 border-slate-200">
+                        <SelectValue placeholder="--SELECT--" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {availableCourses.map(p => (
+                            <SelectItem key={p.id} value={p.id.toString()}>
+                                {p.course} {p.department ? `(${p.department})` : ''}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
 
-                    <div className="grid md:grid-cols-2 gap-8">
-                        <div className="space-y-2">
-                            <Label className="text-sm font-medium text-slate-700">First Choice Course*</Label>
-                            <Select
-                                value={formData.first_choice_program_id?.toString() || ''}
-                                onValueChange={(val) => {
-                                    setFormData(prev => ({ ...prev, first_choice_program_id: val }));
-                                    setIsDirty(true);
-                                }}
-                            >
-                                <SelectTrigger className="h-12 border-slate-200">
-                                    <SelectValue placeholder="--SELECT--" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {availablePrograms
-                                        .filter(p => {
-                                            if (programTypeId) return Number(p.program_type_id) === Number(programTypeId);
-                                            const current = availablePrograms.find(ap => ap.department_id === programId);
-                                            return p.program_type === current?.program_type;
-                                        })
-                                        .map(p => (
-                                            <SelectItem key={p.department_id} value={p.department_id.toString()}>{p.course}</SelectItem>
-                                        ))
-                                    }
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-sm font-medium text-slate-700">Second Choice Course</Label>
-                            <Select
-                                value={formData.second_choice_program_id?.toString() || ''}
-                                onValueChange={(val) => {
-                                    setFormData(prev => ({ ...prev, second_choice_program_id: val }));
-                                    setIsDirty(true);
-                                }}
-                            >
-                                <SelectTrigger className="h-12 border-slate-200">
-                                    <SelectValue placeholder="--SELECT--" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {availablePrograms
-                                        .filter(p => {
-                                            if (programTypeId) return Number(p.program_type_id) === Number(programTypeId);
-                                            const current = availablePrograms.find(ap => ap.department_id === programId);
-                                            return p.program_type === current?.program_type;
-                                        })
-                                        .map(p => (
-                                            <SelectItem key={p.department_id} value={p.department_id.toString()}>{p.course}</SelectItem>
-                                        ))
-                                    }
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <div className="space-y-2">
+                <Label>Second Choice Course</Label>
+                <Select
+                    value={formData.second_choice_program_id?.toString() || ''}
+                    onValueChange={(val) => {
+                        setFormData(prev => ({ ...prev, second_choice_program_id: val }));
+                        setIsDirty(true);
+                    }}
+                >
+                    <SelectTrigger className="h-12 border-slate-200">
+                        <SelectValue placeholder="--SELECT--" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {availableCourses.map(p => (
+                            <SelectItem key={p.id} value={p.id.toString()}>
+                                {p.course} {p.department ? `(${p.department})` : ''}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+        </div>
+    </div>
+)}
             
             {step.type === 'documents' && (
               <div className="space-y-12">

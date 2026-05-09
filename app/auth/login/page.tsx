@@ -60,7 +60,7 @@ export default function LoginPage() {
     const role = user.role;
 
     // Admissions admin → admissions admin panel
-    if (role === "admissions_officer") {
+    if (role === "admissionofficer") {
       router.replace("e-portal/admission_officer/dashboard");
       return;
     }

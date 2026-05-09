@@ -75,7 +75,7 @@ def admissions_officer_required(f):
     """Decorator to protect admissions officer routes (Strictly Admissions Officer)"""
     @wraps(f)
     def decorated(payload, *args, **kwargs):
-        if payload.get('role') != 'admissions_officer':
+        if payload.get('role') != 'admissionofficer':
             return jsonify({'message': 'Admissions Officer access required'}), 403
         return f(payload, *args, **kwargs)
     return decorated

@@ -349,8 +349,6 @@ def submit_form(payload):
         
         application_id = app_res[0]['id']
         program_type_id = app_res[0]['prog_type']
-    
-    # No applicants table anymore; use the application_id directly for form records
     applicant_id = None
     program_id = program_type_id
 
@@ -399,7 +397,8 @@ def submit_form(payload):
             return None
         return val
 
-    # --- NEW SCHEMA: Save to biodata ---
+    # --- Save to biodata ---
+
     personal_info_fields = {
         'application_id': application_id,
         'surname': clean_val('last_name'),
@@ -452,7 +451,6 @@ def submit_form(payload):
 
 
 
-    # --- NEW SCHEMA: Save to next_of_kin ---
     nok_fields = {
         'application_id': application_id,
         'full_name': data.get('next_of_kin_name'),
@@ -481,7 +479,6 @@ def submit_form(payload):
         Database.execute_update(query, tuple(nok_values))
 
 
-    # --- NEW SCHEMA: Save to sponsor ---
     sponsor_fields = {
         'application_id': application_id,
         'full_name': data.get('sponsor_name'),
@@ -512,7 +509,7 @@ def submit_form(payload):
         Database.execute_update(query, tuple(sponsor_values))
 
 
-    # --- NEW SCHEMA: Save to academic_qualification (O'Level results) ---
+
     olevel_results_raw = data.get('olevel_results')
     if olevel_results_raw:
         try:
@@ -588,13 +585,11 @@ def submit_form(payload):
             print(f"Error saving O'Level results: {e}")
 
 
-    # Update application stage to 'in_progress' if it's still 'started'
     Database.execute_update(
         "UPDATE applications SET applicant_stage = 'in_progress', updated_at = NOW() WHERE id = %s AND applicant_stage = 'started'",
         (application_id,)
     )
 
-    # Sync program_id to applicants table removed (schema changed)
     first_choice = data.get('first_choice_program_id')
 
     return jsonify({
@@ -729,7 +724,7 @@ def download_document(payload, document_id):
     doc = Database.execute_query(
         '''SELECT d.file_url as file_path, d.file_type as mime_type, d.file_name as original_filename FROM documents d
            JOIN applications a ON d.application_id = a.id
-           WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin', 'ict_director', 'admissions_officer'))''',
+           WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin', 'ict_director', 'admissionofficer'))''',
         (document_id, user_id, role)
     )
 
@@ -757,7 +752,7 @@ def get_form(payload, applicant_id):
     
     # Try to find the application first (new schema)
     app_res = Database.execute_query(
-        'SELECT id FROM applications WHERE id = %s AND user_id = %s',
+        'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
         (applicant_id, user_id)
     )
     
@@ -879,22 +874,34 @@ def get_form(payload, applicant_id):
 
             
     if application_id:
-        # Fetch Programme Choices
+        # Fetch courses based on program type
+        prog_type = app_res[0].get('prog_type') if app_res else None
+        if prog_type:
+            pc_res = Database.execute_query(
+                '''SELECT DISTINCT
+                        ps.id,
+                        ps.name     AS course,
+                        d.id        AS department_id,
+                        d.name      AS department
+                FROM degree_program dp
+                JOIN program_setup ps   ON ps.degree_id     = dp.degree_id
+                JOIN departments d      ON d.id              = ps.department_id
+                WHERE dp.program_type_id = %s
+                ORDER BY d.name, ps.name''',
+                (int(prog_type),)
+            )
+            if pc_res:
+                form_data['available_courses'] = [dict(r) for r in pc_res]
+            else:
+                print(f"DEBUG: No courses found for prog_type={prog_type}")
+                form_data['available_courses'] = []
 
-        pc_res = Database.execute_query(
-            '''SELECT pc.*, d1.name as first_choice_name, d2.name as second_choice_name
-               FROM program_choice pc
-               LEFT JOIN departments d1 ON pc.first_choice = d1.id
-               LEFT JOIN departments d2 ON pc.second_choice = d2.id
-               WHERE pc.application_id = %s''',
-            (application_id,)
-        )
-        if pc_res:
-            pc_data = dict(pc_res[0])
-            form_data['first_choice_program_id'] = pc_data.get('first_choice')
-            form_data['second_choice_program_id'] = pc_data.get('second_choice')
-            form_data['first_choice_program_name'] = pc_data.get('first_choice_name')
-            form_data['second_choice_program_name'] = pc_data.get('second_choice_name')
+            print(f"DEBUG prog_type: {repr(prog_type)}")
+            # Clear legacy choice fields
+            form_data['first_choice_program_id'] = None
+            form_data['second_choice_program_id'] = None
+        form_data['first_choice_program_name'] = None
+        form_data['second_choice_program_name'] = None
 
     
     if form:

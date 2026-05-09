@@ -50,7 +50,7 @@ def get_applications(payload):
         'applications': applications or []
     }), 200
 
-@admin_bp.route('/application/<int:applicant_id>', methods=['GET'])
+@admin_bp.route('/application/<applicant_id>', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def get_application_details(payload, applicant_id):

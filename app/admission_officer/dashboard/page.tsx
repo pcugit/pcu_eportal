@@ -44,7 +44,7 @@ function activityDot(type: string) {
   return map[type] ?? "bg-amber-500";
 }
 
-/* ── Human-friendly timestamp ───────────────────────────────── */
+
 function friendlyTime(iso: string | null): string {
   if (!iso) return "—";
   const date = new Date(iso);
@@ -70,7 +70,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || user?.role !== "admissions_officer") {
+    if (!isAuthenticated || user?.role !== "admissionofficer") {
       router.replace("/staff/login");
       return;
     }

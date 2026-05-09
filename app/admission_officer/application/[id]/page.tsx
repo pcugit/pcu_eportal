@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import Image from "next/image";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -10,19 +9,11 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  BookOpen,
-  LogOut,
-  Download,
-  Check,
-  X,
-  AlertCircle,
-} from "lucide-react";
+import { Download, Check, X, AlertCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -32,51 +23,30 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-function ApplicantInfoTab({ applicant, form, documents }: { applicant: any; form: any; documents: any[] }) {
-  const [passportUrl, setPassportUrl] = useState<string | null>(null);
+// ─── Sub-components defined OUTSIDE the parent to prevent remounting ──────────
 
-  const passportDoc = documents?.find(d => 
-    d.document_type?.toLowerCase().includes('passport') || 
-    d.original_filename?.toLowerCase().includes('passport')
-  );
-
-  useEffect(() => {
-    if (passportDoc?.id) {
-      const fetchPassport = async () => {
-        try {
-          const token = localStorage.getItem('auth_token');
-          const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
-          const response = await fetch(`${baseUrl}/applicant/download-document/${passportDoc.id}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          
-          if (response.ok) {
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            setPassportUrl(url);
-          }
-        } catch (e) {
-          console.error("Failed to fetch passport", e);
-        }
-      };
-      fetchPassport();
-    }
-    return () => {
-      if (passportUrl) URL.revokeObjectURL(passportUrl);
-    };
-  }, [passportDoc?.id]);
-
-  let olevelResults = form?.olevel_results || [];
+function ApplicantInfoTab({
+  applicant,
+  form,
+  passportUrl,
+}: {
+  applicant: any;
+  form: any;
+  passportUrl: string | null;
+}) {
+  const olevelResults = form?.olevel_results || [];
 
   return (
     <div className="space-y-8 bg-white border border-slate-100 p-8 shadow-sm rounded-lg">
-      {/* Top Header Section with Passport */}
+      {/* Header with passport */}
       <div className="flex flex-col md:flex-row items-start gap-8 border-b border-slate-100 pb-8">
         <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-50 shrink-0">
           {passportUrl ? (
-            <img src={passportUrl} alt="Passport" className="w-full h-full object-cover" />
+            <img
+              src={passportUrl}
+              alt="Passport"
+              className="w-full h-full object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <span className="text-slate-400 text-sm">No Photo</span>
@@ -84,101 +54,494 @@ function ApplicantInfoTab({ applicant, form, documents }: { applicant: any; form
           )}
         </div>
         <div className="space-y-2 flex-1">
-          <h2 className="text-2xl font-bold text-slate-800 uppercase">{form?.full_name || applicant?.name}</h2>
+          <h2 className="text-2xl font-bold text-slate-800 uppercase">
+            {form?.full_name || applicant?.name}
+          </h2>
           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
-            <p><strong>Email:</strong> {form?.email || applicant?.email}</p>
-            <p><strong>Phone:</strong> {form?.phone_number || applicant?.phone_number}</p>
-            <p><strong>Gender:</strong> {form?.gender || 'N/A'}</p>
+            <p>
+              <strong>Email:</strong> {form?.email || applicant?.email}
+            </p>
+            <p>
+              <strong>Phone:</strong>{" "}
+              {form?.phone_number || applicant?.phone_number}
+            </p>
+            <p>
+              <strong>Gender:</strong> {form?.gender || "N/A"}
+            </p>
           </div>
           <div className="pt-2">
-             <Badge className="bg-[#6b357d] text-white">
-                {form?.first_choice_program_name || applicant?.program_name}
-             </Badge>
+            <Badge className="bg-[#6b357d] text-white">
+              {form?.first_choice_program_name || applicant?.program_name}
+            </Badge>
           </div>
         </div>
       </div>
 
       {/* Personal Details */}
       <div className="space-y-6">
-         <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">Personal Details</h3>
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <p className="text-sm"><span className="text-slate-500 block">Date of Birth</span> {form?.date_of_birth || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Place of Birth</span> {form?.place_of_birth || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Nationality</span> {form?.nationality || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">State of Origin</span> {form?.state || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">LGA</span> {form?.lga || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Religion</span> {form?.religion || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Blood Group</span> {form?.blood_group || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Genotype</span> {form?.genotype || 'N/A'}</p>
-            <p className="text-sm md:col-span-2"><span className="text-slate-500 block">Address</span> {form?.address || form?.contact_address || 'N/A'}</p>
-         </div>
+        <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">
+          Personal Details
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <p className="text-sm">
+            <span className="text-slate-500 block">Date of Birth</span>
+            {form?.date_of_birth || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Place of Birth</span>
+            {form?.place_of_birth || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Nationality</span>
+            {form?.nationality || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">State of Origin</span>
+            {form?.state || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">LGA</span>
+            {form?.lga || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Religion</span>
+            {form?.religion || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Blood Group</span>
+            {form?.blood_group || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Genotype</span>
+            {form?.genotype || "N/A"}
+          </p>
+          <p className="text-sm md:col-span-2">
+            <span className="text-slate-500 block">Address</span>
+            {form?.address || form?.contact_address || "N/A"}
+          </p>
+        </div>
       </div>
 
-      {/* Sponsor Details */}
+      {/* Sponsor */}
       <div className="space-y-6">
-         <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">Sponsor Information</h3>
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <p className="text-sm"><span className="text-slate-500 block">Name</span> {form?.sponsor_name || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Phone</span> {form?.sponsor_phone_number || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Relationship</span> {form?.sponsor_relationship || 'N/A'}</p>
-            <p className="text-sm md:col-span-2"><span className="text-slate-500 block">Address</span> {form?.sponsor_address || 'N/A'}</p>
-         </div>
+        <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">
+          Sponsor Information
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <p className="text-sm">
+            <span className="text-slate-500 block">Name</span>
+            {form?.sponsor_name || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Phone</span>
+            {form?.sponsor_phone_number || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Relationship</span>
+            {form?.sponsor_relationship || "N/A"}
+          </p>
+          <p className="text-sm md:col-span-2">
+            <span className="text-slate-500 block">Address</span>
+            {form?.sponsor_address || "N/A"}
+          </p>
+        </div>
       </div>
 
-      {/* Next of Kin Details */}
+      {/* Next of Kin */}
       <div className="space-y-6">
-         <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">Next of Kin Information</h3>
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <p className="text-sm"><span className="text-slate-500 block">Name</span> {form?.next_of_kin_name || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Phone</span> {form?.next_of_kin_phone_number || 'N/A'}</p>
-            <p className="text-sm md:col-span-1"><span className="text-slate-500 block">Address</span> {form?.next_of_kin_address || 'N/A'}</p>
-         </div>
+        <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">
+          Next of Kin Information
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <p className="text-sm">
+            <span className="text-slate-500 block">Name</span>
+            {form?.next_of_kin_name || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Phone</span>
+            {form?.next_of_kin_phone_number || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Address</span>
+            {form?.next_of_kin_address || "N/A"}
+          </p>
+        </div>
       </div>
 
-      {/* Program Choices */}
+      {/* Programme Choices */}
       <div className="space-y-6">
-         <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">Programme Choices</h3>
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <p className="text-sm"><span className="text-slate-500 block">First Choice</span> {form?.first_choice_program_name || 'N/A'}</p>
-            <p className="text-sm"><span className="text-slate-500 block">Second Choice</span> {form?.second_choice_program_name || 'N/A'}</p>
-         </div>
+        <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">
+          Programme Choices
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <p className="text-sm">
+            <span className="text-slate-500 block">First Choice</span>
+            {form?.first_choice_program_name || "N/A"}
+          </p>
+          <p className="text-sm">
+            <span className="text-slate-500 block">Second Choice</span>
+            {form?.second_choice_program_name || "N/A"}
+          </p>
+        </div>
       </div>
 
       {/* O'Level Results */}
       <div className="space-y-6">
-         <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">O'Level Results</h3>
-         {olevelResults.length > 0 ? (
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             {olevelResults.map((exam: any, idx: number) => (
-               <div key={idx} className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
-                 <div className="flex justify-between items-center mb-3">
-                   <h4 className="font-bold text-[#6b357d]">{exam.name || 'WAEC'} - Sitting {idx + 1}</h4>
-                 </div>
-                 <div className="text-xs text-slate-600 mb-3 space-y-1">
-                   <p><strong>Reg Number:</strong> {exam.number}</p>
-                   <p><strong>Exam Year:</strong> {exam.year}</p>
-                 </div>
-                 <table className="w-full text-left text-sm border-collapse">
-                   <tbody>
-                     {exam.subjects?.filter((s: any) => s.subject).map((s: any, sIdx: number) => (
-                       <tr key={sIdx} className="border-b border-slate-200 last:border-0">
-                         <td className="py-2 text-slate-700 uppercase">{s.subject}</td>
-                         <td className="py-2 text-right font-bold">{s.grade || '-'}</td>
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-               </div>
-             ))}
-           </div>
-         ) : (
-           <p className="text-sm text-slate-500 italic">No O'Level results uploaded.</p>
-         )}
+        <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-2">
+          O'Level Results
+        </h3>
+        {olevelResults.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {olevelResults.map((exam: any, idx: number) => (
+              <div
+                key={idx}
+                className="bg-slate-50 border border-slate-200 p-4 rounded-lg"
+              >
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="font-bold text-[#6b357d]">
+                    {exam.name || "WAEC"} — Sitting {idx + 1}
+                  </h4>
+                </div>
+                <div className="text-xs text-slate-600 mb-3 space-y-1">
+                  <p>
+                    <strong>Reg Number:</strong> {exam.number}
+                  </p>
+                  <p>
+                    <strong>Exam Year:</strong> {exam.year}
+                  </p>
+                </div>
+                <table className="w-full text-left text-sm border-collapse">
+                  <tbody>
+                    {exam.subjects
+                      ?.filter((s: any) => s.subject)
+                      .map((s: any, sIdx: number) => (
+                        <tr
+                          key={sIdx}
+                          className="border-b border-slate-200 last:border-0"
+                        >
+                          <td className="py-2 text-slate-700 uppercase">
+                            {s.subject}
+                          </td>
+                          <td className="py-2 text-right font-bold">
+                            {s.grade || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500 italic">
+            No O'Level results uploaded.
+          </p>
+        )}
       </div>
-
     </div>
   );
 }
+
+function DocumentsTab({
+  documents,
+}: {
+  documents: any[];
+}) {
+  const handleDownload = async (doc: any) => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const baseUrl =
+        process.env.NEXT_PUBLIC_API_URL ||
+        "http://localhost:5000/e-portal/api";
+      const res = await fetch(
+        `${baseUrl}/applicant/download-document/${doc.document_id || doc.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.original_filename || "document";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Download failed", e);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Uploaded Documents</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {documents?.length || 0} document(s) uploaded
+        </p>
+      </CardHeader>
+      <CardContent>
+        {documents && documents.length > 0 ? (
+          <div className="space-y-3">
+            {documents.map((doc) => (
+              <div
+                key={doc.document_id || doc.id}
+                className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{doc.original_filename}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+                    {(doc.document_type || "").replace(/_/g, " ")}
+                    {doc.file_size
+                      ? ` · ${(doc.file_size / 1024).toFixed(1)} KB`
+                      : ""}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-4 gap-1.5 shrink-0"
+                  onClick={() => handleDownload(doc)}
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            No documents uploaded
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReviewsTab({
+  application,
+  onReviewSuccess,
+}: {
+  application: ApplicationDetail;
+  onReviewSuccess: () => void;
+}) {
+  const [reviewing, setReviewing] = useState(false);
+  const [decision, setDecision] = useState<"accept" | "reject" | "recommend">("accept");
+  const [approvedCourse, setApprovedCourse] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
+
+  const applicantId = application.applicant.id;
+  const firstChoice  = application.form?.first_choice_program_name  as string | undefined;
+  const secondChoice = application.form?.second_choice_program_name as string | undefined;
+
+  // Existing decision already stored on the application row
+  const currentDecision     = application.applicant.decision      as string | undefined;
+  const currentApprovedCourse = application.applicant.approved_course as string | undefined;
+  const decisionDate        = application.applicant.decision_date  as string | undefined;
+
+  const needsCourse = decision === "accept" || decision === "recommend";
+
+  const handleReview = async () => {
+    if (needsCourse && !approvedCourse) {
+      setError("Please select the approved course before submitting.");
+      return;
+    }
+    setReviewing(true);
+    setError(null);
+    setReviewSuccess(null);
+    try {
+      await ApiClient.reviewApplication(
+        applicantId,
+        decision,
+        needsCourse ? approvedCourse : undefined
+      );
+      const labels: Record<string, string> = {
+        accept:    "Accepted",
+        reject:    "Rejected",
+        recommend: "Recommended",
+      };
+      setReviewSuccess(`Application ${labels[decision] || "reviewed"} successfully.`);
+      setApprovedCourse("");
+      setDecision("accept");
+      onReviewSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit review");
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const decisionColor = (d: string) =>
+    d === "accept"
+      ? "border-green-500 text-green-700 bg-green-50"
+      : d === "reject"
+      ? "border-red-500 text-red-700 bg-red-50"
+      : "border-blue-500 text-blue-700 bg-blue-50";
+
+  const decisionLabel = (d: string) =>
+    d === "accept" ? "Accepted" : d === "reject" ? "Rejected" : "Recommended";
+
+  const canReview =
+    application.applicant.application_status === "submitted" ||
+    application.applicant.application_status === "screening";
+
+  return (
+    <div className="space-y-6">
+
+      {/* ── Current decision summary ────────────────────────────────────── */}
+      {currentDecision && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Current Decision</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className={decisionColor(currentDecision)}>
+                {decisionLabel(currentDecision)}
+              </Badge>
+              {decisionDate && (
+                <span className="text-xs text-muted-foreground">
+                  on {new Date(decisionDate).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {currentApprovedCourse && (
+              <div className="text-sm">
+                <span className="text-slate-500">Approved Course: </span>
+                <span className="font-semibold text-slate-800">{currentApprovedCourse}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Success banner ──────────────────────────────────────────────── */}
+      {reviewSuccess && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-4 flex items-center gap-2">
+            <Check className="h-4 w-4 text-green-600" />
+            <p className="text-sm text-green-700 font-medium">{reviewSuccess}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Error banner ────────────────────────────────────────────────── */}
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="pt-4 flex gap-3">
+            <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
+            <p className="text-sm text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Review form ─────────────────────────────────────────────────── */}
+      {canReview && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add Review Decision</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Current status:{" "}
+              <span className="font-medium capitalize">
+                {application.applicant.application_status}
+              </span>
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+
+            {/* Decision buttons */}
+            <div className="grid grid-cols-3 gap-3">
+              {([
+                { value: "accept",    label: "Accept",    icon: "✓", cls: "border-green-300 bg-green-50 text-green-800 ring-green-400" },
+                { value: "reject",    label: "Reject",    icon: "✗", cls: "border-red-300 bg-red-50 text-red-800 ring-red-400" },
+                { value: "recommend", label: "Recommend", icon: "→", cls: "border-blue-300 bg-blue-50 text-blue-800 ring-blue-400" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  disabled={reviewing}
+                  onClick={() => { setDecision(opt.value); setApprovedCourse(""); }}
+                  className={`flex flex-col items-center gap-1 p-4 rounded-lg border-2 font-semibold text-sm transition-all ${
+                    decision === opt.value
+                      ? `${opt.cls} ring-2 ring-offset-1 shadow-sm`
+                      : "border-slate-200 text-slate-500 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="text-xl">{opt.icon}</span>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Approved course selector (accept / recommend) */}
+            {needsCourse && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium">
+                  {decision === "accept" ? "Accepted Course" : "Recommended Course"}
+                </label>
+                <Select
+                  value={approvedCourse}
+                  onValueChange={setApprovedCourse}
+                  disabled={reviewing}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select first or second choice course" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {firstChoice && (
+                      <SelectItem value={firstChoice}>
+                        1st Choice — {firstChoice}
+                      </SelectItem>
+                    )}
+                    {secondChoice && (
+                      <SelectItem value={secondChoice}>
+                        2nd Choice — {secondChoice}
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                {approvedCourse && (
+                  <p className="text-xs text-slate-500 pt-0.5">
+                    This will be recorded as the <strong>approved_course</strong> and <strong>finalised_course</strong>.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Submit */}
+            <div className="flex justify-end">
+              <Button
+                onClick={handleReview}
+                disabled={reviewing || (needsCourse && !approvedCourse)}
+                className={`gap-2 min-w-[180px] ${
+                  decision === "accept"
+                    ? "bg-green-600 hover:bg-green-700"
+                    : decision === "reject"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-blue-600 hover:bg-blue-700"
+                }`}
+              >
+                {reviewing ? (
+                  <><span className="animate-spin mr-1">⟳</span> Processing...</>
+                ) : decision === "accept" ? (
+                  <><Check className="h-4 w-4" /> Accept Application</>
+                ) : decision === "reject" ? (
+                  <><X className="h-4 w-4" /> Reject Application</>
+                ) : (
+                  <>→ Submit Recommendation</>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ApplicationDetail {
   applicant: any;
@@ -187,37 +550,48 @@ interface ApplicationDetail {
   reviews: any[];
 }
 
+// ─── Status helpers ───────────────────────────────────────────────────────────
+
+const statusColors: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800",
+  submitted: "bg-blue-100 text-blue-800",
+  screening: "bg-purple-100 text-purple-800",
+  admitted: "bg-green-100 text-green-800",
+  accepted: "bg-emerald-100 text-emerald-800",
+  rejected: "bg-red-100 text-red-800",
+};
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function ApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const applicantId = params?.id ? parseInt(params.id as string) : 0;
+
+  // Keep applicantId as a string — it's a UUID, not an integer
+  const applicantId = (params?.id as string) || "";
+
   const { user, isAuthenticated, logout } = useAuth();
 
-  const [application, setApplication] = useState<ApplicationDetail | null>(
-    null,
-  );
+  const [application, setApplication] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [reviewing, setReviewing] = useState(false);
-  const [decision, setDecision] = useState<"accept" | "reject" | "recommend">("accept");
-  const [reviewNotes, setReviewNotes] = useState("");
-  const [recommendedProgram, setRecommendedProgram] = useState<string>("");
-  const [programs, setPrograms] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
   const [sendingLetter, setSendingLetter] = useState(false);
   const [letterSent, setLetterSent] = useState(false);
+  const [passportUrl, setPassportUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admissions_officer") {
+    if (!isAuthenticated || user?.role !== "admissionofficer") {
       router.replace("/staff/login");
-      return;
     }
-
-    loadApplicationDetail();
-    loadPrograms();
   }, [isAuthenticated, user, router]);
 
-  const loadApplicationDetail = async () => {
+  // ── Load application data ───────────────────────────────────────────────────
+  const loadApplicationDetail = useCallback(async () => {
+    if (!applicantId || applicantId === "NaN" || applicantId === "") {
+      setError("Invalid application ID.");
+      setLoading(false);
+      return;
+    }
     try {
       const response = await ApiClient.getApplicationDetails(applicantId);
       setApplication(response as ApplicationDetail);
@@ -227,57 +601,68 @@ export default function ApplicationDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [applicantId]);
 
-  const loadPrograms = async () => {
-    try {
-      const response = await ApiClient.getPrograms();
-      // Build a unique department list for the recommendation dropdown
-      const depts = response.programs || [];
-      const seen = new Set<number>();
-      const unique = depts.filter((d: any) => {
-        if (seen.has(d.department_id)) return false;
-        seen.add(d.department_id);
-        return true;
-      }).map((d: any) => ({ id: d.department_id, name: d.course }));
-      setPrograms(unique);
-    } catch (err) {
-      console.error("Error loading programs:", err);
-    }
-  };
+  useEffect(() => {
+    loadApplicationDetail();
+  }, [loadApplicationDetail]);
 
-  const handleReview = async () => {
-    setReviewing(true);
+  useEffect(() => {
+    if (!application) return;
+
+    const passportDoc = application.documents?.find(
+      (d) =>
+        d.document_type?.toLowerCase().includes("passport") ||
+        d.original_filename?.toLowerCase().includes("passport")
+    );
+
+    const docId = passportDoc?.document_id || passportDoc?.id;
+    if (!docId) return;
+
+    let objectUrl: string | null = null;
+
+    const fetchPassport = async () => {
+      try {
+        const token = localStorage.getItem("auth_token");
+        const baseUrl =
+          process.env.NEXT_PUBLIC_API_URL ||
+          "http://localhost:5000/e-portal/api";
+        const response = await fetch(
+          `${baseUrl}/applicant/download-document/${docId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (response.ok) {
+          const blob = await response.blob();
+          objectUrl = URL.createObjectURL(blob);
+          setPassportUrl(objectUrl);
+        }
+      } catch (e) {
+        console.error("Failed to fetch passport", e);
+      }
+    };
+
+    fetchPassport();
+
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [application?.applicant?.id]);
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
+  const handleSendLetter = async () => {
+    setSendingLetter(true);
     setError(null);
-    setReviewSuccess(null);
-
     try {
-      const result = await ApiClient.reviewApplication(
-        applicantId,
-        decision,
-        reviewNotes,
-        decision === "recommend" ? parseInt(recommendedProgram) : undefined,
-      );
-
-      const labels: Record<string, string> = { accept: 'Accepted', reject: 'Rejected', recommend: 'Recommended for another program' };
-      setReviewSuccess(`Application ${labels[decision] || 'reviewed'} successfully.`);
-
-      // Refresh application
+      await ApiClient.sendAdmissionLetter(applicantId);
+      setLetterSent(true);
       await loadApplicationDetail();
-      setReviewNotes("");
-      setDecision("accept");
-      setRecommendedProgram("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to submit review";
-      setError(message);
+      setError(
+        err instanceof Error ? err.message : "Failed to send admission letter"
+      );
     } finally {
-      setReviewing(false);
+      setSendingLetter(false);
     }
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    router.replace("/staff/login");
   };
 
   if (loading) {
@@ -291,6 +676,7 @@ export default function ApplicationDetailPage() {
     );
   }
 
+
   if (!application) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -301,7 +687,7 @@ export default function ApplicationDetailPage() {
               Application Not Found
             </p>
             <p className="text-sm text-muted-foreground mb-6">
-              The application you're looking for could not be found.
+              {error || "The application you're looking for could not be found."}
             </p>
             <Link href="/admission_officer/applications">
               <Button>Go Back</Button>
@@ -312,35 +698,11 @@ export default function ApplicationDetailPage() {
     );
   }
 
-  const statusColors: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800",
-    submitted: "bg-blue-100 text-blue-800",
-    screening: "bg-purple-100 text-purple-800",
-    admitted: "bg-green-100 text-green-800",
-    accepted: "bg-emerald-100 text-emerald-800",
-    rejected: "bg-red-100 text-red-800",
-  };
-
-  const handleSendLetter = async () => {
-    setSendingLetter(true);
-    setError(null);
-    try {
-      await ApiClient.sendAdmissionLetter(applicantId);
-      setLetterSent(true);
-      await loadApplicationDetail();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send admission letter');
-    } finally {
-      setSendingLetter(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
-
-      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
+        {/* Back link */}
         <Link
           href="/admission_officer/applications"
           className="text-primary hover:underline text-sm mb-4 block"
@@ -348,6 +710,7 @@ export default function ApplicationDetailPage() {
           ← Back to Applications
         </Link>
 
+        {/* Page header */}
         <div className="mb-8">
           <div className="flex items-start justify-between mb-4">
             <div>
@@ -358,39 +721,56 @@ export default function ApplicationDetailPage() {
                 {application.applicant.email}
               </p>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <Badge className={statusColors[application.applicant.application_status] || 'bg-slate-100 text-slate-700'}>
-                {application.applicant.application_status.replace(/_/g, ' ')}
-              </Badge>
-            </div>
+            <Badge
+              className={
+                statusColors[application.applicant.application_status] ||
+                "bg-slate-100 text-slate-700"
+              }
+            >
+              {application.applicant.application_status.replace(/_/g, " ")}
+            </Badge>
           </div>
 
-          {/* Acceptance Fee Status Banner — shown for admitted or accepted applicants */}
-          {(application.applicant.application_status === 'admitted' ||
-            application.applicant.application_status === 'accepted') && (
-            <div className={`flex items-center justify-between p-4 rounded-xl border ${
-              application.applicant.has_paid_acceptance_fee
-                ? 'bg-green-50 border-green-200'
-                : 'bg-amber-50 border-amber-200'
-            }`}>
+          {/* Acceptance fee banner */}
+          {(application.applicant.application_status === "admitted" ||
+            application.applicant.application_status === "accepted") && (
+            <div
+              className={`flex items-center justify-between p-4 rounded-xl border ${
+                application.applicant.has_paid_acceptance_fee
+                  ? "bg-green-50 border-green-200"
+                  : "bg-amber-50 border-amber-200"
+              }`}
+            >
               <div className="flex items-center gap-3">
-                <div className={`w-3 h-3 rounded-full ${
-                  application.applicant.has_paid_acceptance_fee ? 'bg-green-500' : 'bg-amber-500'
-                }`} />
+                <div
+                  className={`w-3 h-3 rounded-full ${
+                    application.applicant.has_paid_acceptance_fee
+                      ? "bg-green-500"
+                      : "bg-amber-500"
+                  }`}
+                />
                 <div>
-                  <p className={`font-semibold text-sm ${
-                    application.applicant.has_paid_acceptance_fee ? 'text-green-800' : 'text-amber-800'
-                  }`}>
+                  <p
+                    className={`font-semibold text-sm ${
+                      application.applicant.has_paid_acceptance_fee
+                        ? "text-green-800"
+                        : "text-amber-800"
+                    }`}
+                  >
                     {application.applicant.has_paid_acceptance_fee
-                      ? 'Acceptance Fee Paid'
-                      : 'Awaiting Acceptance Fee Payment'}
+                      ? "Acceptance Fee Paid"
+                      : "Awaiting Acceptance Fee Payment"}
                   </p>
-                  <p className={`text-xs ${
-                    application.applicant.has_paid_acceptance_fee ? 'text-green-600' : 'text-amber-600'
-                  }`}>
+                  <p
+                    className={`text-xs ${
+                      application.applicant.has_paid_acceptance_fee
+                        ? "text-green-600"
+                        : "text-amber-600"
+                    }`}
+                  >
                     {application.applicant.has_paid_acceptance_fee
-                      ? 'Admission letter can now be sent to this applicant.'
-                      : 'The admission letter will be available once the applicant pays the acceptance fee.'}
+                      ? "Admission letter can now be sent to this applicant."
+                      : "The admission letter will be available once the applicant pays the acceptance fee."}
                   </p>
                 </div>
               </div>
@@ -401,7 +781,9 @@ export default function ApplicationDetailPage() {
                   className="bg-green-600 hover:bg-green-700 text-white gap-2"
                 >
                   {sendingLetter ? (
-                    <><span className="animate-spin">⟳</span> Sending...</>
+                    <>
+                      <span className="animate-spin">⟳</span> Sending...
+                    </>
                   ) : letterSent ? (
                     <>✓ Letter Sent</>
                   ) : (
@@ -413,6 +795,7 @@ export default function ApplicationDetailPage() {
           )}
         </div>
 
+        {/* Global error */}
         {error && (
           <Card className="mb-6 border-destructive/50 bg-destructive/5">
             <CardContent className="pt-6 flex gap-3">
@@ -422,7 +805,7 @@ export default function ApplicationDetailPage() {
           </Card>
         )}
 
-        {/* Applicant Info & Review Tabs */}
+        {/* Tabs */}
         <Tabs defaultValue="info" className="mb-8">
           <TabsList className="grid w-full max-w-md grid-cols-3">
             <TabsTrigger value="info">Information</TabsTrigger>
@@ -431,234 +814,23 @@ export default function ApplicationDetailPage() {
           </TabsList>
 
           <TabsContent value="info" className="space-y-6">
-            <ApplicantInfoTab applicant={application.applicant} form={application.form} documents={application.documents} />
+            {/* passportUrl lives in parent — never re-fetched on tab switch */}
+            <ApplicantInfoTab
+              applicant={application.applicant}
+              form={application.form}
+              passportUrl={passportUrl}
+            />
           </TabsContent>
 
           <TabsContent value="documents">
-            <Card>
-              <CardHeader>
-                <CardTitle>Uploaded Documents</CardTitle>
-                <p className="text-sm text-muted-foreground">{application.documents?.length || 0} document(s) uploaded</p>
-              </CardHeader>
-              <CardContent>
-                {application.documents && application.documents.length > 0 ? (
-                  <div className="space-y-3">
-                    {application.documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{doc.original_filename}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                            {(doc.document_type || '').replace(/_/g, ' ')}
-                            {doc.file_size ? ` · ${(doc.file_size / 1024).toFixed(1)} KB` : ''}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="ml-4 gap-1.5 shrink-0"
-                          onClick={async () => {
-                            try {
-                              const token = localStorage.getItem('auth_token');
-                              const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
-                              const res = await fetch(`${baseUrl}/applicant/download-document/${doc.id}`, {
-                                headers: { Authorization: `Bearer ${token}` }
-                              });
-                              if (!res.ok) throw new Error('Download failed');
-                              const blob = await res.blob();
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = doc.original_filename || 'document';
-                              document.body.appendChild(a);
-                              a.click();
-                              document.body.removeChild(a);
-                              URL.revokeObjectURL(url);
-                            } catch (e) {
-                              console.error('Download failed', e);
-                            }
-                          }}
-                        >
-                          <Download className="h-4 w-4" />
-                          Download
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground py-6 text-center">
-                    No documents uploaded
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <DocumentsTab documents={application.documents} />
           </TabsContent>
 
           <TabsContent value="reviews">
-            {/* Review History */}
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>Review History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {application.reviews && application.reviews.length > 0 ? (
-                  <div className="space-y-4">
-                    {application.reviews.map((review) => (
-                      <div
-                        key={review.id}
-                        className="border border-border rounded-lg p-4"
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <p className="font-medium">
-                              {review.reviewed_by_name}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(review.reviewed_at).toLocaleString()}
-                            </p>
-                          </div>
-                          <Badge
-                            variant="outline"
-                            className={
-                              review.decision === 'accept' ? 'border-green-500 text-green-700' :
-                              review.decision === 'reject' ? 'border-red-500 text-red-700' :
-                              'border-blue-500 text-blue-700'
-                            }
-                          >
-                            {review.decision === 'accept' ? 'Accepted' : review.decision === 'reject' ? 'Rejected' : 'Recommended'}
-                          </Badge>
-                        </div>
-                        {review.review_notes && (
-                          <p className="text-sm text-muted-foreground mt-2">
-                            {review.review_notes}
-                          </p>
-                        )}
-                        {review.recommended_program && (
-                          <p className="text-sm text-blue-600 mt-2">
-                            Recommended Program: {review.recommended_program}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No reviews yet
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Success banner */}
-            {reviewSuccess && (
-              <Card className="border-green-200 bg-green-50">
-                <CardContent className="pt-4 flex items-center gap-2">
-                  <Check className="h-4 w-4 text-green-600" />
-                  <p className="text-sm text-green-700 font-medium">{reviewSuccess}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Add Review — visible for submitted or screening applications */}
-            {(application.applicant.application_status === "submitted" ||
-              application.applicant.application_status === "screening") && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Add Review Decision</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Current status: <span className="font-medium capitalize">{application.applicant.application_status}</span>
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-5">
-
-                  {/* Decision selector */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { value: 'accept', label: 'Accept', icon: '✓', cls: 'border-green-300 bg-green-50 text-green-800 ring-green-400' },
-                      { value: 'reject', label: 'Reject', icon: '✗', cls: 'border-red-300 bg-red-50 text-red-800 ring-red-400' },
-                      { value: 'recommend', label: 'Recommend', icon: '→', cls: 'border-blue-300 bg-blue-50 text-blue-800 ring-blue-400' },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        disabled={reviewing}
-                        onClick={() => setDecision(opt.value as any)}
-                        className={`flex flex-col items-center gap-1 p-4 rounded-lg border-2 font-semibold text-sm transition-all ${
-                          decision === opt.value
-                            ? `${opt.cls} ring-2 ring-offset-1 shadow-sm`
-                            : 'border-slate-200 text-slate-500 hover:border-slate-300'
-                        }`}
-                      >
-                        <span className="text-xl">{opt.icon}</span>
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Recommended program picker — only shown for 'recommend' */}
-                  {decision === "recommend" && (
-                    <div className="space-y-1">
-                      <label className="text-sm font-medium">Recommended Program</label>
-                      <Select
-                        value={recommendedProgram}
-                        onValueChange={setRecommendedProgram}
-                        disabled={reviewing}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a program to recommend" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {programs.map((program) => (
-                            <SelectItem key={program.id} value={program.id.toString()}>
-                              {program.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {/* Notes */}
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium">Review Notes <span className="text-muted-foreground font-normal">(optional)</span></label>
-                    <textarea
-                      value={reviewNotes}
-                      onChange={(e) => setReviewNotes(e.target.value)}
-                      disabled={reviewing}
-                      className="w-full p-3 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                      rows={4}
-                      placeholder="Add comments or observations about this application..."
-                    />
-                  </div>
-
-                  {/* Submit button */}
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={handleReview}
-                      disabled={reviewing || (decision === 'recommend' && !recommendedProgram)}
-                      className={`gap-2 min-w-[180px] ${
-                        decision === 'accept' ? 'bg-green-600 hover:bg-green-700' :
-                        decision === 'reject' ? 'bg-red-600 hover:bg-red-700' :
-                        'bg-blue-600 hover:bg-blue-700'
-                      }`}
-                    >
-                      {reviewing ? (
-                        <><span className="animate-spin mr-1">⟳</span> Processing...</>
-                      ) : decision === 'accept' ? (
-                        <><Check className="h-4 w-4" /> Accept Application</>
-                      ) : decision === 'reject' ? (
-                        <><X className="h-4 w-4" /> Reject Application</>
-                      ) : (
-                        <>→ Submit Recommendation</>
-                      )}
-                    </Button>
-                  </div>
-
-                </CardContent>
-              </Card>
-            )}
+            <ReviewsTab
+              application={application}
+              onReviewSuccess={loadApplicationDetail}
+            />
           </TabsContent>
         </Tabs>
       </div>

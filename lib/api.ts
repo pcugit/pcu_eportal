@@ -703,18 +703,16 @@ export class ApiClient {
   }
 
   static async reviewApplication(
-    applicant_id: number,
+    applicant_id: string | number,
     decision: "accept" | "reject" | "recommend",
-    review_notes?: string,
-    recommended_program_id?: number,
+    approved_course?: string,
   ) {
     const { data } = await this.fetch("/admission_officer/review-application", {
       method: "POST",
       body: JSON.stringify({
         applicant_id,
         decision,
-        review_notes,
-        recommended_program_id,
+        approved_course,
       }),
     });
     return data;

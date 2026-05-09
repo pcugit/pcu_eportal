@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { ApiClient, StudentData } from '@/lib/api';
 
-type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissions_officer' | 'ict_director';
+type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissionofficer' | 'ictdirector' | 'admin' | 'freshapplicant';
 
 interface User {
   id: number;
@@ -16,7 +16,7 @@ interface User {
   role: 'applicant' | 'admin' | 'student' | StaffRole;
 }
 
-export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'admissions_officer'];
+export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'freshapplicant', 'admissionofficer', 'ictdirector', 'admin'];
 
 export interface ApplicantData {
   id: number;

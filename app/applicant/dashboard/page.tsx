@@ -79,6 +79,7 @@ export default function ApplicantDashboard() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [acceptanceFeeData, setAcceptanceFeeData] = useState<{ amount: number; feeName: string; paid: boolean } | null>(null);
   const [preloadedForms, setPreloadedForms] = useState<Record<number, { form: any; documents: any[] }>>({});
+  const [preloadedTemplates, setPreloadedTemplates] = useState<Record<number, any>>({}); // keyed by program_type_id
 
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(null);
@@ -137,22 +138,39 @@ export default function ApplicantDashboard() {
         console.error("Error loading program types:", err);
       }
 
-      // Background pre-fetch form data for all applicants (role=applicant only)
-      // so ApplicationForm can hydrate instantly without an extra async round-trip
+      // ── Background pre-fetch: form data + form templates for every applicant ──
+      // Both are fired in a single Promise.all so they run concurrently.
+      // When the applicant later clicks "Apply" / "Profile", the data is already
+      // in state and the form renders instantly with no extra round-trip.
       if (apps.length > 0) {
         Promise.all(
           apps.map(async (app: ApplicantStatus) => {
             try {
-              const data = await ApiClient.getForm(app.id);
-              return [app.id, { form: data.form, documents: data.documents || [] }] as const;
+              const [formData, templateData] = await Promise.all([
+                ApiClient.getForm(app.id),
+                ApiClient.getFormTemplate(app.program_type_id),
+              ]);
+              return {
+                appId: app.id,
+                typeId: app.program_type_id,
+                form: formData.form,
+                documents: formData.documents || [],
+                template: templateData,
+              };
             } catch {
               return null;
             }
           })
         ).then(results => {
-          const map: Record<number, { form: any; documents: any[] }> = {};
-          results.forEach(r => { if (r) map[r[0]] = r[1]; });
-          setPreloadedForms(map);
+          const formsMap: Record<number, { form: any; documents: any[] }> = {};
+          const templatesMap: Record<number, any> = {};
+          results.forEach(r => {
+            if (!r) return;
+            formsMap[r.appId] = { form: r.form, documents: r.documents };
+            templatesMap[r.typeId] = r.template;
+          });
+          setPreloadedForms(formsMap);
+          setPreloadedTemplates(templatesMap);
         });
       }
 
@@ -302,33 +320,53 @@ export default function ApplicantDashboard() {
                       size="sm" 
                       className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-8 px-6"
                       onClick={async () => {
-                         setProfileLoading(true);
                          setViewingFormId(app.id);
-                         try {
-                            const template = await ApiClient.getFormTemplate(app.program_type_id);
-                            setFormTemplate(template);
 
-                            const isProfileStage = ['submitted', 'admitted', 'accepted'].includes(app.application_status);
-                            if (isProfileStage) {
+                         // ── Try to serve from cache first (instant) ──────────
+                         const cachedTemplate = preloadedTemplates[app.program_type_id];
+                         const cachedForm     = preloadedForms[app.id];
+
+                         if (cachedTemplate) {
+                           setFormTemplate(cachedTemplate);
+                         }
+                         if (cachedForm) {
+                           setSubmittedFormData(cachedForm.form);
+                           setSubmittedDocuments(cachedForm.documents);
+                         }
+
+                         // If both are cached we can skip the loading spinner entirely
+                         const isProfileStage = ['submitted', 'admitted', 'accepted'].includes(app.application_status);
+                         const needsAcceptanceFee = isProfileStage && ['admitted', 'accepted'].includes(app.application_status);
+                         const fullyReady = !!cachedTemplate && (!isProfileStage || !!cachedForm);
+
+                         if (!fullyReady) setProfileLoading(true);
+
+                         try {
+                            // Always ensure template is loaded
+                            if (!cachedTemplate) {
+                              const template = await ApiClient.getFormTemplate(app.program_type_id);
+                              setFormTemplate(template);
+                            }
+
+                            if (isProfileStage && !cachedForm) {
                                const formData = await ApiClient.getForm(app.id);
                                setSubmittedFormData(formData.form);
                                setSubmittedDocuments(formData.documents || []);
+                            }
 
-                               // Fetch acceptance fee for admitted applicants
-                               if (['admitted', 'accepted'].includes(app.application_status)) {
-                                 try {
-                                   const feeData = await ApiClient.getAcceptanceFee();
-                                   setAcceptanceFeeData({
-                                     amount: feeData.acceptance_fee,
-                                     feeName: feeData.fee_name,
-                                     paid: app.has_paid_acceptance_fee
-                                   });
-                                 } catch (e) {
-                                   console.error('Failed to load acceptance fee', e);
-                                 }
-                               } else {
-                                 setAcceptanceFeeData(null);
-                               }
+                            if (needsAcceptanceFee) {
+                              try {
+                                const feeData = await ApiClient.getAcceptanceFee();
+                                setAcceptanceFeeData({
+                                  amount: feeData.acceptance_fee,
+                                  feeName: feeData.fee_name,
+                                  paid: app.has_paid_acceptance_fee
+                                });
+                              } catch (e) {
+                                console.error('Failed to load acceptance fee', e);
+                              }
+                            } else {
+                              setAcceptanceFeeData(null);
                             }
                          } catch (e) {
                             console.error("Failed to load data", e);
@@ -437,6 +475,8 @@ export default function ApplicantDashboard() {
                     programId={currentApp?.program_id || 0}
                     programTypeId={currentApp?.program_type_id}
                     user={user}
+                    initialFormData={viewingFormId ? preloadedForms[viewingFormId]?.form : undefined}
+                    initialDocuments={viewingFormId ? preloadedForms[viewingFormId]?.documents : undefined}
                     onSuccess={() => {
                       setViewingFormId(null);
                       setFormTemplate(null);

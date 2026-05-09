@@ -143,7 +143,7 @@ def create_staff(payload):
     if not all(k in data for k in required):
         return jsonify({'message': f'Required fields: {required}'}), 400
 
-    allowed_roles = ('lecturer', 'deo', 'hod', 'dean', 'registrar', 'admin', 'admissions_officer')
+    allowed_roles = ('lecturer', 'deo', 'hod', 'dean', 'registrar', 'admin', 'admissionofficer')
     if data['role'] not in allowed_roles:
         return jsonify({'message': f'Role must be one of: {allowed_roles}'}), 400
 
@@ -175,7 +175,7 @@ def create_staff(payload):
 
 
 # ── PUT /api/staff/<id> (admin only) ──────────────────────────────────────────
-@staff_bp.route('/<int:user_id>', methods=['PUT'])
+@staff_bp.route('/<user_id>', methods=['PUT'])
 @AuthHandler.token_required
 @AuthHandler.roles_required('admin')
 def update_staff(payload, user_id):

@@ -311,23 +311,44 @@ export default function ApplicationForm({
   
   const step = steps[currentStep];
 
-  // Fetch programs for course selection
+  // Fetch programs for course selection + O'Level lookup data.
+  // Results are cached in sessionStorage so re-opening the form is instant.
   useEffect(() => {
     const fetchData = async () => {
-        try {
-            const [programsRes, olevelRes] = await Promise.all([
-                ApiClient.getPrograms(),
-                ApiClient.getOlevelData()
-            ]);
-            setAvailablePrograms(programsRes.programs || []);
-            setOlevelSubjects(olevelRes.subjects || []);
-            setOlevelGrades(olevelRes.grades || []);
-        } catch (e) {
-            console.error("Failed to fetch form lookup data", e);
+      try {
+        const CACHE_KEY_PROGRAMS = 'cache_programs';
+        const CACHE_KEY_OLEVEL   = 'cache_olevel';
+
+        const readCache = (key: string) => {
+          try {
+            const raw = sessionStorage.getItem(key);
+            return raw ? JSON.parse(raw) : null;
+          } catch { return null; }
+        };
+        const writeCache = (key: string, data: any) => {
+          try { sessionStorage.setItem(key, JSON.stringify(data)); } catch {}
+        };
+
+        let programs = readCache(CACHE_KEY_PROGRAMS);
+        let olevel   = readCache(CACHE_KEY_OLEVEL);
+
+        if (!programs || !olevel) {
+          const fetches = await Promise.all([
+            programs ? null : ApiClient.getPrograms(),
+            olevel   ? null : ApiClient.getOlevelData(),
+          ]);
+          if (fetches[0]) { programs = fetches[0]; writeCache(CACHE_KEY_PROGRAMS, programs); }
+          if (fetches[1]) { olevel   = fetches[1]; writeCache(CACHE_KEY_OLEVEL, olevel); }
         }
+
+        setAvailablePrograms(programs?.programs || []);
+        setOlevelSubjects(olevel?.subjects || []);
+        setOlevelGrades(olevel?.grades || []);
+      } catch (e) {
+        console.error("Failed to fetch form lookup data", e);
+      }
     };
     fetchData();
-
   }, []);
 
   // Load existing form data

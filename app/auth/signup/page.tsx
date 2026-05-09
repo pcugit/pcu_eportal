@@ -45,6 +45,7 @@ export default function SignupPage() {
     "protonmail.com",
     "zoho.com",
     "aol.com",
+    "pcu.edu.ng",
   ];
 
   useEffect(() => {

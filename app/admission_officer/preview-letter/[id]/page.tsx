@@ -15,7 +15,7 @@ export default function PreviewAdmissionLetterPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admissions_officer") {
+    if (!isAuthenticated || user?.role !== "admissionofficer") {
       router.replace("/auth/login");
       return;
     }

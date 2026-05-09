@@ -147,10 +147,10 @@ export function GlobalNav() {
 
   const isApplicantPortal = isAuthenticated && (user?.role === 'applicant' || user?.role === 'freshapplicant');
   const isStudentPortal = isAuthenticated && user?.role === 'student';
-  const isAdminPortal = isAuthenticated && user?.role === 'admissions_officer';
+  const isAdminPortal = isAuthenticated && user?.role === 'admissionofficer';
   const isRegistrarPortal = isAuthenticated && user?.role === 'registrar';
   const isLecturerPortal = isAuthenticated && user?.role === 'lecturer';
-  const isIctPortal = isAuthenticated && user?.role === 'ict';
+  const isIctPortal = isAuthenticated && user?.role === 'ictdirector';
   const isManagementPortal = isAuthenticated && ['hod', 'dean'].includes(user?.role || '');
 
   // Determine nav items based on role

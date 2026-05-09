@@ -78,6 +78,7 @@ export default function ApplicantDashboard() {
   const [submittedDocuments, setSubmittedDocuments] = useState<any[]>([]);
   const [profileLoading, setProfileLoading] = useState(false);
   const [acceptanceFeeData, setAcceptanceFeeData] = useState<{ amount: number; feeName: string; paid: boolean } | null>(null);
+  const [preloadedForms, setPreloadedForms] = useState<Record<number, { form: any; documents: any[] }>>({});
 
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(null);
@@ -109,7 +110,8 @@ export default function ApplicantDashboard() {
     try {
       const response = await ApiClient.getApplicantStatus();
       setStatus(response.applicant);
-      setApplicants(response.applicants || []);
+      const apps = response.applicants || [];
+      setApplicants(apps);
 
       if (response.applicant?.admission_status === "admitted") {
         if (!response.applicant.has_paid_acceptance_fee) {
@@ -126,21 +128,32 @@ export default function ApplicantDashboard() {
       // Load program types
       try {
         const ptData = await ApiClient.getProgramTypes();
-        // Map program types to forms
         const forms: DynamicProgramForm[] = ptData.program_types.map((type: any) => {
           const style = TYPE_STYLES[type.id] || { color: 'from-slate-500/10 to-slate-600/5', border: 'border-slate-200' };
-          
-          return {
-            id: type.id,
-            typeId: type.id,
-            name: type.name,
-            fee: type.fee,
-            ...style
-          };
+          return { id: type.id, typeId: type.id, name: type.name, fee: type.fee, ...style };
         });
         setProgramTypes(forms);
       } catch (err) {
         console.error("Error loading program types:", err);
+      }
+
+      // Background pre-fetch form data for all applicants (role=applicant only)
+      // so ApplicationForm can hydrate instantly without an extra async round-trip
+      if (apps.length > 0) {
+        Promise.all(
+          apps.map(async (app: ApplicantStatus) => {
+            try {
+              const data = await ApiClient.getForm(app.id);
+              return [app.id, { form: data.form, documents: data.documents || [] }] as const;
+            } catch {
+              return null;
+            }
+          })
+        ).then(results => {
+          const map: Record<number, { form: any; documents: any[] }> = {};
+          results.forEach(r => { if (r) map[r[0]] = r[1]; });
+          setPreloadedForms(map);
+        });
       }
 
     } catch (err) {

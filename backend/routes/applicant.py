@@ -510,6 +510,28 @@ def submit_form(payload):
 
 
 
+    # --- Save to academic_qualification ---
+    aq_fields = {'user_id': user_id}
+    
+    first_choice = data.get('first_choice_program_id')
+    second_choice = data.get('second_choice_program_id')
+    
+    if first_choice:
+        try:
+            ps_res = Database.execute_query('SELECT name FROM program_setup WHERE id = %s', (int(first_choice),))
+            if ps_res:
+                aq_fields['choice1'] = ps_res[0]['name']
+        except ValueError:
+            pass
+            
+    if second_choice:
+        try:
+            ps_res = Database.execute_query('SELECT name FROM program_setup WHERE id = %s', (int(second_choice),))
+            if ps_res:
+                aq_fields['choice2'] = ps_res[0]['name']
+        except ValueError:
+            pass
+
     olevel_results_raw = data.get('olevel_results')
     if olevel_results_raw:
         try:
@@ -524,8 +546,6 @@ def submit_form(payload):
                 grade_rows = Database.execute_query('SELECT id, grade FROM olevel_grades')
                 subj_map = {str(r['id']): r['name'] for r in (subject_rows or [])}
                 grade_map = {str(r['id']): r['grade'] for r in (grade_rows or [])}
-
-                aq_fields = {'user_id': user_id}
 
                 for idx, exam in enumerate(olevel_exams):
                     subjects = exam.get('subjects', [])
@@ -562,35 +582,36 @@ def submit_form(payload):
                             aq_fields[f'second_subject{i}'] = subj_map.get(s_val, s_val) if s_val else None
                             aq_fields[f'second_grade{i}']   = grade_map.get(g_val, g_val) if g_val else None
 
-                # Filter out None values
-                aq_columns = [col for col, val in aq_fields.items() if val is not None]
-                aq_values  = [val for val in aq_fields.values() if val is not None]
-
-                if aq_columns:
-                    cols_str     = ", ".join(aq_columns)
-                    placeholders = ", ".join(["%s"] * len(aq_columns))
-                    update_set   = ", ".join(
-                        [f"{col} = EXCLUDED.{col}" for col in aq_columns if col != 'user_id']
-                    )
-                    
-                    query = f'''
-                        INSERT INTO academic_qualification ({cols_str})
-                        VALUES ({placeholders})
-                        ON CONFLICT (user_id)
-                        DO UPDATE SET {update_set}
-                    '''
-                    Database.execute_update(query, tuple(aq_values))
-
         except Exception as e:
-            print(f"Error saving O'Level results: {e}")
+            print(f"Error parsing O'Level results: {e}")
 
+    # Execute the UPSERT for academic_qualification if there's more than just user_id
+    if len(aq_fields) > 1:
+        aq_columns = [col for col, val in aq_fields.items() if val is not None]
+        aq_values  = [val for val in aq_fields.items() if val[1] is not None]
+        
+        # We need the values, not tuples
+        aq_values = [v for k, v in aq_values]
+
+        if aq_columns:
+            cols_str     = ", ".join(aq_columns)
+            placeholders = ", ".join(["%s"] * len(aq_columns))
+            update_set   = ", ".join(
+                [f"{col} = EXCLUDED.{col}" for col in aq_columns if col != 'user_id']
+            )
+            
+            query = f'''
+                INSERT INTO academic_qualification ({cols_str})
+                VALUES ({placeholders})
+                ON CONFLICT (user_id)
+                DO UPDATE SET {update_set}
+            '''
+            Database.execute_update(query, tuple(aq_values))
 
     Database.execute_update(
         "UPDATE applications SET applicant_stage = 'in_progress', updated_at = NOW() WHERE id = %s AND applicant_stage = 'started'",
         (application_id,)
     )
-
-    first_choice = data.get('first_choice_program_id')
 
     return jsonify({
         'message': 'Application form saved successfully',
@@ -635,7 +656,7 @@ def upload_document(payload):
         return jsonify({'message': 'form_id is required'}), 400
         
     try:
-        form_id_int = int(form_id)                 
+        form_id_uuid = str(form_id)                 
         is_compressed_bool = bool(is_compressed)  
         original_size_int = int(original_size)    
         compressed_size_int = int(compressed_size)
@@ -648,7 +669,7 @@ def upload_document(payload):
     # Verify application belongs to user
     app_check = Database.execute_query(
         'SELECT id FROM applications WHERE id = %s AND user_id = %s',
-        (form_id_int, user_id)
+        (form_id_uuid, user_id)
     )
     if not app_check:
         return jsonify({'message': 'Application not found or access denied'}), 404
@@ -657,13 +678,13 @@ def upload_document(payload):
     file_path = os.path.join(upload_folder, stored_filename)
     file_ext = stored_filename.split('.')[-1] if '.' in stored_filename else ''
     
-    doc_id = Database.execute_update(
+    doc_result = Database.execute_query(
     '''INSERT INTO documents 
        (application_id, document_type, file_name, file_url, file_size, file_type, status)
        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-    (form_id_int, document_type, file.filename, file_path, original_size_int, file_ext, 'pending'),
-    return_id=True
+    (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
 )
+    doc_id = doc_result[0]['id'] if doc_result else None
 
     
     if not doc_id:
@@ -711,7 +732,7 @@ def delete_document(payload, document_id):
     
     return jsonify({'message': 'Document deleted successfully'}), 200
     
-@applicant_bp.route('/download-document/<int:document_id>', methods=['GET'])
+@applicant_bp.route('/download-document/<document_id>', methods=['GET'])
 
 
 @AuthHandler.token_required
@@ -727,8 +748,6 @@ def download_document(payload, document_id):
            WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin', 'ict_director', 'admissionofficer'))''',
         (document_id, user_id, role)
     )
-
-
     
     if not doc:
         return jsonify({'message': 'Document not found or access denied'}), 404
@@ -750,7 +769,6 @@ def get_form(payload, applicant_id):
         
     user_id = payload['user_id']
     
-    # Try to find the application first (new schema)
     app_res = Database.execute_query(
         'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
         (applicant_id, user_id)
@@ -762,7 +780,7 @@ def get_form(payload, applicant_id):
     else:
         return jsonify({'message': 'Application not found'}), 404
 
-    # Fetch from new schema
+
     pi_res = []
     nok_res = []
     sponsor_res = []
@@ -785,11 +803,9 @@ def get_form(payload, applicant_id):
     form_data = {}
     if pi_res:
         form_data = dict(pi_res[0])
-        # Map fields for frontend compatibility
         if 'surname' in form_data:
             form_data['last_name'] = form_data['surname']
             
-        # Format date_of_birth for HTML date input (YYYY-MM-DD)
         if form_data.get('date_of_birth'):
             try:
                 from datetime import date, datetime
@@ -799,7 +815,6 @@ def get_form(payload, applicant_id):
             except:
                 pass
 
-        # Construct full_name
         names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
         form_data['full_name'] = ' '.join(filter(None, names))
 
@@ -819,7 +834,7 @@ def get_form(payload, applicant_id):
         form_data['sponsor_email'] = sponsor_data.get('email')
         
     if application_id:
-        # --- NEW SCHEMA: Fetch O'Level results from academic_qualification ---
+
         aq_res = Database.execute_query(
             'SELECT * FROM academic_qualification WHERE user_id = %s',
             (user_id,)
@@ -872,9 +887,20 @@ def get_form(payload, applicant_id):
             if olevel_exams:
                 form_data['olevel_results'] = olevel_exams
 
-            
+            if aq.get('choice1'):
+                form_data['first_choice_program_name'] = aq.get('choice1')
+                ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get('choice1'),))
+                if ps_res:
+                    form_data['first_choice_program_id'] = ps_res[0]['id']
+
+            if aq.get('choice2'):
+                form_data['second_choice_program_name'] = aq.get('choice2')
+                ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get('choice2'),))
+                if ps_res:
+                    form_data['second_choice_program_id'] = ps_res[0]['id']
+
     if application_id:
-        # Fetch courses based on program type
+
         prog_type = app_res[0].get('prog_type') if app_res else None
         if prog_type:
             pc_res = Database.execute_query(
@@ -893,33 +919,21 @@ def get_form(payload, applicant_id):
             if pc_res:
                 form_data['available_courses'] = [dict(r) for r in pc_res]
             else:
-                print(f"DEBUG: No courses found for prog_type={prog_type}")
                 form_data['available_courses'] = []
 
-            print(f"DEBUG prog_type: {repr(prog_type)}")
-            # Clear legacy choice fields
-            form_data['first_choice_program_id'] = None
-            form_data['second_choice_program_id'] = None
-        form_data['first_choice_program_name'] = None
-        form_data['second_choice_program_name'] = None
+
 
     
     if form:
         legacy_data = dict(form[0])
-        # Merge legacy data if not already present in form_data
         form_data = {**legacy_data, **form_data}
 
 
-
-
-    
     if form_data:
-        # Final override: ensure 'id' is the application_id for frontend consistency
         if application_id:
             form_data['id'] = application_id
             
         import json
-        # Parse additional_info if exists
         if form_data.get('additional_info'):
             try:
                 # Handle cases where additional_info is a string or already a dict
@@ -930,14 +944,12 @@ def get_form(payload, applicant_id):
             except json.JSONDecodeError:
                 pass
         
-        # Parse olevel_results specifically if it's a string
         if form_data.get('olevel_results') and isinstance(form_data['olevel_results'], str):
             try:
                 form_data['olevel_results'] = json.loads(form_data['olevel_results'])
             except json.JSONDecodeError:
                 pass
         
-        # Return as a list with one item for compatibility with frontend expectation
         form = [form_data]
     else:
         form = []
@@ -947,10 +959,11 @@ def get_form(payload, applicant_id):
        '''SELECT 
               d.id AS document_id,
               d.document_type,
+              d.document_type AS display_name,
               d.file_name as original_filename,
               d.file_size,
               d.status
-          FROM app_documents d
+          FROM documents d
           JOIN applications a ON d.application_id = a.id
           WHERE a.user_id = %s''',
        (user_id,)
@@ -1016,9 +1029,7 @@ def get_applicant_status(payload):
                 app.created_at,
                 app.form_no,
                 pt.name as program_name,
-                -- Application fee: always TRUE if record exists (paid at creation)
                 TRUE as has_paid_application_fee,
-                -- Acceptance fee: TRUE only if applicant_stage is 'accepted'
                 (app.applicant_stage = 'accepted') as has_paid_acceptance_fee,
                 COALESCE(app.admission_letter_sent, FALSE) as admission_letter_sent,
                 FALSE as has_paid_tuition,

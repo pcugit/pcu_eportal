@@ -203,6 +203,25 @@ interface FormTemplate {
   steps?: FormStep[];
 }
 
+// Helper: parse olevel_results into padded exam objects
+function parseOlevelForState(raw: any) {
+  const blank = [{ name: '', number: '', period: '', year: '', subjects: Array.from({ length: 10 }, () => ({ subject_id: '', grade_id: '' })) }];
+  if (!raw) return blank;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((exam: any) => ({
+        ...exam,
+        subjects: [
+          ...(exam.subjects || []),
+          ...Array.from({ length: Math.max(0, 10 - (exam.subjects?.length || 0)) }, () => ({ subject_id: '', grade_id: '' }))
+        ].slice(0, 10)
+      }));
+    }
+  } catch {}
+  return blank;
+}
+
 interface ApplicationFormProps {
   template: FormTemplate;
   applicantId?: number;
@@ -210,6 +229,8 @@ interface ApplicationFormProps {
   programTypeId?: number;
   user?: any;
   onSuccess?: () => void;
+  initialFormData?: Record<string, any>;
+  initialDocuments?: any[];
 }
 
 export default function ApplicationForm({
@@ -219,13 +240,20 @@ export default function ApplicationForm({
   programTypeId,
   user,
   onSuccess,
+  initialFormData,
+  initialDocuments,
 }: ApplicationFormProps) {
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, any>>(initialFormData ?? {});
   const [documents, setDocuments] = useState<Record<string, File | null>>({});
-  const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, any>>({});
-  const [formId, setFormId] = useState<number | null>(null);
+  const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, any>>(() => {
+    if (!initialDocuments?.length) return {};
+    const docs: Record<string, any> = {};
+    initialDocuments.forEach((doc: any) => { docs[doc.document_type] = doc; });
+    return docs;
+  });
+  const [formId, setFormId] = useState<number | null>(initialFormData?.id ?? null);
   const [availablePrograms, setAvailablePrograms] = useState<any[]>([]);
-  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
+  const [availableCourses, setAvailableCourses] = useState<any[]>(initialFormData?.available_courses ?? []);
   const [olevelSubjects, setOlevelSubjects] = useState<any[]>([]);
   const [olevelGrades, setOlevelGrades] = useState<any[]>([]);
 
@@ -253,15 +281,9 @@ export default function ApplicationForm({
   
   const [currentStep, setCurrentStep] = useState(0);
   
-  const [olevelExams, setOlevelExams] = useState<any[]>([
-    { 
-      name: '', 
-      number: '', 
-      period: '', 
-      year: '', 
-      subjects: Array.from({ length: 10 }, () => ({ subject_id: '', grade_id: '' }))
-    }
-  ]);
+  const [olevelExams, setOlevelExams] = useState<any[]>(
+    () => parseOlevelForState(initialFormData?.olevel_results)
+  );
 
 
   const hasSteps = !!template.steps && template.steps.length > 0;
@@ -311,69 +333,56 @@ export default function ApplicationForm({
   // Load existing form data
   useEffect(() => {
     const loadExistingForm = async () => {
-    const initialData: Record<string, string> = {};
-    if (user) {
-        initialData['email'] = user.email || '';
-        initialData['phone_number'] = user.phone_number || '';
+      // Always apply user-derived defaults (email, phone)
+      const userDefaults: Record<string, string> = {};
+      if (user) {
+        userDefaults['email'] = user.email || '';
+        userDefaults['phone_number'] = user.phone_number || '';
         if (user.name) {
-            const parts = user.name.split(' ');
-            initialData['first_name'] = parts[0] || '';
-            initialData['last_name'] = parts.slice(1).join(' ') || '';
+          const parts = user.name.split(' ');
+          userDefaults['first_name'] = parts[0] || '';
+          userDefaults['last_name'] = parts.slice(1).join(' ') || '';
         }
-    }
+      }
+      // Merge user defaults without overwriting already-set form values
+      setFormData(prev => ({ ...userDefaults, ...prev }));
 
-    setFormData(prev => ({ ...initialData, ...prev }));
+      // If initialFormData was passed as a prop, state is already populated — skip fetch
+      if (initialFormData) {
+        setMaxStepReached(steps.length - 1);
+        return;
+      }
 
-    if (!applicantId) return;
-    if (!ApiClient.getToken()) return;
+      if (!applicantId) return;
+      if (!ApiClient.getToken()) return;
 
-    try {
+      try {
         const response: any = await ApiClient.getForm(applicantId);
         if (response.form) {
-            setFormId(response.form.id);
-            setFormData(prev => ({ ...prev, ...response.form }));
-
-            if (response.form.available_courses) {
-                setAvailableCourses(response.form.available_courses);
-            }
-
-            if (response.form.olevel_results) {
-                try {
-                    const res = response.form.olevel_results;
-                    const parsed = typeof res === 'string' ? JSON.parse(res) : res;
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        const padded = parsed.map((exam: any) => ({
-                            ...exam,
-                            subjects: [
-                                ...(exam.subjects || []),
-                                ...Array.from({ length: Math.max(0, 10 - (exam.subjects?.length || 0)) }, () => ({ subject_id: '', grade_id: '' }))
-                            ].slice(0, 10)
-                        }));
-                        setOlevelExams(padded);
-                    }
-                } catch (e) {
-                    console.error("Failed to parse O'Level results:", e);
-                }
-            }
+          setFormId(response.form.id);
+          setFormData(prev => ({ ...prev, ...response.form }));
+          if (response.form.available_courses) {
+            setAvailableCourses(response.form.available_courses);
+          }
+          if (response.form.olevel_results) {
+            const padded = parseOlevelForState(response.form.olevel_results);
+            setOlevelExams(padded);
+          }
         }
-
         if (response.documents && response.documents.length > 0) {
-            const docs: Record<string, any> = {};
-            response.documents.forEach((doc: any) => {
-                docs[doc.document_type] = doc;
-            });
-            setUploadedDocuments(docs);
+          const docs: Record<string, any> = {};
+          response.documents.forEach((doc: any) => { docs[doc.document_type] = doc; });
+          setUploadedDocuments(docs);
         }
-
         if (response.form) {
-            setMaxStepReached(steps.length - 1);
+          setMaxStepReached(steps.length - 1);
         }
-    } catch (err) {
+      } catch (err) {
         console.error('Error loading form:', err);
-    }
-};
-      loadExistingForm();
-    }, [applicantId, user, steps.length]);
+      }
+    };
+    loadExistingForm();
+  }, [applicantId, user, steps.length]);
 
   // Auto-save on data change
   useEffect(() => {

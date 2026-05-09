@@ -53,6 +53,20 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
     };
   }, [passportDoc?.document_id]);
 
+  // Build formatted name: SURNAME, FIRSTNAME MIDDLENAME
+  const formatName = () => {
+    const surname = form?.surname || form?.last_name;
+    const firstName = form?.first_name;
+    const middleName = form?.middle_name;
+    if (surname && firstName) {
+      const rest = [firstName, middleName].filter(Boolean).join(' ');
+      return `${surname}, ${rest}`;
+    }
+    // fallback: use full_name or applicant user_name
+    return form?.full_name || applicant?.user_name || '';
+  };
+  const displayName = formatName().toUpperCase();
+
   // Parse O'Level if it's a string
   let olevelResults = [];
   if (form?.olevel_results) {
@@ -127,11 +141,11 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
 
               {/* Name and ID */}
               <div className="mt-4 text-center space-y-1">
-                <h3 className="text-xl font-medium text-slate-800 lowercase">{form?.full_name || applicant?.user_name}</h3>
+                <h3 className="text-xl font-medium text-slate-800 uppercase">{displayName}</h3>
                 <p className="text-slate-500 text-sm tracking-wide">PT{new Date(applicant?.created_at || Date.now()).getFullYear()}{applicant?.id?.toString().padStart(4, '0')}</p>
                 <div className="pt-2">
                   <Badge className="bg-orange-400 hover:bg-orange-500 text-white border-0 px-4 py-1 rounded-full text-[10px] font-bold uppercase">
-                    {applicant?.program_name || 'PART TIME'}
+                    {applicant?.program_name}
                   </Badge>
                 </div>
               </div>

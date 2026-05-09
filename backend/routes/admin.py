@@ -159,20 +159,18 @@ def get_application_details(payload, applicant_id):
 
         if olevel_exams:
             form_data['olevel_results'] = olevel_exams
-        
-    pc_res = Database.execute_query(
-        '''SELECT pc.*, d1.name as first_choice_name, d2.name as second_choice_name
-           FROM program_choice pc
-           LEFT JOIN departments d1 ON pc.first_choice = d1.id
-           LEFT JOIN departments d2 ON pc.second_choice = d2.id
-           WHERE pc.application_id = %s''', (application_id,)
-    )
-    if pc_res:
-        pc_data = dict(pc_res[0])
-        form_data['first_choice_program_id'] = pc_data.get('first_choice')
-        form_data['second_choice_program_id'] = pc_data.get('second_choice')
-        form_data['first_choice_program_name'] = pc_data.get('first_choice_name')
-        form_data['second_choice_program_name'] = pc_data.get('second_choice_name')
+
+        if aq.get('choice1'):
+            form_data['first_choice_program_name'] = aq.get('choice1')
+            ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get('choice1'),))
+            if ps_res:
+                form_data['first_choice_program_id'] = ps_res[0]['id']
+
+        if aq.get('choice2'):
+            form_data['second_choice_program_name'] = aq.get('choice2')
+            ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get('choice2'),))
+            if ps_res:
+                form_data['second_choice_program_id'] = ps_res[0]['id']
 
     # Parse additional_info JSON — same as applicant get-form does.
     # photo_url and other fields may be stored here on older submissions.
@@ -190,7 +188,7 @@ def get_application_details(payload, applicant_id):
     # Get documents
     documents = Database.execute_query(
         '''SELECT id, document_type, file_type, file_name as original_filename, file_size, 0 as compressed_size, false as is_compressed
-           FROM app_documents
+           FROM documents
            WHERE application_id = %s''',
         (applicant_id,)
     )

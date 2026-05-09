@@ -220,7 +220,7 @@ export function GlobalNav() {
             <div className="flex items-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
                <div className="flex flex-col items-end">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-700 capitalize">{user?.first_name} {user?.last_name}</span>
+                  <span className="text-sm font-bold text-slate-700">{user?.username}</span>
                   <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center border border-purple-100">
                     <User size={14} className="text-[#6b21a8]" />
                   </div>

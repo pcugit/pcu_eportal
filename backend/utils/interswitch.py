@@ -147,7 +147,7 @@ class InterswitchClient:
 
         pay_item_id   = cls._pay_item_id(payment_type)
         merchant_code = Config.INTERSWITCH_MERCHANT_CODE
-        amount_kobo   = int(round(amount_naira * 100))
+        amount_kobo   = (round(amount_naira * 100))
 
         params = {
             "merchantcode":      merchant_code,

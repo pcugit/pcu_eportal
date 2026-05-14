@@ -567,7 +567,7 @@ def upload_document(payload):
         return jsonify({'message': 'Failed to save document'}), 500
 
     try:
-        form_id_uuid       = str(form_id)
+        form_id_uuid       = (form_id)
         original_size_int  = int(original_size)
         compressed_size_int = int(compressed_size)
     except (TypeError, ValueError) as e:
@@ -712,7 +712,7 @@ def initiate_payment(payload):
     # ── References ────────────────────────────────────────────────────────────
     reference_no = generate_reference_no()
     receipt_no   = generate_receipt_no()
-    amount_kobo  = int(round(amount_naira * 100))
+    amount_kobo  = (round(amount_naira * 100))
 
     # ── Validate Interswitch config ───────────────────────────────────────────
     missing = []
@@ -822,7 +822,7 @@ def verify_payment(payload):
             'receipt_no':  txn['receipt_no'],
         }), 200
 
-    amount_kobo = txn['amount_in_kobo'] or int(round(float(txn['amount'] or 0) * 100))
+    amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
 
     # ── Requery Interswitch ───────────────────────────────────────────────────
     try:

@@ -500,8 +500,9 @@ export default function HODDashboard() {
               )}
             </div>
           )}
-        </main>
-      </div>
+         </main>
+       </div>
+     </div>
     </div>
   );
 }

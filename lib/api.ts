@@ -929,7 +929,7 @@ export class ApiClient {
   }
 
   // ================= Stage 2: Student Endpoints =================
-  static async changePassword(
+  static async changeStudentPassword(
     new_password: string,
   ): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>(

@@ -5,7 +5,7 @@ import os
 
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "https://pcu-admission-portal.vercel.app",
+    "https://pcu-edu-ng.vercel.app",
 ]
 
 def create_app(config_name='development'):

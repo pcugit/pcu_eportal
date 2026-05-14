@@ -434,7 +434,7 @@ export default function Navbar() {
           {/* Apply Now */}
           <div className="px-5 py-4 border-b border-gray-100">
             <a
-              href="#"
+              href="/e-portal/auth/signup"
               className="block w-full text-center bg-red-600 hover:bg-red-700 text-white text-sm font-bold py-2.5 rounded transition-colors"
             >
               Apply Now

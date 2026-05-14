@@ -49,7 +49,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "The general philosophy of the programme is to develop the mind, impart both theoretical and practical knowledge on individuals to develop self-confidence, be innovative and self-reliant in the fields of Accounting and Management.",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Accounting",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "The general philosophy of the programme is to develop the mind, impart both theoretical and practical knowledge on individuals to develop self-confidence, be innovative and self-reliant in the fields of Accounting and Management.",
     accordions: [
@@ -86,7 +86,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "The Actuarial Science programme is to equip the students with theoretical knowledge and practical skills in order for them to work in Life and Non-life insurance companies, Consultancy; Government service and in the Stock exchange, Industry, Commerce and Academia.",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Actuarial Science",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "The Actuarial Science programme is to equip the students with theoretical knowledge and practical skills in order for them to work in Life and Non-life insurance companies, Consultancy; Government service and in the Stock exchange, Industry, Commerce and Academia.",
     accordions: [
@@ -123,7 +123,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "The programme is aimed at producing high calibre graduates of Banking and Finance who are appropriately trained and infused with all the qualities needed to provide professional leadership and contribute to the society.",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Banking and Finance",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "The programme is aimed at producing high calibre graduates of Banking and Finance who are appropriately trained and infused with all the qualities needed to provide professional leadership and contribute to the society.",
     accordions: [
@@ -160,7 +160,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "Biochemistry is the branch of science concerned with the chemical and physico-chemical processes and substances which occur within living organisms. The objective of the programme is to develop in students the ability to apply knowledge and skills to solve theoretical and practical problems.",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Biochemistry",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "Biochemistry is the branch of science concerned with the chemical and physico-chemical processes and substances which occur within living organisms. The objective of the programme is to develop in students the ability to apply knowledge and skills to solve theoretical and practical problems.",
     accordions: [
@@ -197,7 +197,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "The curriculum of Business Administration is aimed at developing the mind and imparting theoretical and practical knowledge that will encourage self reliance in the individual and of the nation.",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Business Administration",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "The curriculum of Business Administration is aimed at developing the mind and imparting theoretical and practical knowledge that will encourage self reliance in the individual and of the nation.",
     accordions: [
@@ -234,7 +234,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "This programme has been designed to equip students with both theoretical and practical knowledge in the various field of computing including but not limited to programming and application development, computer hardware and architecture, networking, artificial intelligence, e.t.c",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Computer Science",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "This programme has been designed to equip students with both theoretical and practical knowledge in the various field of computing including but not limited to programming and application development, computer hardware and architecture, networking, artificial intelligence, e.t.c",
     accordions: [
@@ -271,7 +271,7 @@ export const undergraduateCourses: UndergraduateCourse[] = [
       "The programme will equip the students with a broad foundation in the field of social sciences, and ground them in the application of economic theory and the tools of economic analysis in solving human behavioural problems.",
     heroImage: "/e-portal/images/students.jpg",
     heroTitle: "B.Sc Economics",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     shortSummary:
       "The programme will equip the students with a broad foundation in the field of social sciences, and ground them in the application of economic theory and the tools of economic analysis in solving human behavioural problems.",
     accordions: [

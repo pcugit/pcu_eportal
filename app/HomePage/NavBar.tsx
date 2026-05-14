@@ -375,7 +375,7 @@ export default function Navbar() {
 
           {/* Apply Now — desktop only */}
           <a
-            href="#"
+            href="/e-portal/auth/signup"
             className="hidden lg:inline-block bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-5 py-2.5 rounded transition-colors whitespace-nowrap"
           >
             Apply Now

@@ -31,7 +31,7 @@ export const coursesData: CourseData[] = [
     heroImage: "/e-portal/images/students.jpg",
     description:
       "Develop essential management and business skills through our flexible Part Time Business Administration programme. Designed for working professionals, this course covers strategic management, organizational behavior, finance, marketing, and operations management. Equip yourself with practical knowledge to advance your career in any organizational setting.",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     admissionRequirements: {
       sections: [
         {
@@ -99,7 +99,7 @@ export const coursesData: CourseData[] = [
     heroImage: "/e-portal/images/students.jpg",
     description:
       "Master accounting principles and practices through our Part Time Accounting programme. Ideal for finance professionals and career changers, this programme covers financial accounting, management accounting, taxation, auditing, and accounting information systems. Gain professional qualifications while maintaining your current employment.",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     admissionRequirements: {
       sections: [
         {
@@ -166,7 +166,7 @@ export const coursesData: CourseData[] = [
     heroImage: "/e-portal/images/students.jpg",
     description:
       "Stay current with the latest in information technology management and cybersecurity through our flexible Part Time programme. Learn IT strategy, systems management, network security, and data protection. Perfect for IT professionals seeking to advance their careers or transition into IT management roles.",
-    applyLink: "/auth/signup",
+    applyLink: "/e-portal/auth/signup",
     admissionRequirements: {
       sections: [
         {

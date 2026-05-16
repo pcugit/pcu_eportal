@@ -4,31 +4,24 @@ import hmac
 import time
 import uuid
 import requests
-from urllib.parse import urlencode
 from config import Config
 
 
 class InterswitchClient:
     """
-    Interswitch Webpay payment client.
+    Interswitch payment client — inline checkout edition.
 
-    Fix log:
-    - urlencode() used for all query-string building (prevents WAF rejection)
-    - callback_url must be a clean URL with NO query params (caller's responsibility)
-    - Only site_redirect_url is sent (removed duplicate redirect_url param)
-    - HMAC sign string corrected (no colon separator)
-    - Token cache moved to instance-safe pattern with Redis fallback note
-    - Base URL now driven by INTERSWITCH_BASE_URL env var (no hardcoded sandbox/live logic)
+    Responsibilities:
+    - Resolve pay_item_id per payment type (_pay_item_id)
+    - Verify transactions server-side via requery API (requery_transaction)
+
+    The redirect/Webpay URL builder has been removed; the inline checkout
+    SDK (loaded client-side) handles the payment modal entirely.
     """
 
-    # ── OAuth token cache (per-process; see note below on multi-worker) ───────
+    # ── OAuth token cache ─────────────────────────────────────────────────────
     _token: str | None = None
     _token_expires_at: float = 0.0
-
-    # ── Base URL (driven by env var) ──────────────────────────────────────────
-    @classmethod
-    def _webpay_url(cls) -> str:
-        return f"{Config.INTERSWITCH_BASE_URL}/collections/w/pay"
 
     @classmethod
     def _requery_base(cls) -> str:
@@ -55,10 +48,7 @@ class InterswitchClient:
                 "Authorization": f"Basic {credentials}",
                 "Content-Type":  "application/x-www-form-urlencoded",
             },
-            data={
-                "grant_type": "client_credentials",
-                "scope":      "profile",
-            },
+            data={"grant_type": "client_credentials", "scope": "profile"},
             timeout=30,
         )
         resp.raise_for_status()
@@ -73,18 +63,13 @@ class InterswitchClient:
     def _sign(cls, nonce: str, timestamp: str) -> str:
         client_id = Config.INTERSWITCH_CLIENT_ID
         secret    = Config.INTERSWITCH_CLIENT_SECRET
-
-        body_hash = hashlib.sha512(b"").digest()
-        body_b64  = base64.b64encode(body_hash).decode()
-
+        body_b64  = base64.b64encode(hashlib.sha512(b"").digest()).decode()
         sign_str  = f"{client_id}{nonce}{timestamp}{body_b64}"
+        return base64.b64encode(
+            hmac.new(secret.encode(), sign_str.encode(), hashlib.sha512).digest()
+        ).decode()
 
-        signature = hmac.new(
-            secret.encode(), sign_str.encode(), hashlib.sha512
-        ).digest()
-        return base64.b64encode(signature).decode()
-
-    # ── Pay-Item resolution ───────────────────────────────────────────────────
+    # ── Pay-item resolution ───────────────────────────────────────────────────
     @classmethod
     def _pay_item_id(cls, payment_type: str) -> str:
         mapping = {
@@ -100,75 +85,25 @@ class InterswitchClient:
             )
         return pay_item
 
-    # ── Build Webpay redirect URL ─────────────────────────────────────────────
-    @classmethod
-    def build_redirect_url(
-        cls,
-        payment_type:   str,
-        amount_naira:   float,
-        reference_no:   str,
-        customer_name:  str,
-        customer_email: str,
-        callback_url:   str,
-    ) -> dict:
-
-        if '?' in callback_url:
-            raise ValueError(
-                "callback_url must not contain query parameters. "
-                "Interswitch's WAF will reject the request. "
-                f"Received: {callback_url}"
-            )
-
-        pay_item_id   = cls._pay_item_id(payment_type)
-        merchant_code = Config.INTERSWITCH_MERCHANT_CODE
-        amount_kobo   = int(round(amount_naira * 100))
-
-        params = {
-            "merchantcode":      merchant_code,
-            "payitemid":         pay_item_id,
-            "amount":            str(amount_kobo),
-            "txnref":            reference_no,
-            "name":              customer_name,
-            "email":             customer_email,
-            "cust_id":           customer_email,
-            "currency":          "566",
-            "site_redirect_url": callback_url,
-        }
-
-        query_string = urlencode(params)
-        redirect_url = f"{cls._webpay_url()}?{query_string}"
-
-        return {
-            "redirect_url": redirect_url,
-            "reference_no": reference_no,
-            "amount_kobo":  amount_kobo,
-        }
-
-    # ── Requery (verify) a transaction ────────────────────────────────────────
+    # ── Server-side transaction verification ──────────────────────────────────
     @classmethod
     def requery_transaction(cls, reference_no: str, amount_kobo: int) -> dict:
-        base_url = cls._requery_base()
-        url_path = (
-            f"/collections/api/v1/gettransaction.json"
+        base_url  = cls._requery_base()
+        full_url  = (
+            f"{base_url}/collections/api/v1/gettransaction.json"
             f"?transactionreference={reference_no}&amount={amount_kobo}"
         )
-        full_url = f"{base_url}{url_path}"
-
         token     = cls._get_token()
         nonce     = uuid.uuid4().hex
         timestamp = str(int(time.time()))
 
-        signature = cls._sign(nonce, timestamp)
-
-        headers = {
+        resp = requests.get(full_url, headers={
             "Authorization": f"Bearer {token}",
             "Content-Type":  "application/json",
             "Nonce":         nonce,
             "Timestamp":     timestamp,
-            "Signature":     signature,
-        }
-
-        resp = requests.get(full_url, headers=headers, timeout=30)
+            "Signature":     cls._sign(nonce, timestamp),
+        }, timeout=30)
 
         if resp.status_code == 404:
             return {

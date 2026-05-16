@@ -2,6 +2,27 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+
+// ── Interswitch inline checkout types ────────────────────────────────────────
+declare global {
+  interface Window {
+    // Interswitch inline checkout v2 SDK
+    webpayCheckout: (config: {
+      merchant_code: string;
+      pay_item_id: string;
+      txn_ref: string;
+      amount: number;
+      currency: string;   // "566" = NGN
+      site_redirect_url: string;
+      mode: "TEST" | "LIVE";
+      onComplete: (response: { resp: string; [key: string]: any }) => void;
+    }) => void;
+  }
+}
+
+// Interswitch inline checkout — use LIVE script URL with mode:"TEST" for sandbox
+const ISW_SCRIPT_URL =
+  "https://newwebpay.interswitchng.com/inline-checkout.js";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -78,8 +99,11 @@ export default function ApplicantDashboard() {
 
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(null);
-  const [paymentStep, setPaymentStep] = useState<'selection' | 'confirmation' | 'redirecting'>('selection');
-  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [paymentStep, setPaymentStep] = useState<'selection' | 'confirmation' | 'processing'>('selection');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [scriptReady, setScriptReady] = useState(false);
+  const [payResult, setPayResult] = useState<'success' | 'failed' | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const loadStatus = async () => {
     try {
@@ -156,24 +180,74 @@ export default function ApplicantDashboard() {
     loadStatus();
   }, [isAuthenticated]);
 
+  // Load Interswitch inline checkout script once
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (document.getElementById("isw-inline-checkout")) {
+      setScriptReady(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "isw-inline-checkout";
+    script.src = ISW_SCRIPT_URL;
+    script.onload = () => setScriptReady(true);
+    script.onerror = () => setPayError("Failed to load payment gateway. Please refresh.");
+    document.head.appendChild(script);
+  }, []);
+
   /**
-   * Creates a PENDING transaction record on the backend, then redirects
-   * the browser to Interswitch's hosted payment page.
-   * Interswitch redirects back to /applicant/payment/callback after completion.
+   * Initiates an Interswitch inline checkout for the application fee.
+   * Opens the payment modal in-page — no redirect.
    */
   const handlePayNow = async () => {
-    if (!selectedForm || isRedirecting) return;
-    setIsRedirecting(true);
+    if (!selectedForm || isProcessing || !scriptReady) return;
+    setIsProcessing(true);
+    setPayError(null);
     try {
-      const result = await ApiClient.initiatePayment(
+      const init = await ApiClient.initiatePayment(
         'application_fee',
         selectedForm.typeId,
       );
-      window.location.href = result.redirect_url;
+      const callbackUrl =
+        `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/e-portal/applicant/payment/callback`;
+
+      if (typeof window.webpayCheckout !== "function") {
+        throw new Error("Payment gateway not ready. Please refresh the page.");
+      }
+
+      window.webpayCheckout({
+        merchant_code:     init.merchant_code,
+        pay_item_id:       init.pay_item_id,
+        txn_ref:           init.reference_no,
+        amount:            init.amount_kobo,
+        currency:          566,
+        site_redirect_url: callbackUrl,
+        mode:              "TEST",
+        onComplete: async (response) => {
+          // Always verify server-side
+          try {
+            const verification = await ApiClient.verifyPayment(init.reference_no);
+            if (verification.is_successful) {
+              ApiClient.clearCache();
+              setPayResult('success');
+              setPaymentStep('selection');
+              await loadStatus();
+            } else {
+              setPayResult('failed');
+              setPayError(verification.response_desc || "Payment was not completed.");
+            }
+          } catch (err: any) {
+            setPayResult('failed');
+            setPayError(err.message || "Verification failed. Contact support if funds were debited.");
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+      });
     } catch (err: any) {
       console.error("Error initiating payment:", err);
-      alert(err.message || "Failed to start payment. Please try again.");
-      setIsRedirecting(false);
+      setPayError(err.message || "Failed to start payment. Please try again.");
+      setIsProcessing(false);
     }
   };
 
@@ -505,18 +579,30 @@ export default function ApplicantDashboard() {
                     </div>
                   </div>
 
+                  {payError && (
+                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-red-700 text-sm font-medium text-left">
+                      {payError}
+                    </div>
+                  )}
+
+                  {payResult === 'success' && (
+                    <div className="bg-green-50 border border-green-100 rounded-2xl p-4 text-green-700 text-sm font-bold text-center">
+                      ✓ Payment confirmed! Your application has been started.
+                    </div>
+                  )}
+
                   <Button
                     className="w-full h-20 bg-[#433878] hover:bg-[#2E236C] text-white font-black text-2xl uppercase tracking-widest rounded-[24px] shadow-2xl shadow-[#433878]/30 disabled:opacity-70"
                     onClick={handlePayNow}
-                    disabled={isRedirecting}
+                    disabled={isProcessing || !scriptReady}
                   >
-                    {isRedirecting ? (
+                    {isProcessing ? (
                       <span className="flex items-center gap-3">
                         <Loader2 className="h-6 w-6 animate-spin" />
-                        Redirecting…
+                        Opening payment...
                       </span>
                     ) : (
-                      'Pay Now'
+                      scriptReady ? 'Pay Now' : 'Loading...'
                     )}
                   </Button>
 

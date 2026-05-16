@@ -756,26 +756,17 @@ def initiate_payment(payload):
         print(f"Failed to create pending transaction: {e}")
         return jsonify({'message': 'Failed to initialise transaction record'}), 500
 
-    callback_url = f"{Config.FRONTEND_BASE_URL}/applicant/payment/callback"
-
-    try:
-        result = InterswitchClient.build_redirect_url(
-            payment_type   = payment_type,
-            amount_naira   = amount_naira,
-            reference_no   = reference_no,
-            customer_name  = customer_name,
-            customer_email = customer_email,
-            callback_url   = callback_url,
-        )
-    except (ValueError, Exception) as e:
-        print(f"Interswitch redirect build error: {e}")
-        return jsonify({'message': f'Failed to build payment URL: {e}'}), 500
+    pay_item_id   = InterswitchClient._pay_item_id(payment_type)
+    merchant_code = Config.INTERSWITCH_MERCHANT_CODE
 
     return jsonify({
-        'redirect_url': result['redirect_url'],
-        'reference_no': reference_no,
-        'amount':       amount_naira,
-        'amount_kobo':  amount_kobo,
+        'reference_no':  reference_no,
+        'amount':        amount_naira,
+        'amount_kobo':   amount_kobo,
+        'pay_item_id':   pay_item_id,
+        'merchant_code': merchant_code,
+        'customer_name':  customer_name,
+        'customer_email': customer_email,
     }), 200
 
 
@@ -911,6 +902,144 @@ def verify_payment(payload):
     }), 200
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Payment — Interswitch webhook (bank-transfer / async confirmation)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@applicant_bp.route('/payment-webhook', methods=['POST'])
+def payment_webhook():
+    """
+    Interswitch server-to-server webhook.
+    Registered in the Interswitch dashboard as:
+        https://<your-backend-domain>/e-portal/api/applicant/payment-webhook
+
+    Interswitch POSTs a JSON body when a bank transfer (Pay with Transfer /
+    virtual account) is confirmed by NIBSS/NIP.  We re-query Interswitch to
+    verify the transaction before updating the DB (never trust the webhook
+    payload alone).
+
+    No JWT required — this is called by Interswitch, not the browser.
+    """
+    data = request.get_json(silent=True) or {}
+
+    # Interswitch sends different field names depending on the event type.
+    # Common fields: transactionReference, txnref, ResponseCode, Amount
+    reference_no = (
+        data.get('transactionReference')
+        or data.get('txnref')
+        or data.get('TransactionReference')
+        or data.get('TxnRef')
+    )
+
+    if not reference_no:
+        print(f"[webhook] No reference in payload: {data}")
+        return jsonify({'message': 'reference not found in payload'}), 400
+
+    # ── Look up the pending transaction ───────────────────────────────────────
+    txn_res = Database.execute_query(
+        '''SELECT id, user_id, amount_in_kobo, amount, tran_status, receipt_no, tran_type
+           FROM payment_transactions
+           WHERE reference_no = %s
+           ORDER BY created_at DESC LIMIT 1''',
+        (reference_no,)
+    )
+    if not txn_res:
+        print(f"[webhook] Transaction not found: {reference_no}")
+        return jsonify({'message': 'transaction not found'}), 404
+
+    txn          = txn_res[0]
+    user_id      = txn['user_id']
+    payment_type = txn['tran_type']
+
+    # Idempotency — already finalised, acknowledge and exit
+    if txn['tran_status'] in ('successful', 'failed'):
+        print(f"[webhook] Already finalised ({txn['tran_status']}): {reference_no}")
+        return jsonify({'message': 'already processed'}), 200
+
+    amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
+
+    # ── Re-query Interswitch to verify (never trust webhook body alone) ────────
+    try:
+        isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
+    except Exception as e:
+        print(f"[webhook] Requery error for {reference_no}: {e}")
+        Database.execute_update(
+            '''UPDATE payment_transactions
+               SET tran_status = 'requery_error',
+                   requery_count = COALESCE(requery_count, 0) + 1,
+                   updated_at = NOW()
+               WHERE reference_no = %s''',
+            (reference_no,)
+        )
+        return jsonify({'message': 'requery failed, will retry'}), 503
+
+    response_code = str(isw_resp.get('ResponseCode', '')).strip()
+    response_desc = isw_resp.get('ResponseDescription', '')
+    is_successful = (response_code == '00')
+    tran_status   = 'successful' if is_successful else 'failed'
+
+    amount_paid_kobo = isw_resp.get('Amount', amount_kobo)
+    amount_paid      = float(amount_paid_kobo) / 100 if amount_paid_kobo else None
+    is_mismatch      = (amount_paid_kobo != amount_kobo) if amount_paid_kobo else False
+    payment_method   = (isw_resp.get('PaymentMethodCode') or '').upper() or None
+    card_number      = isw_resp.get('CardNumber') or None
+    bank_code        = isw_resp.get('BankCode')   or None
+    bank_name        = isw_resp.get('BankName')   or None
+
+    # ── Update transaction record ─────────────────────────────────────────────
+    Database.execute_update(
+        '''UPDATE payment_transactions
+           SET tran_status          = %s,
+               tran_ref             = %s,
+               response_code        = %s,
+               response_description = %s,
+               amount_paid          = %s,
+               amount_paid_in_kobo  = %s,
+               is_amount_mismatch   = %s,
+               payment_method       = %s,
+               card_number          = %s,
+               bank_code            = %s,
+               bank_name            = %s,
+               raw_response_payload = %s::jsonb,
+               requery_count        = COALESCE(requery_count, 0) + 1,
+               payment_at           = CASE WHEN %s THEN NOW() ELSE payment_at END,
+               confirmed_at         = CASE WHEN %s THEN NOW() ELSE confirmed_at END,
+               updated_at           = NOW()
+           WHERE reference_no = %s''',
+        (
+            tran_status, reference_no,
+            response_code, response_desc,
+            amount_paid, amount_paid_kobo,
+            is_mismatch,
+            payment_method, card_number, bank_code, bank_name,
+            json.dumps(isw_resp),
+            is_successful, is_successful,
+            reference_no,
+        )
+    )
+
+    # ── Downstream on success ─────────────────────────────────────────────────
+    if is_successful:
+        if payment_type == 'application_fee':
+            Database.execute_update(
+                "UPDATE users SET user_type_id = 2, updated_at = NOW() WHERE id = %s",
+                (user_id,)
+            )
+        elif payment_type == 'acceptance_fee':
+            Database.execute_update(
+                '''UPDATE applications SET applicant_stage = 'accepted', updated_at = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'admitted' ''',
+                (user_id,)
+            )
+        elif payment_type == 'tuition':
+            Database.execute_update(
+                '''UPDATE applications SET applicant_stage = 'enrolled', updated_at = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'accepted' ''',
+                (user_id,)
+            )
+
+    print(f"[webhook] {reference_no} → {tran_status} (type={payment_type})")
+    return jsonify({'message': 'ok', 'tran_status': tran_status}), 200
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -932,11 +1061,16 @@ def get_applicant_status(payload):
                app.form_no,
                pt.name AS program_name,
                TRUE AS has_paid_application_fee,
-               (app.applicant_stage = 'accepted') AS has_paid_acceptance_fee,
+               (app.applicant_stage IN ('accepted','enrolled')) AS has_paid_acceptance_fee,
                COALESCE(app.admission_letter_sent, FALSE) AS admission_letter_sent,
-               FALSE AS has_paid_tuition,
+               EXISTS (
+                   SELECT 1 FROM payment_transactions pt
+                   WHERE pt.user_id = app.user_id
+                     AND pt.tran_type = 'tuition'
+                     AND pt.tran_status = 'successful'
+               ) AS has_paid_tuition,
                CASE WHEN app.applicant_stage != 'started' THEN app.updated_at ELSE NULL END AS submitted_at,
-               CASE WHEN app.applicant_stage IN ('admitted','accepted') THEN 'admitted' ELSE 'pending' END AS admission_status
+               CASE WHEN app.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted' ELSE 'pending' END AS admission_status
            FROM applications app
            JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id

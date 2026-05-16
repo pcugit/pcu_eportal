@@ -7,7 +7,7 @@ import Link from "next/link";
 // Each entry has a label (what the user sees) and an href (where it links).
 const SEARCH_KEYWORDS: { label: string; href: string; category: string }[] = [
   // E-Portal
-  { label: "Student Portal", href: "#", category: "E-Portal" },
+  { label: "Student Portal", href: "/student/login", category: "E-Portal" },
   { label: "Staff Portal", href: "#", category: "E-Portal" },
   { label: "Result Checker", href: "#", category: "E-Portal" },
   // Programs

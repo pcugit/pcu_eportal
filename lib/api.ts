@@ -555,21 +555,32 @@ export class ApiClient {
   // Payment endpoints
 
   /**
-   * Step 1 — Initiate a real Interswitch payment.
-   * Returns the Webpay hosted-page redirect URL. The caller should do:
-   *   window.location.href = result.redirect_url
+   * Step 1 — Initiate an Interswitch inline checkout payment.
+   * Returns the params the client-side SDK (InterswitchPay.configure) needs.
+   * Server-side verification is always done via verifyPayment() after onComplete fires.
    */
   static async initiatePayment(
     payment_type: "application_fee" | "acceptance_fee" | "tuition",
     program_type_id?: number,
     fee_component_id?: number,
     installment_plan_id?: number,
-  ): Promise<{ redirect_url: string; reference_no: string; amount: number; amount_kobo: number }> {
+  ): Promise<{
+    reference_no: string;
+    amount: number;
+    amount_kobo: number;
+    pay_item_id: string;
+    merchant_code: string;
+    customer_name: string;
+    customer_email: string;
+  }> {
     const { data } = await this.fetch<{
-      redirect_url: string;
       reference_no: string;
       amount: number;
       amount_kobo: number;
+      pay_item_id: string;
+      merchant_code: string;
+      customer_name: string;
+      customer_email: string;
     }>("/applicant/initiate-payment", {
       method: "POST",
       body: JSON.stringify({

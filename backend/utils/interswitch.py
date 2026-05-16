@@ -36,14 +36,15 @@ class InterswitchClient:
 
         client_id     = Config.INTERSWITCH_CLIENT_ID
         client_secret = Config.INTERSWITCH_CLIENT_SECRET
-        base_url      = cls._requery_base()
 
         credentials = base64.b64encode(
             f"{client_id}:{client_secret}".encode()
         ).decode()
 
+        # OAuth token lives on passport.interswitchng.com regardless of the
+        # collections API base URL.
         resp = requests.post(
-            f"{base_url}/passport/oauth/token",
+            "https://passport.interswitchng.com/passport/oauth/token",
             headers={
                 "Authorization": f"Basic {credentials}",
                 "Content-Type":  "application/x-www-form-urlencoded",
@@ -88,10 +89,13 @@ class InterswitchClient:
     # ── Server-side transaction verification ──────────────────────────────────
     @classmethod
     def requery_transaction(cls, reference_no: str, amount_kobo: int) -> dict:
-        base_url  = cls._requery_base()
-        full_url  = (
+        base_url      = cls._requery_base()
+        merchant_code = Config.INTERSWITCH_MERCHANT_CODE
+        full_url = (
             f"{base_url}/collections/api/v1/gettransaction.json"
-            f"?transactionreference={reference_no}&amount={amount_kobo}"
+            f"?transactionreference={reference_no}"
+            f"&amount={amount_kobo}"
+            f"&merchantcode={merchant_code}"
         )
         token     = cls._get_token()
         nonce     = uuid.uuid4().hex

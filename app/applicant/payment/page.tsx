@@ -64,6 +64,11 @@ function PaymentContent() {
   const [paidAmount, setPaidAmount] = useState<number | null>(null);
   const [paidType, setPaidType] = useState<string | null>(null);
 
+  // Timeout guard — fires if ThreatMetrix (h.online-metrix.net) is blocked by an
+  // ad blocker and the Interswitch modal never fires onComplete.
+  const modalTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCompleteCalledRef = React.useRef(false);
+
   // ── Load Interswitch inline checkout script once ──────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -110,6 +115,10 @@ function PaymentContent() {
 
     setProcessing(true);
     setError(null);
+    onCompleteCalledRef.current = false;
+
+    // Clear any previous timeout
+    if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
 
     try {
       const init = await ApiClient.initiatePayment(selectedType);
@@ -121,6 +130,23 @@ function PaymentContent() {
         throw new Error("Payment gateway not ready. Please refresh the page.");
       }
 
+      // ── ThreatMetrix / ad-blocker guard ──────────────────────────────────
+      // If h.online-metrix.net is blocked (ERR_BLOCKED_BY_CLIENT), the
+      // Interswitch modal can get stuck and onComplete never fires.
+      // After 90 s we stop spinning and tell the user what happened.
+      modalTimeoutRef.current = setTimeout(() => {
+        if (!onCompleteCalledRef.current) {
+          setProcessing(false);
+          setError(
+            "The payment window appears to be stuck. This is usually caused by a browser " +
+            "ad blocker blocking a fraud-detection script (h.online-metrix.net). " +
+            "Please disable your ad blocker for this page and try again, or use a " +
+            "browser with no extensions. If you were already debited, your payment " +
+            "will be confirmed automatically — check your transaction history."
+          );
+        }
+      }, 90_000);
+
       window.webpayCheckout({
         merchant_code:     init.merchant_code,
         pay_item_id:       init.pay_item_id,
@@ -130,6 +156,9 @@ function PaymentContent() {
         site_redirect_url: callbackUrl,
         mode:              (process.env.NEXT_PUBLIC_ISW_MODE as "TEST" | "LIVE") ?? "LIVE",
         onComplete: async (response: InterswitchPayResponse) => {
+          onCompleteCalledRef.current = true;
+          if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
+
           // Always verify server-side — never trust client resp alone
           try {
             const verification = await ApiClient.verifyPayment(init.reference_no);
@@ -155,6 +184,7 @@ function PaymentContent() {
         },
       });
     } catch (err: any) {
+      if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
       setError(err.message || "Failed to start payment. Please try again.");
       setProcessing(false);
     }

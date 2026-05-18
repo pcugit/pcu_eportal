@@ -2,33 +2,19 @@
 
 import React, { useState, useEffect } from "react";
 import { ApiClient, PaymentTransaction } from "@/lib/api";
-import {
-  CreditCard,
-  ArrowLeft,
-  Search,
-  Download,
-  CheckCircle2,
-  Clock,
-  ChevronRight,
-  TrendingUp,
-  ShieldCheck,
-  Receipt,
-  X,
-} from "lucide-react";
+import { Search, Download, CheckCircle2, X, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import Link from "next/link";
 import { format } from "date-fns";
 
-export default function TransactionsPage() {
+export default function StudentTransactionsPage() {
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
 
-  // Pagination state
+  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -37,12 +23,11 @@ export default function TransactionsPage() {
     setError(null);
     try {
       const data = await ApiClient.getPaymentHistory();
-      // Only application and acceptance fees for applicant dashboard
-      const applicantFees = (data.payment_history || []).filter(
-        (tx: PaymentTransaction) => 
-          tx.payment_type === "application_fee" || tx.payment_type === "acceptance_fee"
+      // Only tuition payments for student dashboard
+      const tuitionOnly = (data.payment_history || []).filter(
+        (tx: PaymentTransaction) => tx.payment_type === "tuition",
       );
-      setTransactions(applicantFees);
+      setTransactions(tuitionOnly);
     } catch (err: any) {
       console.error("Failed to fetch payment history", err);
       setError(err.message || "Unable to load transaction history");
@@ -81,7 +66,6 @@ export default function TransactionsPage() {
       (tx.client_name?.toLowerCase() || "").includes(search.toLowerCase()),
   );
 
-  // Pagination logic
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -108,16 +92,14 @@ export default function TransactionsPage() {
       <div className="max-w-[95%] mx-auto px-4 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-slate-900">
-            Transaction History
+            Tuition Payments
           </h1>
           <p className="text-slate-500 text-sm">
-            View and manage your portal payments
+            Payments made for tuition in this portal
           </p>
         </div>
 
-        {/* Content Section */}
         <div className="space-y-4">
-          {/* Controls */}
           <div className="flex flex-col sm:flex-row gap-4 items-center mb-4">
             <div className="relative flex-grow w-full max-w-sm">
               <Search
@@ -136,7 +118,6 @@ export default function TransactionsPage() {
             </div>
           </div>
 
-          {/* Transactions Table */}
           <div className="border border-slate-200 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -229,13 +210,9 @@ export default function TransactionsPage() {
                         </td>
                         <td className="px-4 py-4">
                           <span className="text-sm text-slate-600 capitalize">
-                            {tx.payment_type === "application_fee"
-                              ? "Application Form"
-                              : tx.payment_type === "acceptance_fee"
-                              ? "Acceptance Fee"
-                              : tx.payment_type === "tuition"
+                            {tx.payment_type === "tuition"
                               ? "Tuition Fee"
-                              : tx.payment_type?.replace(/_/g, " ") ?? "—"}
+                              : (tx.payment_type?.replace(/_/g, " ") ?? "—")}
                           </span>
                         </td>
                         <td className="px-4 py-4">
@@ -272,7 +249,7 @@ export default function TransactionsPage() {
                         <p className="text-slate-500 text-sm">
                           {search
                             ? "No matches found for your search"
-                            : "No transactions found"}
+                            : "No tuition payments found"}
                         </p>
                       </td>
                     </tr>
@@ -282,7 +259,6 @@ export default function TransactionsPage() {
             </div>
           </div>
 
-          {/* Pagination Controls */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-4">
               <div className="text-xs text-slate-500">
@@ -307,9 +283,7 @@ export default function TransactionsPage() {
                         variant={
                           currentPage === number ? "secondary" : "outline"
                         }
-                        className={`h-8 w-8 text-xs p-0 rounded border-slate-200 ${
-                          currentPage === number ? "bg-slate-100" : ""
-                        }`}
+                        className={`h-8 w-8 text-xs p-0 rounded border-slate-200 ${currentPage === number ? "bg-slate-100" : ""}`}
                       >
                         {number}
                       </Button>

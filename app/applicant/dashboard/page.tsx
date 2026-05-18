@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 // ── Interswitch inline checkout types ────────────────────────────────────────
@@ -78,6 +79,15 @@ interface DynamicProgramForm {
 }
 
 export default function ApplicantDashboard() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>}>
+      <ApplicantDashboardInner />
+    </Suspense>
+  );
+}
+
+function ApplicantDashboardInner() {
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { user, isAuthenticated, logout, refreshStatus } = useAuth();
   const [status, setStatus] = useState<ApplicantStatus | null>(null);
@@ -85,6 +95,7 @@ export default function ApplicantDashboard() {
   const [admissionLetter, setAdmissionLetter] = useState<AdmissionLetterData | null>(null);
   const [showLetter, setShowLetter] = useState(false);
   const [showAdmissionModal, setShowAdmissionModal] = useState(false);
+  const [showStudentPortalModal, setShowStudentPortalModal] = useState(false);
 
   const [applicants, setApplicants] = useState<ApplicantStatus[]>([]);
   const [programTypes, setProgramTypes] = useState<DynamicProgramForm[]>([]);
@@ -115,13 +126,62 @@ export default function ApplicantDashboard() {
       if (response.applicant?.admission_status === "admitted") {
         if (!response.applicant.has_paid_acceptance_fee) {
           setShowAdmissionModal(true);
+        } else {
+          // Acceptance fee paid — prompt them to go to student portal (show once per mount)
+          setShowStudentPortalModal(true);
         }
         try {
           const letterResponse = await ApiClient.getAdmissionLetter();
           setAdmissionLetter(letterResponse);
-        } catch (err) {
-          console.error("Error loading admission letter:", err);
+        } catch {
+          setAdmissionLetter(null);
         }
+      }
+
+      // Auto-open profile when redirected from acceptance_fee payment success
+      if (searchParams.get('view') === 'profile') {
+        // Find the admitted/accepted application
+        const admittedApp = apps.find(
+          (a: ApplicantStatus) =>
+            a.has_paid_application_fee &&
+            ['admitted', 'accepted', 'submitted', 'screening'].includes(a.application_status)
+        );
+        if (admittedApp) {
+          setViewingFormId(admittedApp.id);
+          setProfileLoading(true);
+          try {
+            const [template, formResult] = await Promise.all([
+              ApiClient.getFormTemplate(admittedApp.program_type_id),
+              ApiClient.getForm(admittedApp.id)
+                .then(r => ({ form: r.form ?? r, documents: r.documents ?? [] }))
+                .catch(() => ({ form: null, documents: [] })),
+            ]);
+            setFormTemplate(template);
+            setSubmittedFormData((formResult as any).form);
+            setSubmittedDocuments((formResult as any).documents ?? []);
+            // Cache so re-opening this row skips the network round-trip
+            setPreloadedTemplates(prev => ({ ...prev, [admittedApp.program_type_id]: template }));
+            setPreloadedForms(prev => ({
+              ...prev,
+              [admittedApp.id]: { form: (formResult as any).form, documents: (formResult as any).documents ?? [] },
+            }));
+            // Load acceptance fee info for the banner
+            try {
+              const feeData = await ApiClient.getAcceptanceFee();
+              setAcceptanceFeeData({
+                amount: feeData.acceptance_fee,
+                feeName: feeData.fee_name,
+                paid: admittedApp.has_paid_acceptance_fee,
+              });
+            } catch {}
+          } catch (e) {
+            console.error('Failed to load profile after acceptance fee payment', e);
+          } finally {
+            setProfileLoading(false);
+          }
+        }
+        // Clean the query param without a full page reload
+        router.replace('/applicant/dashboard', { scroll: false });
       }
 
       try {
@@ -135,38 +195,11 @@ export default function ApplicantDashboard() {
         console.error("Error loading program types:", err);
       }
 
-      // Background pre-fetch: form data + form templates for every applicant
-      if (apps.length > 0) {
-        Promise.all(
-          apps.map(async (app: ApplicantStatus) => {
-            try {
-              const [formData, templateData] = await Promise.all([
-                ApiClient.getForm(app.id),
-                ApiClient.getFormTemplate(app.program_type_id),
-              ]);
-              return {
-                appId: app.id,
-                typeId: app.program_type_id,
-                form: formData.form,
-                documents: formData.documents || [],
-                template: templateData,
-              };
-            } catch {
-              return null;
-            }
-          })
-        ).then(results => {
-          const formsMap: Record<number, { form: any; documents: any[] }> = {};
-          const templatesMap: Record<number, any> = {};
-          results.forEach(r => {
-            if (!r) return;
-            formsMap[r.appId] = { form: r.form, documents: r.documents };
-            templatesMap[r.typeId] = r.template;
-          });
-          setPreloadedForms(formsMap);
-          setPreloadedTemplates(templatesMap);
-        });
-      }
+      // Form data is loaded lazily when the user opens a specific application
+      // (see the "Apply / Profile" onClick handler in ApplicationsTable).
+      // We do NOT preload all N forms upfront to avoid N parallel API requests
+      // on every loadStatus call, especially for users with multiple paid forms.
+
 
     } catch (err) {
       console.error("Error loading status:", err);
@@ -223,7 +256,22 @@ export default function ApplicantDashboard() {
         currency:          566,
         site_redirect_url: callbackUrl,
         mode:              "TEST",
-        onComplete: async (response) => {
+        onComplete: async (response: any) => {
+          // If the user cancelled or the widget returned a non-success/non-pending code
+          if (response && response.resp && response.resp !== "00" && response.resp !== "Z0" && response.resp !== "T0") {
+             try {
+               await ApiClient.cancelPayment(init.reference_no);
+             } catch (e) {}
+             setPayResult(null);
+             setPayError("Payment was cancelled by user. Returning to dashboard...");
+             setIsProcessing(false);
+             setTimeout(() => {
+               setPayError(null);
+               setPaymentStep('selection');
+             }, 5000);
+             return;
+          }
+
           // Always verify server-side
           try {
             const verification = await ApiClient.verifyPayment(init.reference_no);
@@ -232,6 +280,21 @@ export default function ApplicantDashboard() {
               setPayResult('success');
               setPaymentStep('selection');
               await loadStatus();
+            } else if (verification.tran_status === 'pending') {
+              // Gateway returned Z0/T0 — payment is still processing (network delay).
+              // Don't show an error; inform the user and auto-refresh after 10s.
+              setPayResult(null);
+              setPayError(null);
+              setPaymentStep('selection');
+              setPayError(
+                "Your payment is still being processed. We'll update your status automatically — please wait a moment."
+              );
+              // Background worker will confirm within minutes; quietly reload status
+              setTimeout(async () => {
+                ApiClient.clearCache();
+                await loadStatus();
+                setPayError(null);
+              }, 10_000);
             } else {
               setPayResult('failed');
               setPayError(verification.response_desc || "Payment was not completed.");
@@ -315,65 +378,79 @@ export default function ApplicantDashboard() {
                   <td className="p-4 text-sm text-slate-600">{app.program_session}</td>
                   <td className="p-4 text-sm text-slate-600 capitalize font-medium">{app.admission_status.replace('_', ' ')}</td>
                   <td className="p-4 text-center">
-                    <Button
-                      size="sm"
-                      className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-8 px-6"
-                      onClick={async () => {
-                         setViewingFormId(app.id);
+                    {app.has_paid_application_fee ? (
+                      // ── Paid — show Apply / Profile button
+                      <Button
+                        size="sm"
+                        className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-8 px-6"
+                        onClick={async () => {
+                           setViewingFormId(app.id);
 
-                         const cachedTemplate = preloadedTemplates[app.program_type_id];
-                         const cachedForm     = preloadedForms[app.id];
+                           const cachedTemplate = preloadedTemplates[app.program_type_id];
+                           const cachedForm     = preloadedForms[app.id];
 
-                         if (cachedTemplate) setFormTemplate(cachedTemplate);
-                         if (cachedForm) {
-                           setSubmittedFormData(cachedForm.form);
-                           setSubmittedDocuments(cachedForm.documents);
-                         }
-
-                         const fullyReady = !!cachedTemplate && !!cachedForm;
-                         if (!fullyReady) setProfileLoading(true);
-
-                         try {
-                           const [templateResult, formResult] = await Promise.all([
-                             cachedTemplate
-                               ? Promise.resolve(cachedTemplate)
-                               : ApiClient.getFormTemplate(app.program_type_id),
-                             cachedForm
-                               ? Promise.resolve(cachedForm)
-                               : ApiClient.getForm(app.id)
-                                   .then(r => ({ form: r.form ?? r, documents: r.documents ?? [] }))
-                                   .catch(() => ({ form: null, documents: [] })),
-                           ]);
-
-                           if (!cachedTemplate) setFormTemplate(templateResult);
-                           if (!cachedForm) {
-                             setSubmittedFormData((formResult as any).form);
-                             setSubmittedDocuments((formResult as any).documents ?? []);
+                           if (cachedTemplate) setFormTemplate(cachedTemplate);
+                           if (cachedForm) {
+                             setSubmittedFormData(cachedForm.form);
+                             setSubmittedDocuments(cachedForm.documents);
                            }
 
-                           if (['admitted', 'accepted'].includes(app.application_status)) {
-                             try {
-                               const feeData = await ApiClient.getAcceptanceFee();
-                               setAcceptanceFeeData({
-                                 amount: feeData.acceptance_fee,
-                                 feeName: feeData.fee_name,
-                                 paid: app.has_paid_acceptance_fee,
-                               });
-                             } catch (e) {
-                               console.error('Failed to load acceptance fee', e);
+                           const fullyReady = !!cachedTemplate && !!cachedForm;
+                           if (!fullyReady) setProfileLoading(true);
+
+                           try {
+                             const [templateResult, formResult] = await Promise.all([
+                               cachedTemplate
+                                 ? Promise.resolve(cachedTemplate)
+                                 : ApiClient.getFormTemplate(app.program_type_id),
+                               cachedForm
+                                 ? Promise.resolve(cachedForm)
+                                 : ApiClient.getForm(app.id)
+                                     .then(r => ({ form: r.form ?? r, documents: r.documents ?? [] }))
+                                     .catch(() => ({ form: null, documents: [] })),
+                             ]);
+
+                             if (!cachedTemplate) setFormTemplate(templateResult);
+                             if (!cachedForm) {
+                               setSubmittedFormData((formResult as any).form);
+                               setSubmittedDocuments((formResult as any).documents ?? []);
                              }
-                           } else {
-                             setAcceptanceFeeData(null);
+
+                             if (['admitted', 'accepted'].includes(app.application_status)) {
+                               try {
+                                 const feeData = await ApiClient.getAcceptanceFee();
+                                 setAcceptanceFeeData({
+                                   amount: feeData.acceptance_fee,
+                                   feeName: feeData.fee_name,
+                                   paid: app.has_paid_acceptance_fee,
+                                 });
+                               } catch (e) {
+                                 console.error('Failed to load acceptance fee', e);
+                               }
+                             } else {
+                               setAcceptanceFeeData(null);
+                             }
+                           } catch (e) {
+                             console.error('Failed to load form data', e);
+                           } finally {
+                             setProfileLoading(false);
                            }
-                         } catch (e) {
-                           console.error('Failed to load form data', e);
-                         } finally {
-                           setProfileLoading(false);
-                         }
-                       }}
-                    >
-                      {['submitted', 'admitted', 'accepted'].includes(app.application_status) ? 'Profile' : 'Apply'}
-                    </Button>
+                         }}
+                      >
+                        {['submitted', 'admitted', 'accepted'].includes(app.application_status) ? 'Profile' : 'Apply'}
+                      </Button>
+                    ) : app.has_pending_application_payment ? (
+                      // ── Payment gateway is still processing — amber notice
+                      <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Processing…
+                      </span>
+                    ) : (
+                      // ── Transaction failed or never completed — red notice
+                      <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-red-50 text-red-600 border border-red-200">
+                        Payment Failed
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -496,6 +573,22 @@ export default function ApplicantDashboard() {
 
   const paidApplicants = applicants.filter(a => a.has_paid_application_fee);
 
+  // Program types the applicant has already paid for (and not been rejected).
+  // These cards show a locked state — no second purchase allowed.
+  const blockedTypeIds = new Set(
+    applicants
+      .filter(a => a.has_paid_application_fee && a.application_status !== 'rejected')
+      .map(a => a.program_type_id)
+  );
+
+  // Program types where a payment is currently processing (pending gateway confirmation).
+  // Show a disabled "Processing" state on the card so the user doesn't try to pay again.
+  const pendingTypeIds = new Set(
+    applicants
+      .filter(a => !a.has_paid_application_fee && a.has_pending_application_payment)
+      .map(a => a.program_type_id)
+  );
+
   return (
     <div className="min-h-screen bg-[#f8fafc]">
       <div className="max-w-6xl mx-auto px-4 py-12">
@@ -531,18 +624,43 @@ export default function ApplicantDashboard() {
                   </CardHeader>
                   <CardContent className="relative z-10 flex-1 p-8 pt-0" />
                   <CardContent className="relative z-10 p-8 pt-0">
-                    <Button
-                      onClick={() => {
-                        if (form.fee === undefined) return;
-                        setSelectedForm(form);
-                        setPaymentStep('confirmation');
-                      }}
-                      disabled={form.fee === undefined}
-                      className="w-full h-14 text-lg font-black uppercase tracking-wider shadow-lg shadow-black/5 flex items-center justify-center gap-2 group/btn"
-                    >
-                      {form.fee === undefined ? 'Coming Soon' : 'Get Started'}
-                      {form.fee !== undefined && <ChevronRight className="h-5 w-5 group-hover/btn:translate-x-1 transition-transform" />}
-                    </Button>
+                    {blockedTypeIds.has(form.typeId) ? (
+                      // ── Already purchased — locked state
+                      <div className="space-y-2">
+                        <div className="w-full h-14 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center gap-2 text-emerald-700 font-black text-sm uppercase tracking-widest">
+                          <CheckCircle2 className="h-5 w-5" />
+                          Form Purchased
+                        </div>
+                        <p className="text-center text-[10px] text-slate-400 font-semibold uppercase tracking-widest">
+                          Re-purchase only allowed after rejection
+                        </p>
+                      </div>
+                    ) : pendingTypeIds.has(form.typeId) ? (
+                      // ── Payment processing — disable card while gateway confirms
+                      <div className="space-y-2">
+                        <div className="w-full h-14 rounded-2xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center gap-2 text-amber-700 font-black text-sm uppercase tracking-widest">
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          Payment Processing
+                        </div>
+                        <p className="text-center text-[10px] text-slate-400 font-semibold uppercase tracking-widest">
+                          Your payment is being confirmed
+                        </p>
+                      </div>
+                    ) : (
+                      // ── Available or coming soon
+                      <Button
+                        onClick={() => {
+                          if (form.fee === undefined) return;
+                          setSelectedForm(form);
+                          setPaymentStep('confirmation');
+                        }}
+                        disabled={form.fee === undefined}
+                        className="w-full h-14 text-lg font-black uppercase tracking-wider shadow-lg shadow-black/5 flex items-center justify-center gap-2 group/btn"
+                      >
+                        {form.fee === undefined ? 'Coming Soon' : 'Get Started'}
+                        {form.fee !== undefined && <ChevronRight className="h-5 w-5 group-hover/btn:translate-x-1 transition-transform" />}
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -614,7 +732,7 @@ export default function ApplicantDashboard() {
           </div>
         )}
 
-        {/* ── Admission modal ── */}
+        {/* ── Admission modal — offered but not yet paid acceptance fee ── */}
         {showAdmissionModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
              <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
@@ -633,6 +751,40 @@ export default function ApplicantDashboard() {
                 >
                   View Details & Pay
                 </Button>
+             </div>
+          </div>
+        )}
+
+        {/* ── Student portal modal — acceptance fee paid, prompt to access student portal ── */}
+        {showStudentPortalModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+             <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
+                <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <CheckCircle2 className="w-10 h-10 text-purple-600" />
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-3xl font-black text-slate-900 tracking-tight">Acceptance Fee Confirmed!</h3>
+                  <p className="text-slate-600 font-medium leading-snug px-2">
+                    Your acceptance fee has been received. You can now access the{" "}
+                    <span className="font-black text-purple-700">Student Portal</span> to pay your school fees,
+                    upload required documents, and download your admission letter & other forms.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <Button
+                    onClick={() => router.push("/student/login")}
+                    className="w-full h-14 bg-purple-700 hover:bg-purple-800 text-white font-bold text-lg rounded-xl shadow-lg shadow-purple-700/30"
+                  >
+                    Go to Student Portal
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowStudentPortalModal(false)}
+                    className="w-full text-slate-500 font-medium"
+                  >
+                    Stay on this page
+                  </Button>
+                </div>
              </div>
           </div>
         )}

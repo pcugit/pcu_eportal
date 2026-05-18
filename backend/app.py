@@ -2,6 +2,12 @@ from flask import Flask, request
 from flask_cors import CORS
 from config import config
 import os
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+)
 
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -45,6 +51,13 @@ def create_app(config_name='development'):
     app.register_blueprint(dean_bp, url_prefix='/e-portal/api/dean')
     app.register_blueprint(registrar_bp, url_prefix='/e-portal/api/registrar')
     app.register_blueprint(settings_bp, url_prefix='/e-portal/api/settings')
+
+    # ── Background payment-requery worker ─────────────────────────────────────
+    # Guard against double-start when Flask debug mode forks a reloader child.
+    # In production (gunicorn) WERKZEUG_RUN_MAIN is not set, so worker always starts.
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+        from background_requery import start_background_worker
+        start_background_worker()
 
     @app.route('/e-portal/api/health', methods=['GET'])
     def health():

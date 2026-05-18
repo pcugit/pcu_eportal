@@ -8,7 +8,7 @@ import Link from "next/link";
 const SEARCH_KEYWORDS: { label: string; href: string; category: string }[] = [
   // E-Portal
   { label: "Student Portal", href: "/student/login", category: "E-Portal" },
-  { label: "Staff Portal", href: "#", category: "E-Portal" },
+  { label: "Staff Portal", href: "/staff/login", category: "E-Portal" },
   { label: "Result Checker", href: "#", category: "E-Portal" },
   // Programs
   { label: "Postgraduate", href: "/Postgraduate", category: "Programs" },
@@ -192,7 +192,11 @@ const topNavLinks = [
   {
     label: "E-Portal",
     hasDropdown: true,
-    children: ["Student Portal", "Staff Portal", "Result Checker"],
+    children: [
+      { label: "Student Portal", href: "/student/login" },
+      { label: "Staff Portal", href: "/staff/login" },
+      { label: "Result Checker", href: "#" },
+    ],
   },
   { label: "Postgraduate", hasDropdown: false, href: "/Postgraduate" },
   { label: "Undergraduate", hasDropdown: false, href: "/Undergraduate" },
@@ -200,7 +204,11 @@ const topNavLinks = [
   {
     label: "News & Event",
     hasDropdown: true,
-    children: ["News", "Events", "Gallery"],
+    children: [
+      { label: "News", href: "#" },
+      { label: "Events", href: "#" },
+      { label: "Gallery", href: "#" },
+    ],
   },
 ];
 
@@ -239,12 +247,20 @@ const bottomNavLinks = [
   {
     label: "Research and Collections",
     hasDropdown: true,
-    children: ["Research Centers", "Publications", "Library Collections"],
+    children: [
+      { label: "Research Centers", href: "#" },
+      { label: "Publications", href: "#" },
+      { label: "Library Collections", href: "#" },
+    ],
   },
   {
     label: "Library",
     hasDropdown: true,
-    children: ["E-Library", "Catalogue", "Resources"],
+    children: [
+      { label: "E-Library", href: "#" },
+      { label: "Catalogue", href: "#" },
+      { label: "Resources", href: "#" },
+    ],
   },
   { label: "Contact", hasDropdown: false },
 ];

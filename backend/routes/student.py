@@ -51,17 +51,24 @@ def get_profile(payload):
     user_id = payload['user_id']
 
     student = Database.execute_query(
-        '''SELECT s.id, s.matric_number, s.current_level, s.session, s.is_first_login,
-                  u.name, u.email, u.phone_number,
-                  p.name as program_name, pt.name as program_type,
+        '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                  l.name as current_level, acs.name as session, 
+                  FALSE as is_first_login,
+                  u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name,
+                  s."Email" as email, s."MobileNumber" as phone_number,
+                  ps.name as program_name, pt.name as program_type,
                   d.name as department, f.name as faculty
            FROM students s
-           JOIN users u ON s.user_id = u.id
-           JOIN programs p ON s.program_id = p.id
-           JOIN departments d ON p.department_id = d.id
-           JOIN faculties f ON d.faculty_id = f.id
-           JOIN program_types pt ON p.program_type_id = pt.id
-           WHERE s.user_id = %s''',
+           JOIN users u ON s."UserId" = u.id
+           JOIN applications a ON a.user_id = u.id
+           LEFT JOIN level l ON a.level_id = l.id
+           LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+           LEFT JOIN program_setup ps ON a.degree_id = ps.degree_id
+           LEFT JOIN program_types pt ON ps.program_type_id = pt.id
+           LEFT JOIN departments d ON ps.department_id = d.id
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           WHERE s."UserId" = %s
+           ORDER BY a.updated_at DESC LIMIT 1''',
         (user_id,)
     )
 
@@ -93,36 +100,40 @@ def get_courses(payload):
         with conn.cursor() as cur:
             # 1) Student + program info
             cur.execute(
-                '''SELECT s.id, s.program_id, s.current_level, s.session,
-                          p.registration_deadline
-                   FROM students s
-                   JOIN programs p ON s.program_id = p.id
-                   WHERE s.user_id = %s''',
+                '''SELECT a.degree_id, l.name as current_level, acs.name as session, 
+                          d.name as department_name, s."Id" as student_id
+                   FROM applications a
+                   JOIN level l ON a.level_id = l.id
+                   JOIN academic_sessions acs ON a.academic_session_id = acs.id
+                   JOIN program_setup ps ON ps.degree_id = a.degree_id
+                   JOIN departments d ON d.id = ps.department_id
+                   JOIN students s ON s."UserId" = a.user_id
+                   WHERE a.user_id = %s
+                   ORDER BY a.updated_at DESC LIMIT 1''',
                 (user_id,)
             )
             student = cur.fetchone()
             if not student:
-                return jsonify({'message': 'Student record not found'}), 404
+                return jsonify({'message': 'Student record not found. Please ensure you have completed your tuition payment to be officially enrolled.'}), 404
 
-            program_id    = student['program_id']
             current_level = student['current_level']
             session       = student['session']
-            student_id    = student['id']
-            reg_deadline  = student.get('registration_deadline')
+            student_id    = student['student_id']
+            department_name = student['department_name']
+            
+            # Map frontend semester 'First' -> 'First semester', 'Second' -> 'Second semester'
+            db_semester = f"{semester} semester"
 
             # 2) Courses for this program / level / semester
             cur.execute(
-                '''SELECT c.id, c.course_code, c.course_title, c.credit_units,
-                          c.remark, l.name as lecturer, pc.category
-                   FROM program_courses pc
-                   JOIN courses c ON pc.course_id = c.id
-                   LEFT JOIN staff st ON c.lecturer_id = st.id
-                   LEFT JOIN users l ON st.user_id = l.id
-                   WHERE pc.program_id = %s
-                     AND pc.level      = %s
-                     AND pc.semester   = %s
-                   ORDER BY pc.category, c.course_code''',
-                (program_id, current_level, semester)
+                '''SELECT c.id, c.course_code, c.course_title, c.unit as credit_units,
+                          c.remark as category
+                   FROM course c
+                   WHERE c.department = %s
+                     AND c.level = %s
+                     AND c.semester ILIKE %s
+                   ORDER BY c.remark, c.course_code''',
+                (department_name, current_level, db_semester)
             )
             courses = cur.fetchall()
 
@@ -148,13 +159,13 @@ def get_courses(payload):
             'registration_status':   reg_status,
             'registered_course_ids': registered_ids,
             'student':               dict(student),
-            'registration_deadline': str(reg_deadline) if reg_deadline else None,
+            'registration_deadline': None,
             'is_global_locked':      check_registration_status()
         }), 200
 
     except Exception as e:
         print(f'Error in get_courses: {e}')
-        return jsonify({'message': f'Server error: {e}'}), 500
+        return jsonify({'message': 'An unexpected error occurred while fetching courses. Please try again later or contact support.'}), 500
     finally:
         Database.release_connection(conn)
 
@@ -179,9 +190,16 @@ def register_courses(payload):
          return jsonify({'message': 'course_ids must be a list'}), 400
 
     student = Database.execute_query(
-        '''SELECT s.id, s.session, s.program_id, s.current_level, p.registration_deadline 
-           FROM students s JOIN programs p ON s.program_id = p.id 
-           WHERE s.user_id = %s''',
+        '''SELECT a.degree_id, l.name as current_level, acs.name as session, 
+                  d.name as department_name, s."Id" as student_id
+           FROM applications a
+           JOIN level l ON a.level_id = l.id
+           JOIN academic_sessions acs ON a.academic_session_id = acs.id
+           JOIN program_setup ps ON ps.degree_id = a.degree_id
+           JOIN departments d ON d.id = ps.department_id
+           JOIN students s ON s."UserId" = a.user_id
+           WHERE a.user_id = %s
+           ORDER BY a.updated_at DESC LIMIT 1''',
         (user_id,)
     )
     
@@ -189,29 +207,25 @@ def register_courses(payload):
         return jsonify({'message': 'Student record not found'}), 404
         
     s_data = student[0]
-    student_id = s_data['id']
+    student_id = s_data['student_id']
     current_session = s_data['session']
-    registration_deadline = s_data.get('registration_deadline')
+    department_name = s_data['department_name']
+    current_level = s_data['current_level']
     
-    # Enforce deadline if set
-    if registration_deadline and datetime.datetime.now() > registration_deadline:
-        return jsonify({'message': 'Registration deadline has passed'}), 403
-        
     # Check for existing registration record (no longer locks if submitted)
     reg = Database.execute_query(
         'SELECT id, status FROM course_registrations WHERE student_id = %s AND session = %s AND semester = %s',
         (student_id, current_session, semester)
     )
     
-    # Validate courses against program curriculum (NEW SCHEMA via program_courses)
+    db_semester = f"{semester} semester"
+
+    # Validate courses against program curriculum
     valid_courses = Database.execute_query(
-         '''SELECT c.id, c.credit_units, c.remark, l.name as lecturer, pc.category 
-            FROM program_courses pc
-            JOIN courses c ON pc.course_id = c.id
-            LEFT JOIN staff st ON c.lecturer_id = st.id
-            LEFT JOIN users l ON st.user_id = l.id
-            WHERE pc.program_id = %s AND pc.level = %s AND pc.semester = %s''',
-         (s_data['program_id'], s_data['current_level'], semester)
+         '''SELECT c.id, c.unit as credit_units, c.remark as category 
+            FROM course c
+            WHERE c.department = %s AND c.level = %s AND c.semester ILIKE %s''',
+         (department_name, current_level, db_semester)
     )
     valid_map = {c['id']: c for c in (valid_courses or [])}
     
@@ -230,7 +244,7 @@ def register_courses(payload):
              total_credits += valid_map[cid]['credit_units']
         else:
              # Look it up globally if it is an external elective that they searched for explicitly
-             ext_course = Database.execute_query('SELECT id, credit_units FROM courses WHERE id = %s', (cid,))
+             ext_course = Database.execute_query('SELECT id, unit as credit_units FROM course WHERE id = %s', (cid,))
              if ext_course:
                   selected_valid.append(cid)
                   total_credits += ext_course[0]['credit_units']
@@ -264,7 +278,8 @@ def register_courses(payload):
         return jsonify({'message': 'Courses registered successfully', 'total_credits': total_credits}), 200
         
     except Exception as e:
-        return jsonify({'message': f'Error saving registration: {e}'}), 500
+        print(f'Error in register_courses: {e}')
+        return jsonify({'message': 'An unexpected error occurred while saving your registration. Please try again later.'}), 500
 
 @student_bp.route('/courses/search', methods=['GET'])
 @AuthHandler.token_required
@@ -278,10 +293,8 @@ def search_courses(payload):
     term_no_space = f"%{query.replace(' ', '')}%"
     try:
         courses = Database.execute_query(
-            '''SELECT c.id, c.course_code, c.course_title, c.credit_units, c.remark, l.name as lecturer, c.category 
-               FROM courses c
-               LEFT JOIN staff st ON c.lecturer_id = st.id
-               LEFT JOIN users l ON st.user_id = l.id
+            '''SELECT c.id, c.course_code, c.course_title, c.unit as credit_units, c.remark as category 
+               FROM course c
                WHERE REPLACE(c.course_code, ' ', '') ILIKE %s OR c.course_title ILIKE %s
                ORDER BY c.course_code
                LIMIT 20''',
@@ -289,7 +302,8 @@ def search_courses(payload):
         )
         return jsonify({'courses': [dict(c) for c in (courses or [])]}), 200
     except Exception as e:
-         return jsonify({'message': f'Server error: {e}'}), 500
+         print(f'Error in search_courses: {e}')
+         return jsonify({'message': 'An unexpected error occurred while searching for courses.'}), 500
 @student_bp.route('/admin/list', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.admin_required

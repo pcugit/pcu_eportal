@@ -1,0 +1,7 @@
+a new role has been added id = 13. 
+
+the structure of the admission process is that applicants become accepted (they retain applicant role) when they are recommended for admission (i.e when admission officer accepts their application) then they get the admitted role when they pay acceptance fee. 
+
+admitted role gets you into the student portal but they will only get access to submitting documents, paying school fees, downloading documents (receipts , admission letter, medial report e.t.c)
+
+after they have paid fees, they get access to the full student portal (course registration , result page (under construction), e.t.c. 

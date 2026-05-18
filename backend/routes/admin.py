@@ -13,6 +13,20 @@ admin_bp = Blueprint('admin', __name__)
 USER_NAME_EXPR = "u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname"
 
 
+def get_admission_ref(applicant_id):
+    res = Database.execute_query(
+        '''SELECT asess.name AS session_name
+           FROM applications app
+           LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+           WHERE app.id = %s''',
+        (applicant_id,)
+    )
+    session_name = res[0]['session_name'] if res and res[0]['session_name'] else '2025/2026'
+    session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
+    return f"PCU/ADM/{session_year}"
+
+
+
 @admin_bp.route('/applications', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
@@ -259,7 +273,7 @@ def send_admission_letter(payload):
     except Exception:
         admission_date_display = admission_date_db
 
-    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+    ref_no = get_admission_ref(applicant_id)
 
     applicant = Database.execute_query(
         f'''SELECT u.id,
@@ -361,7 +375,7 @@ def preview_admission_letter(payload):
     except Exception:
         admission_date_display = admission_date_db
  
-    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+    ref_no = get_admission_ref(applicant_id)
  
     applicant = Database.execute_query(
         f'''SELECT u.id,
@@ -452,7 +466,7 @@ def send_batch_letters(payload):
 
     for applicant_id in applicant_ids:
         try:
-            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+            ref_no = get_admission_ref(applicant_id)
 
             applicant = Database.execute_query(
                 f'''SELECT u.id,
@@ -919,7 +933,7 @@ def send_department_letters(payload):
 
     for applicant_id in applicant_ids:
         try:
-            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+            ref_no = get_admission_ref(applicant_id)
 
             applicant = Database.execute_query(
                 f'''SELECT app.id,
@@ -1129,7 +1143,7 @@ def resend_letter(payload, applicant_id):
         except Exception:
             admission_date_display = admission_date_str
 
-        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+        ref_no = get_admission_ref(applicant_id)
 
         applicant = Database.execute_query(
             f'''SELECT u.id,
@@ -1231,7 +1245,7 @@ def preview_letter(payload, applicant_id):
         except Exception:
             admission_date_display = admission_date_str
 
-        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+        ref_no = get_admission_ref(applicant_id)
 
         applicant = Database.execute_query(
             f'''SELECT u.id,

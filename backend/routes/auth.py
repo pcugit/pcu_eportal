@@ -137,9 +137,10 @@ def login():
 
     # Get applicant or student status
     extra_data = {}
-    if role == 'applicant':
+    if role in ('applicant', 'admitted'):
+        # Both applicants and admitted users (user_type_id=13) carry applicant data
         applications = Database.execute_query(
-            'SELECT id, applicant_stage FROM applications WHERE user_id = %s',
+            'SELECT id, applicant_stage FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
             (user['id'],)
         )
         if applications:
@@ -216,9 +217,10 @@ def verify_token(payload):
     full_name = f"{first_name} {middle_name} {last_name}".replace("  ", " ").strip()
     
     extra_data = {}
-    if role == 'applicant':
+    if role in ('applicant', 'admitted'):
+        # Both applicants and admitted users (user_type_id=13) carry applicant data
         applications = Database.execute_query(
-            'SELECT id, applicant_stage FROM applications WHERE user_id = %s',
+            'SELECT id, applicant_stage FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
             (user_id,)
         )
         if applications:

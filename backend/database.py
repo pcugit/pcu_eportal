@@ -13,17 +13,23 @@ class Database:
     @classmethod
     def _get_pool(cls):
         if cls._pool is None:
-            cls._pool = psycopg2.pool.ThreadedConnectionPool(
+            # Allow overriding SSL mode via env var DATABASE_SSL_MODE (e.g. 'disable' for local dev)
+            ssl_mode = os.getenv("DATABASE_SSL_MODE", "require")
+            conn_params = dict(
                 minconn=2,
                 maxconn=10,
                 dsn=os.getenv("DATABASE_URL"),
                 cursor_factory=RealDictCursor,
-                sslmode="require",
                 keepalives=1,
                 keepalives_idle=60,
                 keepalives_interval=10,
                 keepalives_count=5,
             )
+            # Only include sslmode if provided
+            if ssl_mode:
+                conn_params["sslmode"] = ssl_mode
+
+            cls._pool = psycopg2.pool.ThreadedConnectionPool(**conn_params)
         return cls._pool
 
     @classmethod

@@ -13,9 +13,13 @@ export interface ApplicantStatus {
   program_id: number;
   program_type_id: number;
   program_name: string;
+  form_no: string | null;
   application_status: string;
   admission_status: string;
   has_paid_application_fee: boolean;
+  /** True when the stored reference has tran_status IN ('pending','requery_error').
+   *  Distinguishes "payment still processing" from "payment failed/not started". */
+  has_pending_application_payment: boolean;
   has_paid_acceptance_fee: boolean;
   has_paid_tuition: boolean;
   admission_letter_sent: boolean;
@@ -146,9 +150,9 @@ export interface PaymentTransaction {
   receipt_no: string;
   created_at: string | null;
   client_name?: string;
+  tran_status?: string;
+  installment_plan_id?: number | null;
 }
-
-
 
 export interface Recommendation {
   review_id: number;
@@ -185,6 +189,13 @@ export interface Department {
 export interface ProgramType {
   id: number;
   name: string;
+}
+
+export interface InstallmentPlan {
+  id: number;
+  label: string;
+  name: string;
+  percentage: number;
 }
 
 export interface Program {
@@ -370,7 +381,7 @@ export class ApiClient {
   }
 
   static async getPrograms(program_type_id?: number) {
-    const qs = program_type_id ? `?program_type_id=${program_type_id}` : '';
+    const qs = program_type_id ? `?program_type_id=${program_type_id}` : "";
     const { data } = await this.fetch(`/applicant/programs${qs}`);
     return data;
   }
@@ -471,6 +482,28 @@ export class ApiClient {
       fee_name: string;
       found: boolean;
     }>("/applicant/acceptance-fee");
+    return data;
+  }
+
+  static async getTuitionBreakdown(): Promise<{
+    components: { name: string; amount: number }[];
+    total: number;
+    found: boolean;
+  }> {
+    const { data } = await this.fetch<{
+      components: { name: string; amount: number }[];
+      total: number;
+      found: boolean;
+    }>("/applicant/tuition-fee-breakdown");
+    return data;
+  }
+
+  static async getInstallmentPlans(): Promise<{
+    installment_plans: InstallmentPlan[];
+  }> {
+    const { data } = await this.fetch<{ installment_plans: InstallmentPlan[] }>(
+      "/applicant/installment-plans",
+    );
     return data;
   }
 
@@ -598,9 +631,7 @@ export class ApiClient {
    * Call this from the /applicant/payment/callback page.
    * payment_type is resolved server-side from the transaction record.
    */
-  static async verifyPayment(
-    reference_no: string,
-  ): Promise<{
+  static async verifyPayment(reference_no: string): Promise<{
     tran_status: string;
     response_code: string;
     response_desc: string;
@@ -626,6 +657,19 @@ export class ApiClient {
     return data;
   }
 
+  static async cancelPayment(reference_no: string): Promise<{
+    message: string;
+    tran_status: string;
+  }> {
+    const { data } = await this.fetch<{
+      message: string;
+      tran_status: string;
+    }>("/applicant/cancel-payment", {
+      method: "POST",
+      body: JSON.stringify({ reference_no }),
+    });
+    return data;
+  }
 
   static async getPaymentHistory(): Promise<{
     payment_history: PaymentTransaction[];
@@ -830,9 +874,7 @@ export class ApiClient {
     return data;
   }
 
-  static async getRecentActivity(
-    limit = 15,
-  ): Promise<{
+  static async getRecentActivity(limit = 15): Promise<{
     activities: Array<{
       type: string;
       label: string;

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Download, Upload, Phone, Mail, MapPin, User, ShieldCheck, Calendar, Briefcase, Heart, Fingerprint, Globe, Map } from "lucide-react";
@@ -13,9 +14,8 @@ interface ApplicantProfileProps {
 }
 
 export default function ApplicantProfile({ applicant, form, documents, acceptanceFeeData }: ApplicantProfileProps) {
+  const router = useRouter();
   const [passportUrl, setPassportUrl] = React.useState<string | null>(null);
-  const [payingFee, setPayingFee] = React.useState(false);
-  const [feePaySuccess, setFeePaySuccess] = React.useState(false);
 
   // Find passport document
   const passportDoc = documents.find(d => 
@@ -142,7 +142,7 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
               {/* Name and ID */}
               <div className="mt-4 text-center space-y-1">
                 <h3 className="text-xl font-medium text-slate-800 uppercase">{displayName}</h3>
-                <p className="text-slate-500 text-sm tracking-wide">PT{new Date(applicant?.created_at || Date.now()).getFullYear()}{applicant?.id?.toString().padStart(4, '0')}</p>
+                <p className="text-slate-500 text-sm tracking-wide font-mono font-medium">{applicant?.form_no || 'N/A'}</p>
                 <div className="pt-2">
                   <Badge className="bg-orange-400 hover:bg-orange-500 text-white border-0 px-4 py-1 rounded-full text-[10px] font-bold uppercase">
                     {applicant?.program_name}
@@ -230,7 +230,7 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
                <div className="pt-10">
                   <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-6">Choice Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-y-8">
-                     <p className="text-sm text-slate-600"><span className="text-slate-500">First Choice Program:</span><br/>{applicant?.program_name || form?.first_choice_program_name || 'N/A'}</p>
+                     <p className="text-sm text-slate-600"><span className="text-slate-500">First Choice Program:</span><br/>{form?.first_choice_program_name || 'N/A'}</p>
                      <p className="text-sm text-slate-600"><span className="text-slate-500">Second Choice Program:</span><br/>{form?.second_choice_program_name || 'N/A'}</p>
                   </div>
                </div>
@@ -252,9 +252,9 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
 
             {/* Documents Column */}
             <div className="bg-white border border-slate-100 p-8 shadow-sm space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-50 pb-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-50 pb-4 gap-4">
                 <span className="text-slate-600 font-medium">Documents</span>
-                <Button className="bg-[#6b357d] hover:bg-[#5a2d69] text-white rounded px-4 h-10 text-sm font-medium">
+                <Button className="bg-[#6b357d] hover:bg-[#5a2d69] text-white rounded px-4 h-10 text-sm font-medium whitespace-nowrap">
                   Upload Additional Documents
                 </Button>
               </div>
@@ -358,69 +358,18 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
           </div>
 
           {!acceptanceFeeData.paid && (
-            <>
-              <div className="bg-white/70 rounded-lg p-4 text-sm text-amber-900 space-y-1 border border-amber-200">
-                <p className="font-semibold">Payment Instructions:</p>
-                <ol className="list-decimal ml-4 space-y-1">
-                  <li>Log in to the University payment portal</li>
-                  <li>Select <strong>Acceptance Fee</strong> under Payment Types</li>
-                  <li>Complete payment of <strong>₦{acceptanceFeeData.amount.toLocaleString()}</strong></li>
-                  <li>Return here — your status will update automatically</li>
-                </ol>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Button
-                  className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold px-8"
-                  onClick={async () => {
-                    setPayingFee(true);
-                    try {
-                      const token = localStorage.getItem('auth_token');
-                      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/e-portal/api';
-                      const ref = 'AF' + Date.now();
-                      const res = await fetch(`${baseUrl}/applicant/process-payment`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({
-                          payment_type: 'acceptance_fee',
-                          amount: acceptanceFeeData.amount,
-                          payment_method: 'online',
-                          reference_id: ref,
-                          status: 'completed'
-                        })
-                      });
-                      if (res.ok) {
-                        setFeePaySuccess(true);
-                        // Reload page after short delay to reflect new stage
-                        setTimeout(() => window.location.reload(), 2000);
-                      } else {
-                        alert('Payment failed. Please try again.');
-                      }
-                    } catch (e) {
-                      console.error(e);
-                      alert('An error occurred. Please try again.');
-                    } finally {
-                      setPayingFee(false);
-                    }
-                  }}
-                  disabled={payingFee || feePaySuccess}
-                >
-                  {payingFee ? (
-                    <><span className="animate-spin mr-1">⟳</span> Processing...</>
-                  ) : feePaySuccess ? (
-                    <>✓ Payment Confirmed — Refreshing...</>
-                  ) : (
-                    <>Pay Acceptance Fee →</>
-                  )}
-                </Button>
-                {feePaySuccess && (
-                  <p className="text-emerald-700 font-semibold text-sm">Payment received! Your status is being updated...</p>
-                )}
-              </div>
-            </>
+            <div className="flex items-center gap-3 pt-2">
+              <Button
+                className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold px-8"
+                onClick={() => router.push('/applicant/payment?type=acceptance_fee')}
+              >
+                Pay Acceptance Fee →
+              </Button>
+            </div>
           )}
         </div>
       )}
+
 
     </div>
   );

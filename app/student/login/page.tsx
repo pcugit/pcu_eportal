@@ -54,6 +54,9 @@ export default function StudentLoginPage() {
 
     if (user.role === "student") {
       router.replace("/student/dashboard");
+    } else if (user.role === "admitted") {
+      // Admitted users (paid acceptance fee) access the limited student portal
+      router.replace("/student/dashboard");
     } else if (user.role === "admin") {
       router.replace("/ict/dashboard");
     } else if (user.role === "applicant") {
@@ -138,7 +141,7 @@ export default function StudentLoginPage() {
         <div className="flex flex-col items-center">
             <Link href="/" className="mb-8 hover:opacity-80 transition-opacity">
                 <Image
-                src="/images/logo new.png"
+                src="/e-portal/images/logo new.png"
                 alt="University Logo"
                 width={100}
                 height={100}
@@ -156,10 +159,6 @@ export default function StudentLoginPage() {
           <div className="h-2 w-full bg-gradient-to-r from-[#3d2b3d] via-[#6b4f6b] to-[#4a3050]" />
           <CardHeader className="space-y-1">
             <div className="flex items-center gap-2 mb-2">
-                <div className="p-2 bg-[#3d2b3d]/10 rounded-lg">
-                    <GraduationCap className="h-5 w-5 text-[#3d2b3d]" />
-                </div>
-                <span className="text-xs font-bold uppercase tracking-wider text-[#3d2b3d]/70">Secure Login</span>
             </div>
             <CardTitle className="text-xl">Welcome back</CardTitle>
             <CardDescription>
@@ -224,27 +223,8 @@ export default function StudentLoginPage() {
                 )}
               </Button>
             </form>
-
-            <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col gap-4">
-                <Link 
-                    href="/auth/login" 
-                    className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-[#3d2b3d] transition-colors"
-                >
-                    <ArrowLeft className="h-4 w-4" />
-                    <span>Back to Admission Portal</span>
-                </Link>
-                
-                <p className="text-center text-[10px] text-muted-foreground uppercase tracking-widest leading-relaxed">
-                    If you haven't been offered admission yet, <br />
-                    please use the <Link href="/auth/login" className="font-bold underline">Admission Login</Link>.
-                </p>
-            </div>
           </CardContent>
         </Card>
-        
-        <p className="text-center text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} Precious Cornerstone University. All rights reserved.
-        </p>
       </div>
     </div>
   );

@@ -6,6 +6,12 @@ from utils.pdf_generator import PDFGenerator
 from utils.payment_receipt_generator import PaymentReceiptGenerator
 from utils.medical_form_generator import MedicalFormGenerator
 from utils.interswitch import InterswitchClient
+from utils.payment_status import (
+    classify_response,
+    apply_downstream_success,
+    build_update_sql_params,
+    generate_receipt_no,
+)
 from config import Config
 from datetime import datetime, date
 import os
@@ -54,13 +60,43 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
     """
     Create an application row if one doesn't already exist for this user +
     program_type + session.  Returns the application id.
+
+    If a row already exists but its stored application_payment_reference has
+    NOT been confirmed as successful, update it to point at the new reference.
+    This handles the case where a first payment stayed pending/failed and the
+    applicant initiates a fresh attempt.
     """
     existing = Database.execute_query(
-        'SELECT id FROM applications WHERE user_id = %s AND prog_type = %s AND academic_session_id = %s',
+        '''SELECT id, application_payment_reference
+           FROM applications
+           WHERE user_id = %s AND prog_type = %s AND academic_session_id = %s''',
         (user_id, program_type_id, current_session_id)
     )
     if existing:
-        return existing[0]['id']
+        app_id       = existing[0]['id']
+        stored_ref   = existing[0].get('application_payment_reference')
+
+        # Check whether the stored reference already has a successful transaction
+        if stored_ref:
+            already_paid = Database.execute_query(
+                """SELECT id FROM payment_transactions
+                   WHERE reference_no = %s AND tran_status = 'successful'
+                   LIMIT 1""",
+                (stored_ref,)
+            )
+        else:
+            already_paid = None
+
+        # If not yet paid, update the reference to the new attempt
+        if not already_paid:
+            Database.execute_update(
+                """UPDATE applications
+                   SET application_payment_reference = %s, updated_at = NOW()
+                   WHERE id = %s""",
+                (reference_no, app_id)
+            )
+
+        return app_id
 
     year = datetime.now().year
     code = _prog_code(program_type_id)
@@ -83,13 +119,47 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
     return res[0]['id'] if res else None
 
 
-def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None) -> float:
+def _get_applicant_fee_context(user_id):
+    app_res = Database.execute_query(
+        '''SELECT app.prog_type,
+                  pt.level AS level,
+                  app.finalised_course
+           FROM applications app
+           JOIN program_types pt ON app.prog_type = pt.id
+           WHERE app.user_id = %s
+           ORDER BY app.created_at DESC LIMIT 1''',
+        (user_id,)
+    )
+    if not app_res:
+        raise ValueError('No application found for this user')
+
+    app_row = app_res[0]
+    finalised_course = (app_row.get('finalised_course') or '').strip()
+    if not finalised_course:
+        raise ValueError('finalised_course is required to resolve faculty and fees')
+
+    faculty_res = Database.execute_query(
+        '''SELECT faculty_id
+           FROM program_setup
+           WHERE LOWER(name) = LOWER(%s)
+           LIMIT 1''',
+        (finalised_course,)
+    )
+    if not faculty_res or faculty_res[0].get('faculty_id') is None:
+        raise ValueError(f"No faculty found for finalised_course '{finalised_course}'")
+
+    return {
+        'program_type': app_row['prog_type'],
+        'level': app_row['level'],
+        'faculty_id': faculty_res[0]['faculty_id'],
+        'finalised_course': finalised_course,
+    }
+
+
+def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, installment_plan_id=None) -> float:
     """
     Resolve the fee amount in Naira for a given payment_type.
     Raises ValueError if it cannot be determined.
-
-    FIX: acceptance_fee and tuition now query by fee_component name
-    (not the non-existent fee_type column).
     """
     if payment_type == 'application_fee':
         if not program_type_id:
@@ -106,16 +176,15 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None) -> flo
             raise ValueError(f'Fee record not found for program_fees.id={fee_id}')
         return float(res[0]['amount'])
 
-    # For acceptance_fee and tuition we need the applicant's program_type
-    app_res = Database.execute_query(
-        'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
-        (user_id,)
-    )
-    if not app_res:
-        raise ValueError('No application found for this user')
-    prog_type = app_res[0]['prog_type']
-
     if payment_type == 'acceptance_fee':
+        app_res = Database.execute_query(
+            'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+            (user_id,)
+        )
+        if not app_res:
+            raise ValueError('No application found for this user')
+        prog_type = app_res[0]['prog_type']
+
         fee_res = Database.execute_query(
             '''SELECT pf.amount
                FROM program_fees pf
@@ -143,21 +212,45 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None) -> flo
             )
         return float(fee_res[0]['amount']) if fee_res else 40000.0
 
+    context = _get_applicant_fee_context(user_id)
+
     if payment_type == 'tuition':
-        # FIX: query by fee_component name containing 'Tuition' — no fee_type column
-        fee_res = Database.execute_query(
+        fee_rows = Database.execute_query(
             '''SELECT pf.amount
                FROM program_fees pf
                JOIN fee_components fc ON fc.id = pf.fee_component_id
-               WHERE LOWER(fc.name) LIKE %s
+               WHERE LOWER(fc.name) NOT LIKE '%%acceptance%%'
                  AND pf.program_type = %s
+                 AND pf.level = %s
+                 AND pf.faculty_id = %s
                  AND pf.academic_session_id = (
                      SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
-                 )
-               LIMIT 1''',
-            ('%tuition%', str(prog_type))
+                 )''',
+            (str(context['program_type']), str(context['level']), str(context['faculty_id']))
         )
-        return float(fee_res[0]['amount']) if fee_res else 177000.0
+        total = sum(float(fee.get('amount') or 0) for fee in (fee_rows or []))
+        if total <= 0:
+            raise ValueError('Tuition fee breakdown not configured for this program_type, level, and faculty')
+
+        # If an installment_plan_id is supplied, compute the installment amount
+        # as percentage of the total using the percentage stored in installment_plans
+        if installment_plan_id:
+            ip = Database.execute_query(
+                'SELECT percentage FROM installment_plans WHERE id = %s LIMIT 1',
+                (installment_plan_id,)
+            )
+            if not ip:
+                raise ValueError(f'Installment plan id {installment_plan_id} not found')
+            try:
+                pct = float(ip[0].get('percentage') or 0)
+            except Exception:
+                pct = 0.0
+            if pct <= 0:
+                raise ValueError('Invalid installment percentage for selected plan')
+            installment_amount = round((total * pct) / 100.0, 2)
+            return installment_amount
+
+        return total
 
     raise ValueError(f"Unknown payment_type: {payment_type}")
 
@@ -229,11 +322,34 @@ def get_program_types():
         'SELECT id, amount FROM program_fees WHERE id IN %s', (tuple(fee_ids),)
     )
     fee_lookup = {f['id']: float(f['amount']) for f in (fees_data or [])}
-    for t in types:
+    for t in (types or []):
         fee_id = fee_mapping.get(t['id'])
         if fee_id:
             t['fee'] = fee_lookup.get(fee_id, 0)
     return jsonify({'program_types': types or []}), 200
+
+
+@applicant_bp.route('/installment-plans', methods=['GET'])
+@AuthHandler.token_required
+def get_installment_plans(payload):
+    """Return available installment plans (id, label, name, percentage)."""
+    try:
+        plans = Database.execute_query(
+            'SELECT id, label, name, percentage FROM installment_plans ORDER BY id'
+        )
+        formatted = [
+            {
+                'id': p['id'],
+                'label': p.get('label'),
+                'name': p.get('name'),
+                'percentage': float(p.get('percentage') or 0),
+            }
+            for p in (plans or [])
+        ]
+        return jsonify({'installment_plans': formatted}), 200
+    except Exception as e:
+        print(f"[installment-plans] Error: {e}")
+        return jsonify({'installment_plans': []}), 200
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -243,9 +359,11 @@ def get_program_types():
 @applicant_bp.route('/form/<int:program_type_id>', methods=['GET'])
 @AuthHandler.token_required
 def get_form_template(payload, program_type_id):
-    role = payload.get('role', '')
-    if role != 'applicant':
-        return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
+    role = str(payload.get('role', '')).lower()
+    user_type_id = str(payload.get('user_type_id', ''))
+    
+    if role not in ('applicant', 'student', 'admitted') and user_type_id not in ('2', '7', '13'):
+        return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
 
     form_templates = {
         1: {
@@ -705,7 +823,7 @@ def initiate_payment(payload):
 
     # ── Fee amount ────────────────────────────────────────────────────────────
     try:
-        amount_naira = _resolve_fee_amount(payment_type, user_id, program_type_id)
+        amount_naira = _resolve_fee_amount(payment_type, user_id, program_type_id, installment_plan_id)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
@@ -725,9 +843,64 @@ def initiate_payment(payload):
     if missing:
         return jsonify({'message': f'Interswitch not fully configured. Missing: {", ".join(missing)}'}), 500
 
-    # ── Ensure application row exists for application_fee ─────────────────────
+    # ── One-form-per-program guard ────────────────────────────────────────────
+    # An applicant may only purchase one form per program type per session.
+    # Exception: allow re-purchase if their previous application was rejected.
     if payment_type == 'application_fee':
-        _ensure_application_row(user_id, program_type_id, current_session_id, reference_no)
+        if not program_type_id:
+            return jsonify({'message': 'program_type_id is required for application_fee'}), 400
+
+        existing_app = Database.execute_query(
+            """SELECT app.id, app.applicant_stage,
+                      app.application_payment_reference
+               FROM applications app
+               WHERE app.user_id = %s
+                 AND app.prog_type = %s
+                 AND app.academic_session_id = %s
+               ORDER BY app.created_at DESC
+               LIMIT 1""",
+            (user_id, program_type_id, current_session_id)
+        )
+
+        if existing_app:
+            app_stage   = existing_app[0]['applicant_stage']
+            stored_ref  = existing_app[0].get('application_payment_reference')
+
+            # Determine whether this application already has a confirmed payment
+            paid = False
+            if stored_ref:
+                paid_check = Database.execute_query(
+                    """SELECT id FROM payment_transactions
+                       WHERE reference_no = %s AND tran_status = 'successful' LIMIT 1""",
+                    (stored_ref,)
+                )
+                paid = bool(paid_check)
+
+            if not paid:
+                # Also check any successful application_fee txn for this user+program (fallback)
+                paid_check2 = Database.execute_query(
+                    """SELECT pt.id FROM payment_transactions pt
+                       JOIN applications app
+                         ON app.application_payment_reference = pt.reference_no
+                       WHERE app.user_id = %s
+                         AND app.prog_type = %s
+                         AND pt.tran_type = 'application_fee'
+                         AND pt.tran_status = 'successful'
+                       LIMIT 1""",
+                    (user_id, program_type_id)
+                )
+                paid = bool(paid_check2)
+
+            # Block re-purchase unless the application was rejected
+            if paid and app_stage != 'rejected':
+                return jsonify({
+                    'message': (
+                        f'You have already purchased a form for this programme. '
+                        f'You may only purchase another if your application is rejected.'
+                    ),
+                    'blocked': True,
+                    'application_status': app_stage,
+                }), 409
 
     # ── Persist PENDING transaction ───────────────────────────────────────────
     try:
@@ -780,9 +953,11 @@ def verify_payment(payload):
     """
     Step 2: Called from the callback page after Interswitch redirects back.
 
-    The callback page gets txnref from Interswitch's redirect params,
-    then calls this endpoint with just reference_no.
-    payment_type is looked up from the DB — not trusted from the client.
+    Response-code handling:
+      '00'            → successful
+      Z0 / T0 / ''    → pending  (network delay — never fail immediately)
+      other           → pending until requery_count >= FAIL_AFTER_REQUERIES,
+                        then failed
     """
     user_id = payload['user_id']
     data    = request.get_json() or {}
@@ -791,9 +966,10 @@ def verify_payment(payload):
     if not reference_no:
         return jsonify({'message': 'reference_no is required'}), 400
 
-    # ── Fetch pending transaction ─────────────────────────────────────────────
+    # ── Fetch transaction (include requery_count for threshold check) ─────────
     txn_res = Database.execute_query(
-        '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no, tran_type
+        '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no,
+                  tran_type, COALESCE(requery_count, 0) AS requery_count
            FROM payment_transactions
            WHERE reference_no = %s AND user_id = %s
            ORDER BY created_at DESC LIMIT 1''',
@@ -802,15 +978,17 @@ def verify_payment(payload):
     if not txn_res:
         return jsonify({'message': 'Transaction not found'}), 404
 
-    txn          = txn_res[0]
-    payment_type = txn['tran_type']  # FIX: read from DB, not client
+    txn           = txn_res[0]
+    payment_type  = txn['tran_type']
+    requery_count = int(txn['requery_count'])
 
-    # Idempotency
+    # Idempotency — already finalised
     if txn['tran_status'] in ('successful', 'failed'):
         return jsonify({
             'message':     'Transaction already verified',
             'tran_status': txn['tran_status'],
             'receipt_no':  txn['receipt_no'],
+            'is_successful': txn['tran_status'] == 'successful',
         }), 200
 
     amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
@@ -819,76 +997,63 @@ def verify_payment(payload):
     try:
         isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
     except Exception as e:
-        print(f"Interswitch requery error: {e}")
+        print(f"[verify-payment] Interswitch requery error for {reference_no}: {e}")
         Database.execute_update(
             '''UPDATE payment_transactions
-               SET tran_status = 'requery_error',
-                   requery_count = COALESCE(requery_count, 0) + 1,
-                   updated_at = NOW()
+               SET tran_status    = 'requery_error',
+                   requery_count  = COALESCE(requery_count, 0) + 1,
+                   updated_at     = NOW()
                WHERE reference_no = %s AND user_id = %s''',
             (reference_no, user_id)
         )
-        return jsonify({'message': 'Could not reach Interswitch. Please try again shortly.'}), 503
+        return jsonify({
+            'message':     'Could not reach Interswitch. Your payment is being verified — please check back shortly.',
+            'tran_status': 'pending',
+            'is_successful': False,
+        }), 503
 
     response_code = str(isw_resp.get('ResponseCode', '')).strip()
     response_desc = isw_resp.get('ResponseDescription', '')
-    is_successful = (response_code == '00')
-    tran_status   = 'successful' if is_successful else 'failed'
 
-    amount_paid_kobo = isw_resp.get('Amount', amount_kobo)
-    amount_paid      = float(amount_paid_kobo) / 100 if amount_paid_kobo else None
-    is_mismatch      = (amount_paid_kobo != amount_kobo) if amount_paid_kobo else False
-    payment_method   = (isw_resp.get('PaymentMethodCode') or '').upper() or None
-    card_number      = isw_resp.get('CardNumber') or None
-    bank_code        = isw_resp.get('BankCode')   or None
-    bank_name        = isw_resp.get('BankName')   or None
+    # ── Classify using shared logic (Z0/T0 → pending, not failed) ────────────
+    tran_status   = classify_response(response_code, requery_count)
+    is_successful = (tran_status == 'successful')
+
+    print(
+        f"[verify-payment] {reference_no} | code={response_code!r} "
+        f"requery_count={requery_count} → {tran_status}"
+    )
 
     # ── Update transaction record ─────────────────────────────────────────────
-    Database.execute_update(
-        '''UPDATE payment_transactions
-           SET tran_status          = %s,
-               tran_ref             = %s,
-               response_code        = %s,
-               response_description = %s,
-               amount_paid          = %s,
-               amount_paid_in_kobo  = %s,
-               is_amount_mismatch   = %s,
-               payment_method       = %s,
-               card_number          = %s,
-               bank_code            = %s,
-               bank_name            = %s,
-               raw_response_payload = %s::jsonb,
-               requery_count        = COALESCE(requery_count, 0) + 1,
-               payment_at           = CASE WHEN %s THEN NOW() ELSE payment_at END,
-               confirmed_at         = CASE WHEN %s THEN NOW() ELSE confirmed_at END,
-               updated_at           = NOW()
-           WHERE reference_no = %s AND user_id = %s''',
-        (
-            tran_status, reference_no,
-            response_code, response_desc,
-            amount_paid, amount_paid_kobo,
-            is_mismatch,
-            payment_method, card_number, bank_code, bank_name,
-            json.dumps(isw_resp),
-            is_successful, is_successful,
-            reference_no, user_id,
-        )
+    receipt_no = txn['receipt_no'] or (generate_receipt_no() if is_successful else None)
+    sql, params = build_update_sql_params(
+        tran_status, reference_no, response_code, response_desc,
+        isw_resp, amount_kobo, receipt_no,
     )
+    # build_update_sql_params uses WHERE reference_no = %s (no user_id)
+    # add user_id guard for this user-facing endpoint
+    sql = sql.replace('WHERE reference_no = %s',
+                      'WHERE reference_no = %s AND user_id = %s')
+    params = params + (user_id,)
+    Database.execute_update(sql, params)
 
     # ── Downstream on success ─────────────────────────────────────────────────
     if is_successful:
-        if payment_type == 'application_fee':
-            Database.execute_update(
-                "UPDATE users SET user_type_id = 2, updated_at = NOW() WHERE id = %s",
-                (user_id,)
-            )
-        elif payment_type == 'acceptance_fee':
-            Database.execute_update(
-                '''UPDATE applications SET applicant_stage = 'accepted', updated_at = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'admitted' ''',
-                (user_id,)
-            )
-        # tuition: add downstream logic here
+        apply_downstream_success(user_id, payment_type, reference_no=reference_no)
+
+    # ── Response ──────────────────────────────────────────────────────────────
+    if tran_status == 'pending':
+        return jsonify({
+            'tran_status':   'pending',
+            'response_code': response_code,
+            'response_desc': response_desc or 'Payment is still being processed. Please wait a moment and refresh.',
+            'is_successful': False,
+            'amount':        float(txn['amount']),
+            'reference_no':  reference_no,
+            'receipt_no':    txn['receipt_no'],
+            'payment_type':  payment_type,
+            'message':       'Your payment is being processed. This can take a few minutes — we will update your status automatically.',
+        }), 202
 
     return jsonify({
         'tran_status':   tran_status,
@@ -903,27 +1068,73 @@ def verify_payment(payload):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Payment — cancel (user closed the Interswitch modal without completing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@applicant_bp.route('/cancel-payment', methods=['POST'])
+@AuthHandler.token_required
+def cancel_payment(payload):
+    """
+    Mark a pending transaction as 'cancelled'.
+
+    Called by the frontend when the Interswitch onComplete callback fires
+    with a non-'00' resp code AND the user clearly closed/dismissed the modal
+    (e.g. resp='01' or similar). We do NOT requery Interswitch for these —
+    they represent deliberate user cancellations, not network failures.
+
+    Only updates rows that are still 'pending' to avoid overwriting a
+    transaction that the background worker already resolved.
+    """
+    user_id = payload['user_id']
+    data    = request.get_json() or {}
+    reference_no = data.get('reference_no', '').strip()
+
+    if not reference_no:
+        return jsonify({'message': 'reference_no is required'}), 400
+
+    # Confirm the transaction belongs to this user
+    txn = Database.execute_query(
+        "SELECT id, tran_status FROM payment_transactions WHERE reference_no = %s AND user_id = %s LIMIT 1",
+        (reference_no, user_id)
+    )
+    if not txn:
+        return jsonify({'message': 'Transaction not found'}), 404
+
+    current_status = txn[0]['tran_status']
+    if current_status != 'pending':
+        # Already finalised (success, failed, or cancelled) — don't overwrite
+        return jsonify({'message': f'Transaction already in status: {current_status}', 'tran_status': current_status}), 200
+
+    Database.execute_update(
+        """UPDATE payment_transactions
+           SET tran_status          = 'cancelled',
+               response_description = 'Cancelled by user',
+               updated_at           = NOW()
+           WHERE reference_no = %s AND tran_status = 'pending'""",
+        (reference_no,)
+    )
+    print(f"[cancel_payment] {reference_no} marked cancelled (user={user_id})")
+    return jsonify({'message': 'cancelled', 'tran_status': 'cancelled'}), 200
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Payment — Interswitch webhook (bank-transfer / async confirmation)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @applicant_bp.route('/payment-webhook', methods=['POST'])
 def payment_webhook():
     """
-    Interswitch server-to-server webhook.
-    Registered in the Interswitch dashboard as:
-        https://<your-backend-domain>/e-portal/api/applicant/payment-webhook
+    Interswitch server-to-server webhook (bank-transfer / async confirmation).
 
-    Interswitch POSTs a JSON body when a bank transfer (Pay with Transfer /
-    virtual account) is confirmed by NIBSS/NIP.  We re-query Interswitch to
-    verify the transaction before updating the DB (never trust the webhook
-    payload alone).
+    Response-code handling (same rules as verify_payment):
+      '00'         → successful
+      Z0 / T0 / '' → pending  (keep in queue for background worker)
+      other        → pending until requery_count >= FAIL_AFTER_REQUERIES
 
-    No JWT required — this is called by Interswitch, not the browser.
+    No JWT required — called by Interswitch, not the browser.
     """
     data = request.get_json(silent=True) or {}
 
-    # Interswitch sends different field names depending on the event type.
-    # Common fields: transactionReference, txnref, ResponseCode, Amount
     reference_no = (
         data.get('transactionReference')
         or data.get('txnref')
@@ -935,9 +1146,10 @@ def payment_webhook():
         print(f"[webhook] No reference in payload: {data}")
         return jsonify({'message': 'reference not found in payload'}), 400
 
-    # ── Look up the pending transaction ───────────────────────────────────────
+    # ── Look up the transaction (include requery_count) ───────────────────────
     txn_res = Database.execute_query(
-        '''SELECT id, user_id, amount_in_kobo, amount, tran_status, receipt_no, tran_type
+        '''SELECT id, user_id, amount_in_kobo, amount, tran_status, receipt_no,
+                  tran_type, COALESCE(requery_count, 0) AS requery_count
            FROM payment_transactions
            WHERE reference_no = %s
            ORDER BY created_at DESC LIMIT 1''',
@@ -947,27 +1159,28 @@ def payment_webhook():
         print(f"[webhook] Transaction not found: {reference_no}")
         return jsonify({'message': 'transaction not found'}), 404
 
-    txn          = txn_res[0]
-    user_id      = txn['user_id']
-    payment_type = txn['tran_type']
+    txn           = txn_res[0]
+    user_id       = txn['user_id']
+    payment_type  = txn['tran_type']
+    requery_count = int(txn['requery_count'])
 
-    # Idempotency — already finalised, acknowledge and exit
+    # Idempotency — already finalised
     if txn['tran_status'] in ('successful', 'failed'):
         print(f"[webhook] Already finalised ({txn['tran_status']}): {reference_no}")
         return jsonify({'message': 'already processed'}), 200
 
     amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
 
-    # ── Re-query Interswitch to verify (never trust webhook body alone) ────────
+    # ── Re-query Interswitch (never trust the webhook payload alone) ──────────
     try:
         isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
     except Exception as e:
         print(f"[webhook] Requery error for {reference_no}: {e}")
         Database.execute_update(
             '''UPDATE payment_transactions
-               SET tran_status = 'requery_error',
-                   requery_count = COALESCE(requery_count, 0) + 1,
-                   updated_at = NOW()
+               SET tran_status    = 'requery_error',
+                   requery_count  = COALESCE(requery_count, 0) + 1,
+                   updated_at     = NOW()
                WHERE reference_no = %s''',
             (reference_no,)
         )
@@ -975,70 +1188,28 @@ def payment_webhook():
 
     response_code = str(isw_resp.get('ResponseCode', '')).strip()
     response_desc = isw_resp.get('ResponseDescription', '')
-    is_successful = (response_code == '00')
-    tran_status   = 'successful' if is_successful else 'failed'
 
-    amount_paid_kobo = isw_resp.get('Amount', amount_kobo)
-    amount_paid      = float(amount_paid_kobo) / 100 if amount_paid_kobo else None
-    is_mismatch      = (amount_paid_kobo != amount_kobo) if amount_paid_kobo else False
-    payment_method   = (isw_resp.get('PaymentMethodCode') or '').upper() or None
-    card_number      = isw_resp.get('CardNumber') or None
-    bank_code        = isw_resp.get('BankCode')   or None
-    bank_name        = isw_resp.get('BankName')   or None
+    # ── Classify (Z0/T0/empty stay pending; fail only after N retries) ────────
+    tran_status   = classify_response(response_code, requery_count)
+    is_successful = (tran_status == 'successful')
+
+    print(
+        f"[webhook] {reference_no} | code={response_code!r} "
+        f"requery_count={requery_count} → {tran_status} (type={payment_type})"
+    )
 
     # ── Update transaction record ─────────────────────────────────────────────
-    Database.execute_update(
-        '''UPDATE payment_transactions
-           SET tran_status          = %s,
-               tran_ref             = %s,
-               response_code        = %s,
-               response_description = %s,
-               amount_paid          = %s,
-               amount_paid_in_kobo  = %s,
-               is_amount_mismatch   = %s,
-               payment_method       = %s,
-               card_number          = %s,
-               bank_code            = %s,
-               bank_name            = %s,
-               raw_response_payload = %s::jsonb,
-               requery_count        = COALESCE(requery_count, 0) + 1,
-               payment_at           = CASE WHEN %s THEN NOW() ELSE payment_at END,
-               confirmed_at         = CASE WHEN %s THEN NOW() ELSE confirmed_at END,
-               updated_at           = NOW()
-           WHERE reference_no = %s''',
-        (
-            tran_status, reference_no,
-            response_code, response_desc,
-            amount_paid, amount_paid_kobo,
-            is_mismatch,
-            payment_method, card_number, bank_code, bank_name,
-            json.dumps(isw_resp),
-            is_successful, is_successful,
-            reference_no,
-        )
+    receipt_no = txn['receipt_no'] or (generate_receipt_no() if is_successful else None)
+    sql, params = build_update_sql_params(
+        tran_status, reference_no, response_code, response_desc,
+        isw_resp, amount_kobo, receipt_no,
     )
+    Database.execute_update(sql, params)
 
     # ── Downstream on success ─────────────────────────────────────────────────
     if is_successful:
-        if payment_type == 'application_fee':
-            Database.execute_update(
-                "UPDATE users SET user_type_id = 2, updated_at = NOW() WHERE id = %s",
-                (user_id,)
-            )
-        elif payment_type == 'acceptance_fee':
-            Database.execute_update(
-                '''UPDATE applications SET applicant_stage = 'accepted', updated_at = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'admitted' ''',
-                (user_id,)
-            )
-        elif payment_type == 'tuition':
-            Database.execute_update(
-                '''UPDATE applications SET applicant_stage = 'enrolled', updated_at = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'accepted' ''',
-                (user_id,)
-            )
+        apply_downstream_success(user_id, payment_type, reference_no=reference_no)
 
-    print(f"[webhook] {reference_no} → {tran_status} (type={payment_type})")
     return jsonify({'message': 'ok', 'tran_status': tran_status}), 200
 
 
@@ -1059,21 +1230,48 @@ def get_applicant_status(payload):
                COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS program_session,
                app.created_at,
                app.form_no,
-               pt.name AS program_name,
-               TRUE AS has_paid_application_fee,
+               ptype.name AS program_name,
+               (
+                   -- Primary: stored reference was confirmed successful
+                   EXISTS (
+                       SELECT 1 FROM payment_transactions txn
+                       WHERE txn.reference_no = app.application_payment_reference
+                         AND txn.tran_status = 'successful'
+                   )
+                   OR
+                   -- Fallback: any successful application_fee txn linked to THIS same prog_type
+                   -- (scoped by prog_type so a payment for UTME doesn't unlock a PG row)
+                   EXISTS (
+                       SELECT 1 FROM payment_transactions txn_fb
+                       JOIN applications app2
+                         ON app2.application_payment_reference = txn_fb.reference_no
+                       WHERE txn_fb.user_id = app.user_id
+                         AND txn_fb.tran_type  = 'application_fee'
+                         AND txn_fb.tran_status = 'successful'
+                         AND app2.prog_type = app.prog_type
+                   )
+               ) AS has_paid_application_fee,
+               -- True when the stored reference is awaiting gateway confirmation
+               -- (pending or requery_error). Used by the dashboard to distinguish
+               -- "payment processing" from "payment failed".
+               EXISTS (
+                   SELECT 1 FROM payment_transactions txn_p
+                   WHERE txn_p.reference_no = app.application_payment_reference
+                     AND txn_p.tran_status IN ('pending', 'requery_error')
+               ) AS has_pending_application_payment,
                (app.applicant_stage IN ('accepted','enrolled')) AS has_paid_acceptance_fee,
                COALESCE(app.admission_letter_sent, FALSE) AS admission_letter_sent,
                EXISTS (
-                   SELECT 1 FROM payment_transactions pt
-                   WHERE pt.user_id = app.user_id
-                     AND pt.tran_type = 'tuition'
-                     AND pt.tran_status = 'successful'
+                   SELECT 1 FROM payment_transactions txn2
+                   WHERE txn2.user_id = app.user_id
+                     AND txn2.tran_type = 'tuition'
+                     AND txn2.tran_status = 'successful'
                ) AS has_paid_tuition,
                CASE WHEN app.applicant_stage != 'started' THEN app.updated_at ELSE NULL END AS submitted_at,
                CASE WHEN app.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted' ELSE 'pending' END AS admission_status
            FROM applications app
            JOIN users u ON app.user_id = u.id
-           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           LEFT JOIN program_types ptype ON app.prog_type = ptype.id
            LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
            WHERE app.user_id = %s
            ORDER BY app.created_at DESC''',
@@ -1095,6 +1293,57 @@ def get_acceptance_fee(payload):
         return jsonify({'acceptance_fee': 0, 'found': False}), 200
 
 
+@applicant_bp.route('/tuition-fee-breakdown', methods=['GET'])
+@AuthHandler.token_required
+def get_tuition_fee_breakdown(payload):
+    """
+    Returns an itemized breakdown of all fee components that make up the
+    school fees (tuition) payment for the authenticated admitted student.
+    Components include: Tuition & Accommodation, Sundry Fees, Digital Training, etc.
+    """
+    user_id = payload['user_id']
+    try:
+        context = _get_applicant_fee_context(user_id)
+
+        fees = Database.execute_query(
+            '''SELECT fc.name AS fee_name, pf.amount
+               FROM program_fees pf
+               JOIN fee_components fc ON fc.id = pf.fee_component_id
+               WHERE pf.program_type = %s
+                 AND pf.level = %s
+                 AND pf.faculty_id = %s
+                 AND pf.academic_session_id = (
+                     SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
+                 )
+                 AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+               ORDER BY fc.name ASC''',
+            (
+                str(context['program_type']),
+                str(context['level']),
+                str(context['faculty_id']),
+            )
+        )
+
+        components = []
+        total = 0.0
+
+        for fee in (fees or []):
+            name   = fee['fee_name'] or 'Other Fee'
+            amount = float(fee['amount'] or 0)
+            total += amount
+            components.append({'name': name, 'amount': amount})
+
+        return jsonify({
+            'components': components,
+            'total':      total,
+            'found':      len(components) > 0,
+        }), 200
+
+    except Exception as e:
+        print(f'[tuition-fee-breakdown] Error: {e}')
+        return jsonify({'message': 'Failed to load fee breakdown', 'components': [], 'total': 0}), 500
+
+
 @applicant_bp.route('/admission-letter', methods=['GET'])
 @AuthHandler.token_required
 def get_admission_letter(payload):
@@ -1106,10 +1355,12 @@ def get_admission_letter(payload):
                   pt.name AS program_name,
                   app.form_no,
                   app.approved_course,
-                  app.applicant_stage
+                  app.applicant_stage,
+                  asess.name AS session_name
            FROM applications app
            JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
+           LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
            WHERE app.user_id = %s AND app.applicant_stage IN ('admitted','accepted')
            ORDER BY app.updated_at DESC LIMIT 1''',
         (user_id,)
@@ -1162,7 +1413,9 @@ def get_admission_letter(payload):
         session         = pd['session']         or session
         resumption_date = pd['resumption_date'] or resumption_date
 
-    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_data['id']:04d}"
+    session_name = applicant_data.get('session_name') or '2025/2026'
+    session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
+    ref_no = f"PCU/ADM/{session_year}"
     return jsonify({
         'candidateName':  applicant_data['name'],
         'programme':      applicant_data['approved_course'] or applicant_data['program_name'] or '',
@@ -1183,17 +1436,73 @@ def get_admission_letter(payload):
 @applicant_bp.route('/get-form/<applicant_id>', methods=['GET'])
 @AuthHandler.token_required
 def get_form(payload, applicant_id):
-    role = payload.get('role', '')
-    if role != 'applicant':
-        return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
-
+    role = str(payload.get('role', '')).lower()
+    user_type_id = str(payload.get('user_type_id', ''))
+    
+    if role not in ('applicant', 'student', 'admitted') and user_type_id not in ('2', '7', '13'):
+        return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
     user_id = payload['user_id']
     app_res = Database.execute_query(
-        'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
+        '''SELECT app.id, app.prog_type, app.application_payment_reference
+           FROM applications app
+           WHERE app.id = %s AND app.user_id = %s''',
         (applicant_id, user_id)
     )
     if not app_res:
         return jsonify({'message': 'Application not found'}), 404
+
+    # ── Payment guard: application form requires a confirmed payment ──────────
+    #
+    # Primary check: the stored application_payment_reference must be successful.
+    # Fallback  check: also accept any successful application_fee transaction for
+    # this user — guards against edge cases where the reference was not updated
+    # (e.g. legacy rows, manual admin ops, or a race on the first payment).
+    app_payment_ref = app_res[0].get('application_payment_reference')
+
+    payment_confirmed = False
+
+    if app_payment_ref:
+        primary_check = Database.execute_query(
+            """SELECT id FROM payment_transactions
+               WHERE reference_no = %s AND tran_status = 'successful'
+               LIMIT 1""",
+            (app_payment_ref,)
+        )
+        if primary_check:
+            payment_confirmed = True
+
+    if not payment_confirmed:
+        # Fallback: any successful application_fee transaction for this user
+        fallback_check = Database.execute_query(
+            """SELECT id FROM payment_transactions
+               WHERE user_id = %s AND tran_type = 'application_fee'
+                 AND tran_status = 'successful'
+               LIMIT 1""",
+            (user_id,)
+        )
+        if fallback_check:
+            payment_confirmed = True
+            # Heal the stale reference in the application row
+            healed_ref = Database.execute_query(
+                """SELECT reference_no FROM payment_transactions
+                   WHERE user_id = %s AND tran_type = 'application_fee'
+                     AND tran_status = 'successful'
+                   ORDER BY confirmed_at DESC LIMIT 1""",
+                (user_id,)
+            )
+            if healed_ref:
+                Database.execute_update(
+                    """UPDATE applications
+                       SET application_payment_reference = %s, updated_at = NOW()
+                       WHERE id = %s""",
+                    (healed_ref[0]['reference_no'], app_res[0]['id'])
+                )
+
+    if not payment_confirmed:
+        return jsonify({
+            'message': 'Application fee payment has not been confirmed. Please complete payment before accessing the form.',
+            'tran_status': 'pending',
+        }), 403
 
     application_id = app_res[0]['id']
     pi_res      = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
@@ -1315,9 +1624,10 @@ def submit_application(payload):
 def get_payment_history(payload):
     user_id = payload['user_id']
     transactions = Database.execute_query(
-        '''SELECT pt.id, pt.tran_type, pt.amount,
+        '''SELECT pt.id, pt.tran_type, pt.amount, pt.tran_status,
                   (pt.tran_status = 'successful') AS is_successful,
-                  pt.reference_no, pt.receipt_no, pt.created_at, pt.client_name
+                  pt.reference_no, pt.receipt_no, pt.created_at, pt.client_name,
+                  pt.installment_plan_id
            FROM payment_transactions pt
            WHERE pt.user_id = %s
            ORDER BY pt.created_at DESC''',
@@ -1329,10 +1639,12 @@ def get_payment_history(payload):
             'payment_type':   t['tran_type'],
             'amount':         float(t['amount']),
             'is_successful':  t['is_successful'],
+            'tran_status':    t['tran_status'],
             'reference_no':   t['reference_no'],
             'receipt_no':     t['receipt_no'],
             'created_at':     t['created_at'].isoformat() if t['created_at'] else None,
             'client_name':    t['client_name'] or 'N/A',
+            'installment_plan_id': t.get('installment_plan_id') if 'installment_plan_id' in t else None,
         }
         for t in (transactions or [])
     ]

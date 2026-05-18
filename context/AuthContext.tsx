@@ -13,7 +13,7 @@ interface User {
   email: string;
   phone_number?: string;
   username?: string;
-  role: 'applicant' | 'admin' | 'student' | StaffRole;
+  role: 'applicant' | 'admitted' | 'admin' | 'student' | StaffRole;
 }
 
 export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'freshapplicant', 'admissionofficer', 'ictdirector', 'admin'];
@@ -275,7 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshStatus = useCallback(async () => {
     try {
-      if (user?.role === 'applicant') {
+      if (user?.role === 'applicant' || user?.role === 'admitted') {
         const status = await ApiClient.getApplicantStatus();
         setApplicant(status.applicant);
       } else if (user?.role === 'student') {

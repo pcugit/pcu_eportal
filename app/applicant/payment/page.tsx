@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   CreditCard, CheckCircle2, AlertCircle,
-  ShieldCheck, Building, DollarSign, Loader2, XCircle,
+  ShieldCheck, Building, DollarSign, Loader2, XCircle, ArrowLeft,
 } from "lucide-react";
 
 // ── Interswitch inline checkout types ────────────────────────────────────────
@@ -63,6 +63,7 @@ function PaymentContent() {
   const [receiptNo, setReceiptNo] = useState<string | null>(null);
   const [paidAmount, setPaidAmount] = useState<number | null>(null);
   const [paidType, setPaidType] = useState<string | null>(null);
+  const [acceptanceFeeAmount, setAcceptanceFeeAmount] = useState<number | null>(null);
 
   // Timeout guard — fires if ThreatMetrix (h.online-metrix.net) is blocked by an
   // ad blocker and the Interswitch modal never fires onComplete.
@@ -98,6 +99,14 @@ function PaymentContent() {
         if (!selectedType) {
           if (!res.applicant.has_paid_acceptance_fee) setSelectedType("acceptance_fee");
           else if (!res.applicant.has_paid_tuition)  setSelectedType("tuition");
+        }
+        try {
+          const feeData = await ApiClient.getAcceptanceFee();
+          if (feeData && feeData.acceptance_fee) {
+             setAcceptanceFeeAmount(feeData.acceptance_fee);
+          }
+        } catch (e) {
+          console.error("Could not load acceptance fee amount", e);
         }
       } catch {
         setError("Failed to load application status.");
@@ -159,6 +168,20 @@ function PaymentContent() {
           onCompleteCalledRef.current = true;
           if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
 
+          // If the user cancelled or the widget returned a non-success/non-pending code
+          if (response && response.resp && response.resp !== "00" && response.resp !== "Z0" && response.resp !== "T0") {
+             try {
+               await ApiClient.cancelPayment(init.reference_no);
+             } catch (e) {}
+             setPayState("idle");
+             setError("Payment was cancelled by user. Redirecting to dashboard in 5 seconds...");
+             setProcessing(false);
+             setTimeout(() => {
+               router.push("/applicant/dashboard");
+             }, 5000);
+             return;
+          }
+
           // Always verify server-side — never trust client resp alone
           try {
             const verification = await ApiClient.verifyPayment(init.reference_no);
@@ -168,6 +191,13 @@ function PaymentContent() {
               setPaidType(verification.payment_type);
               ApiClient.clearCache();
               setPayState("success");
+            } else if (verification.tran_status === 'pending') {
+              // Gateway returned Z0/T0 — still processing, do not mark failed
+              setPayState("pending" as any);
+              setError(
+                "Your payment is being processed. This can take a few minutes — " +
+                "we will update your status automatically. You can safely close this page."
+              );
             } else {
               setPayState("failed");
               setError(verification.response_desc || "Payment was not completed.");
@@ -209,6 +239,13 @@ function PaymentContent() {
 
   // ── Success screen ────────────────────────────────────────────────────────
   if (payState === "success") {
+    // Where to go after acceptance_fee: profile view (shows the paid banner).
+    // Tuition and others go to the main dashboard.
+    const postPayUrl =
+      paidType === "acceptance_fee"
+        ? "/applicant/dashboard?view=profile"
+        : "/applicant/dashboard";
+
     return (
       <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-0 shadow-2xl rounded-[40px] overflow-hidden">
@@ -252,6 +289,11 @@ function PaymentContent() {
                 <span className="font-bold text-green-600">Successful</span>
               </div>
             </div>
+            {paidType === "acceptance_fee" && (
+              <p className="text-xs text-slate-500 text-center mt-3 font-medium">
+                You will be redirected to your profile where you can view your admission status.
+              </p>
+            )}
           </CardContent>
           <CardFooter className="flex-col gap-3 px-8 pb-10 pt-4">
             {receiptNo && (
@@ -277,12 +319,45 @@ function PaymentContent() {
             )}
             <Button
               className="w-full h-12 font-bold bg-green-600 hover:bg-green-700"
+              onClick={() => router.push(postPayUrl)}
+            >
+              {paidType === "acceptance_fee" ? "View My Profile" : "Go to Dashboard"}
+            </Button>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-300 text-center mt-2">
+              Powered by <span className="text-slate-400 italic">Interswitch</span>
+            </p>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Pending screen (Z0 / network delay) ──────────────────────────────────
+  if ((payState as any) === "pending") {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
+        <Card className="max-w-md w-full border-0 shadow-2xl rounded-[40px] overflow-hidden">
+          <div className="h-2 bg-gradient-to-r from-amber-400 to-yellow-400" />
+          <CardHeader className="text-center pt-10 pb-2">
+            <div className="flex justify-center mb-4">
+              <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center">
+                <Loader2 className="h-10 w-10 text-amber-600 animate-spin" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl font-black tracking-tight">Payment Processing</CardTitle>
+            <CardDescription className="font-medium mt-1">
+              {error || "Your payment is being confirmed by the gateway."}
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex-col gap-3 px-8 pb-10 pt-4">
+            <Button
+              className="w-full h-12 font-bold"
               onClick={() => router.push("/applicant/dashboard")}
             >
               Go to Dashboard
             </Button>
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-300 text-center mt-2">
-              Powered by <span className="text-slate-400 italic">Interswitch</span>
+            <p className="text-xs text-slate-400 text-center">
+              Your transaction status updates automatically. Check your transaction history.
             </p>
           </CardFooter>
         </Card>
@@ -332,219 +407,91 @@ function PaymentContent() {
 
   // ── Main checkout UI ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <main className="max-w-5xl mx-auto px-4 py-12">
-        <div className="grid md:grid-cols-5 gap-8">
-
-          {/* Left — selection + method */}
-          <div className="md:col-span-3 space-y-8">
-            <div className="space-y-2">
-              <h1 className="text-4xl font-extrabold tracking-tight">Secure Checkout</h1>
-              <p className="text-lg text-muted-foreground">
-                Finalize your admission by completing the required payments.
-              </p>
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md mb-4 flex">
+        <Button 
+          variant="ghost" 
+          className="text-muted-foreground hover:text-foreground gap-2 px-0" 
+          onClick={() => router.back()}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </Button>
+      </div>
+      <Card className="max-w-md w-full shadow-2xl border-primary/10 overflow-hidden bg-card">
+        <div className="h-2 bg-gradient-to-r from-primary to-primary/40" />
+        <CardHeader className="bg-muted/30">
+          <CardTitle className="text-xl">Checkout Summary</CardTitle>
+          <CardDescription>Verify your details</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6 pt-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Applicant</p>
+              <p className="text-sm font-bold truncate">{user?.name}</p>
             </div>
-
-            {/* Payment item selection */}
-            <div className="space-y-6">
-              <h3 className="text-xl font-bold flex items-center gap-2 border-b-2 border-primary/20 pb-2">
-                <DollarSign className="h-6 w-6 text-primary" />
-                Select Payment Item
-              </h3>
-              <div className="grid gap-4">
-
-                {/* Acceptance Fee */}
-                <button
-                  onClick={() => setSelectedType("acceptance_fee")}
-                  disabled={!!status?.has_paid_acceptance_fee}
-                  className={`group relative flex items-center justify-between p-6 rounded-2xl border-2 transition-all duration-300
-                    ${selectedType === "acceptance_fee"
-                      ? "border-primary bg-primary/[0.03] ring-2 ring-primary/20 shadow-lg translate-x-1"
-                      : "border-border hover:border-primary/40 hover:bg-primary/[0.01]"}
-                    ${status?.has_paid_acceptance_fee ? "opacity-60 cursor-not-allowed bg-muted/30" : ""}`}
-                >
-                  <div className="flex items-center gap-5 text-left">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors
-                      ${selectedType === "acceptance_fee"
-                        ? "bg-primary text-white"
-                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"}`}>
-                      <Building className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-lg">Acceptance Fee</p>
-                      <p className="text-sm text-muted-foreground">Secure your spot in the university</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    {status?.has_paid_acceptance_fee ? (
-                      <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-200">
-                        <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
-                      </Badge>
-                    ) : (
-                      <p className="font-black text-xl text-primary">
-                        {status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"}
-                      </p>
-                    )}
-                  </div>
-                </button>
-
-                {/* Tuition Fee */}
-                <button
-                  onClick={() => setSelectedType("tuition")}
-                  disabled={!!status?.has_paid_tuition || !status?.has_paid_acceptance_fee}
-                  className={`group relative flex items-center justify-between p-6 rounded-2xl border-2 transition-all duration-300
-                    ${selectedType === "tuition"
-                      ? "border-primary bg-primary/[0.03] ring-2 ring-primary/20 shadow-lg translate-x-1"
-                      : "border-border hover:border-primary/40 hover:bg-primary/[0.01]"}
-                    ${status?.has_paid_tuition || !status?.has_paid_acceptance_fee ? "opacity-60 cursor-not-allowed bg-muted/30" : ""}`}
-                >
-                  <div className="flex items-center gap-5 text-left">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors
-                      ${selectedType === "tuition"
-                        ? "bg-primary text-white"
-                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"}`}>
-                      <CreditCard className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-lg">Tuition Fee</p>
-                      <p className="text-sm text-muted-foreground">Academic session tuition payment</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    {status?.has_paid_tuition ? (
-                      <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-200">
-                        <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
-                      </Badge>
-                    ) : !status?.has_paid_acceptance_fee ? (
-                      <p className="text-sm italic flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded text-yellow-700">
-                        <AlertCircle className="h-3 w-3" /> Pay acceptance first
-                      </p>
-                    ) : (
-                      <p className="font-black text-xl text-primary">
-                        {status?.program_id === 2 ? "₦250,000" : "₦177,000"}
-                      </p>
-                    )}
-                  </div>
-                </button>
-
-              </div>
-            </div>
-
-            {/* Payment method badge */}
-            <div className="pt-8 border-t border-border">
-              <h3 className="text-xl font-bold flex items-center gap-2 mb-6">
-                <CreditCard className="h-6 w-6 text-primary" />
-                Payment Method
-              </h3>
-              <div className="p-6 rounded-2xl border-2 border-primary bg-primary/5 flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-5">
-                  <div className="bg-[#00425F] p-3 rounded-xl shadow-md">
-                    <ShieldCheck className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-lg">Interswitch Inline Checkout</p>
-                    <p className="text-sm text-muted-foreground font-medium">
-                      Cards, Bank Transfer, USSD &amp; more
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-[#00425F] text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-lg">
-                  Recommended
-                </div>
-              </div>
+            <div className="space-y-1">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Program</p>
+              <p className="text-sm font-bold truncate">{status?.program_name}</p>
             </div>
           </div>
 
-          {/* Right — order summary */}
-          <div className="md:col-span-2">
-            <Card className="sticky top-24 shadow-2xl border-primary/10 overflow-hidden bg-card">
-              <div className="h-2 bg-gradient-to-r from-primary to-primary/40" />
-              <CardHeader className="bg-muted/30">
-                <CardTitle className="text-xl">Checkout Summary</CardTitle>
-                <CardDescription>Verify your details</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6 pt-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Applicant</p>
-                    <p className="text-sm font-bold truncate">{user?.name}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Program</p>
-                    <p className="text-sm font-bold truncate">{status?.program_name}</p>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-border space-y-4">
-                  <div className="flex justify-between items-center bg-muted/20 p-3 rounded-lg border border-border/50">
-                    <span className="text-sm font-medium">
-                      {selectedType ? selectedType.replace("_", " ").toUpperCase() : "NO SELECTION"}
-                    </span>
-                    <span className="font-black text-lg">
-                      {selectedType === "acceptance_fee"
-                        ? status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"
-                        : selectedType === "tuition"
-                          ? status?.program_id === 2 ? "₦250,000" : "₦177,000"
-                          : "₦0.00"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs px-1">
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                      <span>Processing Fee</span>
-                      <div className="bg-green-100 text-green-700 text-[8px] font-bold px-1 rounded">FREE</div>
-                    </div>
-                    <span className="font-bold">₦0.00</span>
-                  </div>
-                  <div className="flex justify-between items-center text-2xl font-black pt-4 border-t-2 border-dashed border-border px-1">
-                    <span>Total</span>
-                    <span className="text-primary">
-                      {selectedType === "acceptance_fee"
-                        ? status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"
-                        : selectedType === "tuition"
-                          ? status?.program_id === 2 ? "₦250,000" : "₦177,000"
-                          : "₦0.00"}
-                    </span>
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="p-4 rounded-xl bg-red-50 text-red-800 text-xs flex gap-3 border border-red-100 animate-in fade-in slide-in-from-top-2">
-                    <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
-                    <span className="leading-relaxed font-semibold">{error}</span>
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className="flex-col gap-4 pb-8">
-                <Button
-                  className="w-full h-14 text-lg font-black gap-3 shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
-                  disabled={!selectedType || processing || !scriptReady}
-                  onClick={handlePayment}
-                >
-                  {processing ? (
-                    <>
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                      OPENING PAYMENT...
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="h-6 w-6" />
-                      {scriptReady ? "PAY SECURELY" : "LOADING..."}
-                    </>
-                  )}
-                </Button>
-                <div className="flex items-center justify-center gap-4 opacity-40">
-                  <ShieldCheck className="h-6 w-6" />
-                  <div className="h-4 w-[1px] bg-foreground" />
-                  <p className="text-[8px] max-w-[120px] leading-tight font-medium uppercase tracking-tighter">
-                    256-bit SSL encrypted &amp; PCI DSS compliant
-                  </p>
-                </div>
-              </CardFooter>
-            </Card>
+          <div className="pt-6 border-t border-border space-y-4">
+            <div className="flex justify-between items-center bg-muted/20 p-3 rounded-lg border border-border/50">
+              <span className="text-sm font-medium">
+                {selectedType ? selectedType.replace("_", " ").toUpperCase() : "NO SELECTION"}
+              </span>
+              <span className="font-black text-lg">
+                {selectedType === "acceptance_fee"
+                  ? (acceptanceFeeAmount ? `₦${acceptanceFeeAmount.toLocaleString()}` : (status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"))
+                  : selectedType === "tuition"
+                    ? status?.program_id === 2 ? "₦250,000" : "₦177,000"
+                    : "₦0.00"}
+              </span>
+            </div>
+            <div className="flex justify-between text-xs px-1">
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <span>Processing Fee</span>
+                <div className="bg-green-100 text-green-700 text-[8px] font-bold px-1 rounded">FREE</div>
+              </div>
+              <span className="font-bold">₦0.00</span>
+            </div>
+            <div className="flex justify-between items-center text-2xl font-black pt-4 border-t-2 border-dashed border-border px-1">
+              <span>Total</span>
+              <span className="text-primary">
+                {selectedType === "acceptance_fee"
+                  ? (acceptanceFeeAmount ? `₦${acceptanceFeeAmount.toLocaleString()}` : (status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"))
+                  : selectedType === "tuition"
+                    ? status?.program_id === 2 ? "₦250,000" : "₦177,000"
+                    : "₦0.00"}
+              </span>
+            </div>
           </div>
 
-        </div>
-      </main>
+          {error && (
+            <div className="p-4 rounded-xl bg-red-50 text-red-800 text-xs flex gap-3 border border-red-100 animate-in fade-in slide-in-from-top-2">
+              <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
+              <span className="leading-relaxed font-semibold">{error}</span>
+            </div>
+          )}
+        </CardContent>
+        <CardFooter className="flex-col gap-4 pb-8">
+          <Button
+            className="w-full h-14 text-lg font-black gap-3 shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
+            disabled={!selectedType || processing || !scriptReady}
+            onClick={handlePayment}
+          >
+            {processing ? (
+              <>
+                <Loader2 className="h-6 w-6 animate-spin" />
+                PROCESSING...
+              </>
+            ) : (
+              "PAY NOW"
+            )}
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

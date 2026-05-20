@@ -996,13 +996,15 @@ export class ApiClient {
   }
 
   static async getStudentCourses(
-    semester: string = "First",
+    semester?: string,
   ): Promise<CourseRegistrationResponse> {
-    const { data } = await this.fetch<CourseRegistrationResponse>(
-      `/student/courses?semester=${semester}`,
-    );
+    const url = semester
+      ? `/student/courses?semester=${semester}`
+      : `/student/courses`;
+    const { data } = await this.fetch<CourseRegistrationResponse>(url);
     return data;
   }
+
 
   static async registerCourses(
     course_ids: number[],

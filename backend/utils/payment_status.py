@@ -57,10 +57,6 @@ def classify_response(response_code: str, current_requery_count: int) -> str:
     if code in PENDING_CODES:
         return 'pending'
 
-    # Non-success, non-pending code (e.g. '01', 'X9', 'SP' …)
-    # Give it FAIL_AFTER_REQUERIES total attempts before declaring failure.
-    # current_requery_count is the count before this attempt, so after
-    # incrementing it will be current_requery_count + 1.
     if current_requery_count + 1 >= FAIL_AFTER_REQUERIES:
         return 'failed'
 
@@ -89,18 +85,6 @@ def _prog_code_from_id(pt_id) -> str:
 
 
 def _create_application_row_on_success(user_id: int, reference_no: str):
-    """
-    Create the applications row (including the unique form_no) ONLY after a
-    confirmed successful application_fee payment.
-
-    Reads program_type_id and academic_session_id from the payment_transactions
-    record so no extra data needs to be passed through the call chain.
-
-    If a row already exists for this user + program_type + session (e.g. from a
-    previous successful payment that was already processed), it is left intact —
-    the application_payment_reference is updated to the latest reference so the
-    row stays consistent.
-    """
     txn_res = Database.execute_query(
         '''SELECT raw_request_payload, academic_session_id
            FROM payment_transactions
@@ -175,11 +159,8 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                          user_type_id = 13 (admitted — limited student portal)
       tuition          → applicant_stage = 'enrolled'
                          user_type_id = student role (looked up from DB)
-
-    NOTE: The application row (including form_no) is ONLY created here — after a
-    confirmed successful application_fee payment. It is never created during
-    payment initiation so pending/failed/cancelled transactions never produce a
-    form number.
+                         INSERT into students with current_level_id resolved from
+                         degree_program → program_types → level_id
     """
     if payment_type == 'application_fee':
         # ── Create the application row (form_no) only on confirmed success ────
@@ -218,48 +199,99 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
             "UPDATE users SET user_type_id = 7, updated_at = NOW() WHERE id = %s",
             (user_id,)
         )
-        
-        # Insert user into the students table
+
+        # ── Fetch user + application + biodata ───────────────────────────────
         user_data = Database.execute_query(
-            '''
-            SELECT u.surname, u.firstname, u.middlename, u.email, u.phone_number, u.user_type_id,
-                   a.degree_id, b.address, b.gender, b.date_of_birth, b.marital_status, b.nationality
-            FROM users u
-            LEFT JOIN applications a ON a.user_id = u.id AND a.applicant_stage = 'enrolled'
-            LEFT JOIN biodata b ON b.id = a.bio_data_id
-            WHERE u.id = %s
-            ORDER BY a.updated_at DESC LIMIT 1
-            ''',
+            '''SELECT u.surname, u.firstname, u.email, u.phone_number,
+                      a.degree_id, a.degree_program_id,
+                      b.middle_name, b.address, b.gender, b.date_of_birth,
+                      b.marital_status, b.nationality, b.state, b.lga
+               FROM users u
+               LEFT JOIN applications a ON a.user_id = u.id AND a.applicant_stage = 'enrolled'
+               LEFT JOIN biodata b ON b.id = a.bio_data_id
+               WHERE u.id = %s
+               ORDER BY a.updated_at DESC LIMIT 1''',
             (user_id,)
         )
-        
+
         if user_data:
             ud = user_data[0]
-            # Check if student already exists
-            existing_student = Database.execute_query('SELECT "Id" FROM students WHERE "UserId" = %s', (user_id,))
+
+            # Check if student already exists — avoid duplicate inserts
+            existing_student = Database.execute_query(
+                'SELECT "Id" FROM students WHERE "UserId" = %s', (user_id,)
+            )
             if not existing_student:
                 year_of_entry = str(datetime.now().year)
-                
-                # Make sure non-nullable fields are at least empty strings
-                last_name = ud['surname'] if ud['surname'] else 'Unknown'
+
+                # Ensure non-nullable fields are never empty
+                last_name  = ud['surname']   if ud['surname']   else 'Unknown'
                 first_name = ud['firstname'] if ud['firstname'] else 'Unknown'
-                email = ud['email'] if ud['email'] else f'user{user_id}@example.com'
-                
-                Database.execute_update(
-                    '''
-                    INSERT INTO students (
-                        "LastName", "FirstName", "OtherName", "Email", "MobileNumber", 
-                        "Address", "Gender", "DOB", "MaritalStatus", "Nationality", 
-                        "UserId", "CurrentUserId", "DegreeId", "YearOfEntry", "IsGraduate",
-                        "CreatedDate", "UpdatedDate"
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+                email      = ud['email']     if ud['email']     else f'user{user_id}@example.com'
+
+                # ── Resolve entry level from degree_program → program_types ──
+                # degree_program_id links to the specific program type (UTME, DE, etc.)
+                # program_types.level_id holds the entry level for that type (100, 200, etc.)
+                entry_level_id = None
+                degree_program_id = ud.get('degree_program_id')
+                if degree_program_id:
+                    level_res = Database.execute_query(
+                        '''SELECT pt.level_id
+                           FROM degree_program dp
+                           JOIN program_types pt ON pt.id = dp.program_type_id
+                           WHERE dp.id = %s
+                           LIMIT 1''',
+                        (degree_program_id,)
                     )
-                    ''',
+                    if level_res:
+                        entry_level_id = level_res[0]['level_id']
+
+                # Fallback: resolve via application directly if degree_program_id was null
+                if not entry_level_id:
+                    fallback_res = Database.execute_query(
+                        '''SELECT pt.level_id
+                           FROM applications a
+                           JOIN degree_program dp ON dp.id = a.degree_program_id
+                           JOIN program_types pt ON pt.id = dp.program_type_id
+                           WHERE a.user_id = %s AND a.applicant_stage = 'enrolled'
+                           ORDER BY a.updated_at DESC LIMIT 1''',
+                        (user_id,)
+                    )
+                    if fallback_res:
+                        entry_level_id = fallback_res[0]['level_id']
+
+                # ── Generate a unique MatricNo: PCU/YYYY/XXXXXX ───────────────
+                while True:
+                    suffix    = ''.join(secrets.choice(string.digits) for _ in range(6))
+                    matric_no = f"PCU/{year_of_entry}/{suffix}"
+                    clash = Database.execute_query(
+                        'SELECT "Id" FROM students WHERE "MatricNo" = %s', (matric_no,)
+                    )
+                    if not clash:
+                        break
+
+                Database.execute_update(
+                    '''INSERT INTO students (
+                           "LastName", "FirstName", "OtherName", "Email", "MobileNumber",
+                           "Address", "Gender", "DOB", "MaritalStatus", "Nationality",
+                           "State", "LGA", "MatricNo",
+                           "UserId", "CurrentUserId", "DegreeId", "YearOfEntry", "IsGraduate",
+                           current_level_id,
+                           "CreatedDate", "UpdatedDate"
+                       ) VALUES (
+                           %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s,
+                           %s, %s, %s,
+                           %s, %s, %s, %s, %s,
+                           %s,
+                           NOW(), NOW()
+                       )''',
                     (
-                        last_name, first_name, ud['middlename'], email, ud['phone_number'],
+                        last_name, first_name, ud['middle_name'], email, ud['phone_number'],
                         ud['address'], ud['gender'], ud['date_of_birth'], ud['marital_status'], ud['nationality'],
-                        user_id, user_id, ud['degree_id'], year_of_entry, False
+                        ud['state'], ud['lga'], matric_no,
+                        user_id, user_id, ud['degree_id'], year_of_entry, False,
+                        entry_level_id,
                     )
                 )
 

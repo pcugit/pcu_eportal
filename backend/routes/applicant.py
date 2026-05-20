@@ -122,7 +122,7 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
 def _get_applicant_fee_context(user_id):
     app_res = Database.execute_query(
         '''SELECT app.prog_type,
-                  pt.level AS level,
+                  pt.level_id,
                   app.finalised_course
            FROM applications app
            JOIN program_types pt ON app.prog_type = pt.id
@@ -150,7 +150,7 @@ def _get_applicant_fee_context(user_id):
 
     return {
         'program_type': app_row['prog_type'],
-        'level': app_row['level'],
+        'level': app_row['level_id'],
         'faculty_id': faculty_res[0]['faculty_id'],
         'finalised_course': finalised_course,
     }
@@ -362,7 +362,7 @@ def get_form_template(payload, program_type_id):
     role = str(payload.get('role', '')).lower()
     user_type_id = str(payload.get('user_type_id', ''))
     
-    if role not in ('applicant', 'student', 'admitted') and user_type_id not in ('2', '7', '13'):
+    if role not in ('applicant', 'student', 'admitted') and user_type_id not in ('2', '7', '13', '15'):
         return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
 
     form_templates = {
@@ -492,7 +492,7 @@ def get_form_template(payload, program_type_id):
 @AuthHandler.token_required
 def submit_form(payload):
     role = payload.get('role', '')
-    if role != 'applicant':
+    if role not in ('applicant', 'freshapplicant'):
         return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
 
     user_id = payload['user_id']
@@ -561,12 +561,19 @@ def submit_form(payload):
     pi_vals = [pi_fields[k] for k in pi_cols]
     if len(pi_cols) > 1:
         update_set = ', '.join(f"{c} = EXCLUDED.{c}" for c in pi_cols if c != 'application_id')
-        Database.execute_update(
+        bd_res = Database.execute_query(
             f'''INSERT INTO biodata ({', '.join(pi_cols)}, updated_at)
                 VALUES ({', '.join(['%s']*len(pi_cols))}, NOW())
-                ON CONFLICT (application_id) DO UPDATE SET {update_set}, updated_at = NOW()''',
+                ON CONFLICT (application_id) DO UPDATE SET {update_set}, updated_at = NOW()
+                RETURNING id''',
             tuple(pi_vals)
         )
+        # Write bio_data_id back onto the application row so lookups are fast and reliable
+        if bd_res and bd_res[0].get('id'):
+            Database.execute_update(
+                'UPDATE applications SET bio_data_id = %s, updated_at = NOW() WHERE id = %s',
+                (bd_res[0]['id'], application_id)
+            )
 
     # ── Next of kin ───────────────────────────────────────────────────────────
     nok = {'application_id': application_id,
@@ -611,6 +618,24 @@ def submit_form(payload):
                 ps_res = Database.execute_query('SELECT name FROM program_setup WHERE id = %s', (int(choice_id),))
                 if ps_res:
                     aq_fields[choice_col] = ps_res[0]['name']
+
+                # For the first choice, also write degree_id to the applications row
+                if choice_col == 'choice1':
+                    deg_res = Database.execute_query(
+                        '''SELECT dp.degree_id
+                           FROM program_setup ps
+                           JOIN degree_program dp ON dp.degree_id = ps.degree_id
+                           WHERE ps.id = %s
+                           LIMIT 1''',
+                        (int(choice_id),)
+                    )
+                    if deg_res and deg_res[0].get('degree_id'):
+                        Database.execute_update(
+                            '''UPDATE applications
+                               SET degree_id = %s, updated_at = NOW()
+                               WHERE id = %s AND degree_id IS NULL''',
+                            (deg_res[0]['degree_id'], application_id)
+                        )
             except ValueError:
                 pass
 
@@ -641,12 +666,14 @@ def submit_form(payload):
     if len(aq_fields) > 1:
         aq_cols = [k for k, v in aq_fields.items() if v is not None]
         aq_vals = [aq_fields[k] for k in aq_cols]
-        update_set = ', '.join(f"{c} = EXCLUDED.{c}" for c in aq_cols if c != 'user_id')
-        Database.execute_update(
-            f'''INSERT INTO academic_qualification ({', '.join(aq_cols)})
-                VALUES ({', '.join(['%s']*len(aq_cols))})
-                ON CONFLICT (user_id) DO UPDATE SET {update_set}''',
-            tuple(aq_vals)
+        update_cols = [c for c in aq_cols if c != 'user_id']
+        if update_cols:
+            update_set = ', '.join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+            Database.execute_update(
+                f'''INSERT INTO academic_qualification ({', '.join(aq_cols)})
+                    VALUES ({', '.join(['%s']*len(aq_cols))})
+                    ON CONFLICT (user_id) DO UPDATE SET {update_set}''',
+                tuple(aq_vals)
         )
 
     Database.execute_update(
@@ -769,15 +796,6 @@ def download_document(payload, document_id):
 @applicant_bp.route('/initiate-payment', methods=['POST'])
 @AuthHandler.token_required
 def initiate_payment(payload):
-    """
-    Step 1: Build Interswitch Webpay redirect URL and persist a PENDING transaction.
-
-    FIX summary:
-    - callback_url is clean (no query params) — payment_type stored in DB
-    - pay_item_id resolution delegated entirely to InterswitchClient._pay_item_id()
-    - fee amount resolution uses _resolve_fee_amount() which queries correct columns
-    - duplicate /process-payment flow removed; this is the only payment entry point
-    """
     user_id = payload['user_id']
     data    = request.get_json() or {}
 
@@ -811,6 +829,12 @@ def initiate_payment(payload):
         return jsonify({'message': 'No active academic session found'}), 500
     current_session_id = session_res[0]['id']
 
+    # ── Active semester (used for tuition payment tracking) ───────────────────
+    semester_res = Database.execute_query(
+        "SELECT id FROM semesters WHERE is_active = TRUE LIMIT 1"
+    )
+    active_semester_id = semester_res[0]['id'] if semester_res else None
+
     # ── User info ─────────────────────────────────────────────────────────────
     user_res = Database.execute_query(
         'SELECT firstname, surname, middlename, email FROM users WHERE id = %s', (user_id,)
@@ -829,7 +853,7 @@ def initiate_payment(payload):
 
     # ── References ────────────────────────────────────────────────────────────
     reference_no = generate_reference_no()
-    receipt_no   = generate_receipt_no()
+    receipt_no   = None
     amount_kobo  = (round(amount_naira * 100))
 
     # ── Validate Interswitch config ───────────────────────────────────────────
@@ -906,18 +930,20 @@ def initiate_payment(payload):
     try:
         Database.execute_update(
             '''INSERT INTO payment_transactions
-                   (user_id, fee_component_id, academic_session_id, installment_plan_id,
+                   (user_id, fee_component_id, academic_session_id, semester_id, installment_plan_id,
                     amount, amount_in_kobo, reference_no, receipt_no,
                     tran_status, tran_type, currency,
                     pay_item_id, product_id,
                     raw_request_payload, created_at, updated_at)
-               VALUES (%s, %s, %s, %s,
+               VALUES (%s, %s, %s, %s, %s,
                        %s, %s, %s, %s,
                        %s, %s, %s,
                        %s, %s,
                        %s::jsonb, NOW(), NOW())''',
             (
-                user_id, fee_component_id, current_session_id, installment_plan_id,
+                user_id, fee_component_id, current_session_id,
+                active_semester_id if payment_type == 'tuition' else None,
+                installment_plan_id,
                 amount_naira, amount_kobo, reference_no, receipt_no,
                 'pending', payment_type, 'NGN',
                 InterswitchClient._pay_item_id(payment_type),
@@ -1025,7 +1051,7 @@ def verify_payment(payload):
     )
 
     # ── Update transaction record ─────────────────────────────────────────────
-    receipt_no = txn['receipt_no'] or (generate_receipt_no() if is_successful else None)
+    receipt_no: str = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
     sql, params = build_update_sql_params(
         tran_status, reference_no, response_code, response_desc,
         isw_resp, amount_kobo, receipt_no,
@@ -1199,7 +1225,7 @@ def payment_webhook():
     )
 
     # ── Update transaction record ─────────────────────────────────────────────
-    receipt_no = txn['receipt_no'] or (generate_receipt_no() if is_successful else None)
+    receipt_no: str = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
     sql, params = build_update_sql_params(
         tran_status, reference_no, response_code, response_desc,
         isw_resp, amount_kobo, receipt_no,
@@ -1307,21 +1333,17 @@ def get_tuition_fee_breakdown(payload):
 
         fees = Database.execute_query(
             '''SELECT fc.name AS fee_name, pf.amount
-               FROM program_fees pf
-               JOIN fee_components fc ON fc.id = pf.fee_component_id
-               WHERE pf.program_type = %s
-                 AND pf.level = %s
-                 AND pf.faculty_id = %s
-                 AND pf.academic_session_id = (
-                     SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
-                 )
-                 AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
-               ORDER BY fc.name ASC''',
-            (
-                str(context['program_type']),
-                str(context['level']),
-                str(context['faculty_id']),
-            )
+            FROM program_fees pf
+            JOIN fee_components fc ON fc.id = pf.fee_component_id
+            WHERE pf.program_type = %s
+                AND pf.level = %s
+                AND pf.faculty_id = %s
+                AND pf.academic_session_id = (
+                    SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
+                )
+                AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+            ORDER BY fc.name ASC''',
+            (str(context['program_type']), str(context['level']), str(context['faculty_id']))
         )
 
         components = []
@@ -1395,23 +1417,19 @@ def get_admission_letter(payload):
     resumption_date = ''
 
     pd_res = Database.execute_query(
-        '''SELECT f.name AS faculty, d.name AS department, p.level, pt.name AS mode,
-                  p.session, p.resumption_date
-           FROM programs p
-           LEFT JOIN departments d ON p.department_id = d.id
-           LEFT JOIN faculties f ON d.faculty_id = f.id
-           LEFT JOIN program_types pt ON p.program_type_id = pt.id
-           WHERE p.id = %s''',
-        (applicant_data['program_id'],)
-    )
+        '''SELECT f.name AS faculty, d.name AS department
+        FROM applications a
+        JOIN program_setup ps ON ps.name = a.finalised_course
+        JOIN departments d ON d.id = ps.department_id
+        JOIN faculties f ON f.id = ps.faculty_id
+        WHERE a.user_id = %s
+        ORDER BY a.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
     if pd_res:
         pd = pd_res[0]
-        faculty         = pd['faculty']         or faculty
-        department      = pd['department']      or department
-        level           = pd['level']           or level
-        mode            = pd['mode']            or mode
-        session         = pd['session']         or session
-        resumption_date = pd['resumption_date'] or resumption_date
+        faculty    = pd['faculty']    or faculty
+        department = pd['department'] or department
 
     session_name = applicant_data.get('session_name') or '2025/2026'
     session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
@@ -1439,7 +1457,7 @@ def get_form(payload, applicant_id):
     role = str(payload.get('role', '')).lower()
     user_type_id = str(payload.get('user_type_id', ''))
     
-    if role not in ('applicant', 'student', 'admitted') and user_type_id not in ('2', '7', '13'):
+    if role not in ('applicant', 'student', 'admitted', 'freshapplicant') and user_type_id not in ('2', '7', '13', '1', '15'):
         return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
     user_id = payload['user_id']
     app_res = Database.execute_query(
@@ -1641,7 +1659,7 @@ def get_payment_history(payload):
             'is_successful':  t['is_successful'],
             'tran_status':    t['tran_status'],
             'reference_no':   t['reference_no'],
-            'receipt_no':     t['receipt_no'],
+            'receipt_no':     t['receipt_no'] if t['tran_status'] == 'successful' else None,
             'created_at':     t['created_at'].isoformat() if t['created_at'] else None,
             'client_name':    t['client_name'] or 'N/A',
             'installment_plan_id': t.get('installment_plan_id') if 'installment_plan_id' in t else None,
@@ -1659,7 +1677,9 @@ def get_payment_receipt(payload, receipt_no):
         '''SELECT pt.id, pt.tran_type, pt.amount, pt.created_at,
                   pt.reference_no, pt.receipt_no, pt.client_name
            FROM payment_transactions pt
-           WHERE pt.receipt_no = %s AND pt.user_id = %s''',
+           WHERE pt.receipt_no = %s
+             AND pt.user_id = %s
+             AND pt.tran_status = 'successful' ''',
         (receipt_no, user_id)
     )
     if not transaction:

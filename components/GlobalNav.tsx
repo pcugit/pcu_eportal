@@ -155,6 +155,14 @@ export function GlobalNav() {
     if (isLoading) return LANDING_NAV_ITEMS;
     if (!isAuthenticated) return LANDING_NAV_ITEMS;
 
+    // For users with access to multiple portals (like 'admitted' users),
+    // use the current route to determine the appropriate sidebar.
+    if (pathname.startsWith("/applicant")) return APPLICANT_NAV_ITEMS;
+    if (pathname.startsWith("/student")) {
+      if (user?.role === "admitted") return ADMITTED_NAV_ITEMS;
+      if (user?.role === "student") return STUDENT_NAV_ITEMS;
+    }
+
     if (isApplicantPortal) return APPLICANT_NAV_ITEMS;
     if (isAdmittedPortal) return ADMITTED_NAV_ITEMS; // limited student portal
     if (isStudentPortal) return STUDENT_NAV_ITEMS;

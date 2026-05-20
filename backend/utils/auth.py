@@ -17,8 +17,8 @@ def verify_password(password: str, password_hash: str) -> bool:
 # -----------------------------
 # JWT utilities
 # -----------------------------
-def generate_token(user_id, role, expires_in=86400) -> str:
-    """Generate JWT token (default: 24 hours)"""
+def generate_token(user_id, role, expires_in=3600) -> str:
+    """Generate JWT token (default: 1 hour)"""
     payload = {
         'user_id': user_id,
         'role': role,

@@ -233,6 +233,20 @@ def review_application(payload):
     stage_map  = {'accept': 'admitted', 'reject': 'rejected', 'recommend': 'screening'}
     new_status = stage_map[decision]
 
+    # Resolve degree_id from the approved_course name so it is always populated
+    degree_id = None
+    if approved_course:
+        deg_res = Database.execute_query(
+            '''SELECT dp.degree_id
+               FROM program_setup ps
+               JOIN degree_program dp ON dp.degree_id = ps.degree_id
+               WHERE LOWER(ps.name) = LOWER(%s)
+               LIMIT 1''',
+            (approved_course,)
+        )
+        if deg_res:
+            degree_id = deg_res[0]['degree_id']
+
     success = Database.execute_update(
         '''UPDATE applications
            SET applicant_stage         = %s,
@@ -240,10 +254,11 @@ def review_application(payload):
                decision_date           = NOW(),
                approved_course         = %s,
                finalised_course        = %s,
+               degree_id               = COALESCE(%s, degree_id),
                decision_maker_user_id  = %s,
                updated_at              = NOW()
            WHERE id = %s''',
-        (new_status, decision, approved_course, approved_course, officer_user_id, applicant_id)
+        (new_status, decision, approved_course, approved_course, degree_id, officer_user_id, applicant_id)
     )
 
     if not success:

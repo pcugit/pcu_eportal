@@ -16,6 +16,67 @@ def check_registration_status():
     except:
         return False
 
+
+def _get_active_semester():
+    """Return the active semester row or None."""
+    res = Database.execute_query(
+        """SELECT s.id, s.name, s.session_id, acs.name AS session_name
+           FROM semesters s
+           JOIN academic_sessions acs ON acs.id = s.session_id
+           WHERE s.is_active = TRUE
+           LIMIT 1"""
+    )
+    return res[0] if res else None
+
+
+def _verify_tuition_paid(user_id, session_id, semester_id):
+    """
+    Return True if the student has a confirmed successful tuition payment
+    for the given academic session + semester.
+
+    Falls back gracefully:
+    - If no active semester is configured (semester_id is None), only checks
+      that ANY successful tuition payment exists for the session.
+    """
+    if semester_id:
+        res = Database.execute_query(
+            """SELECT id FROM payment_transactions
+               WHERE user_id = %s
+                 AND tran_type = 'tuition'
+                 AND tran_status = 'successful'
+                 AND academic_session_id = %s
+                 AND semester_id = %s
+               LIMIT 1""",
+            (user_id, session_id, semester_id)
+        )
+    else:
+        res = Database.execute_query(
+            """SELECT id FROM payment_transactions
+               WHERE user_id = %s
+                 AND tran_type = 'tuition'
+                 AND tran_status = 'successful'
+                 AND academic_session_id = %s
+               LIMIT 1""",
+            (user_id, session_id)
+        )
+    return bool(res)
+
+
+def _has_any_tuition_paid(user_id):
+    """Grandfather clause: return True if the student has ANY ever-successful tuition
+    payment (used to avoid locking out students who paid before semester tracking
+    was introduced and whose transactions therefore have NULL semester_id)."""
+    res = Database.execute_query(
+        """SELECT id FROM payment_transactions
+           WHERE user_id = %s
+             AND tran_type = 'tuition'
+             AND tran_status = 'successful'
+           LIMIT 1""",
+        (user_id,)
+    )
+    return bool(res)
+
+
 @student_bp.route('/change-password', methods=['POST'])
 @AuthHandler.token_required
 def change_password(payload):
@@ -81,12 +142,8 @@ def get_profile(payload):
 @student_bp.route('/courses', methods=['GET'])
 @AuthHandler.token_required
 def get_courses(payload):
-    """Retrieve available courses for the student's program, level, and semester.
-
-    All queries run on a single pooled connection to avoid repeated TCP round-trips.
-    """
-    user_id = payload['user_id']
-    semester = request.args.get('semester', 'First')
+    user_id  = payload['user_id']
+    semester = request.args.get('semester')  # optional filter; None = all semesters
 
     conn = Database.get_connection()
     if not conn:
@@ -95,79 +152,136 @@ def get_courses(payload):
     try:
         # Check global lock
         if check_registration_status():
-             return jsonify({'message': 'The registration portal is currently closed by the administration. Please contact the ICT center for details.'}), 403
+            return jsonify({'message': 'The registration portal is currently closed by the administration. Please contact the ICT center for details.'}), 403
 
         with conn.cursor() as cur:
-            # 1) Student + program info
+            # 1) Resolve student's program context
             cur.execute(
-                '''SELECT a.degree_id, l.name as current_level, acs.name as session, 
-                          d.name as department_name, s."Id" as student_id
+                '''SELECT a.degree_id, l.name AS current_level, acs.name AS session,
+                          d.name AS department_name,
+                          COALESCE(s."Id", 0) AS student_id
                    FROM applications a
-                   JOIN level l ON a.level_id = l.id
-                   JOIN academic_sessions acs ON a.academic_session_id = acs.id
-                   JOIN program_setup ps ON ps.degree_id = a.degree_id
+                   JOIN level l ON l.id = a.level_id
+                   JOIN academic_sessions acs ON acs.id = a.academic_session_id
+                   JOIN program_setup ps ON LOWER(ps.name) = LOWER(a.finalised_course)
                    JOIN departments d ON d.id = ps.department_id
-                   JOIN students s ON s."UserId" = a.user_id
+                   LEFT JOIN students s ON s."UserId" = a.user_id
                    WHERE a.user_id = %s
+                   AND a.applicant_stage IN ('accepted', 'enrolled')
                    ORDER BY a.updated_at DESC LIMIT 1''',
                 (user_id,)
-            )
+                )
             student = cur.fetchone()
             if not student:
                 return jsonify({'message': 'Student record not found. Please ensure you have completed your tuition payment to be officially enrolled.'}), 404
 
-            current_level = student['current_level']
-            session       = student['session']
-            student_id    = student['student_id']
+            # ── Tuition payment guard ─────────────────────────────────────────
+            active_sem = _get_active_semester()
+            if active_sem:
+                paid = (
+                    _verify_tuition_paid(user_id, active_sem['session_id'], active_sem['id'])
+                    or _has_any_tuition_paid(user_id)
+                )
+                if not paid:
+                    return jsonify({
+                        'message': (
+                            f'Tuition payment for {active_sem["session_name"]} '
+                            f'{active_sem["name"]} semester is required before '
+                            f'you can register courses.'
+                        ),
+                        'payment_required': True,
+                        'semester': active_sem['name'],
+                        'session':  active_sem['session_name'],
+                    }), 402
+
+            current_level   = student['current_level']    # e.g. "100 Level"
+            db_session      = student['session']
+            student_id      = student['student_id']
             department_name = student['department_name']
-            
-            # Map frontend semester 'First' -> 'First semester', 'Second' -> 'Second semester'
-            db_semester = f"{semester} semester"
 
-            # 2) Courses for this program / level / semester
+            # 2) Pull ALL courses for this department + level (both semesters)
+            #    level.name already returns the numeric string e.g. "100"
+            #    semester filter is optional.
+            sem_filter = ''
+            sem_params = [department_name, current_level]
+            if semester:
+                sem_filter = "AND c.semester ILIKE %s"
+                sem_params.append(f'{semester} semester')
+
             cur.execute(
-                '''SELECT c.id, c.course_code, c.course_title, c.unit as credit_units,
-                          c.remark as category
+                f'''SELECT c.id, c.course_code, c.course_title,
+                          c.unit AS credit_units, c.semester,
+                          LOWER(TRIM(c.remark)) AS remark
                    FROM course c
-                   WHERE c.department = %s
-                     AND c.level = %s
-                     AND c.semester ILIKE %s
-                   ORDER BY c.remark, c.course_code''',
-                (department_name, current_level, db_semester)
+                   WHERE UPPER(c.department) = UPPER(%s)
+                     AND c.level::text = %s
+                     AND c.status = \'active\'
+                     {sem_filter}
+                   ORDER BY c.semester, c.remark, c.course_code''',
+                sem_params
             )
-            courses = cur.fetchall()
+            all_courses = cur.fetchall()
 
-            # 3) Registration + registered course ids — one query with array_agg
+            # 3) Registered course ids for this student + session
+            #    Fetch across ALL semesters so the UI knows what's already saved.
             cur.execute(
-                '''SELECT cr.id, cr.status,
-                          COALESCE(array_agg(rc.course_id) FILTER (WHERE rc.course_id IS NOT NULL), %s) AS registered_ids
+                '''SELECT rc.course_id, cr.semester, cr.id AS reg_id, cr.status
                    FROM course_registrations cr
-                   LEFT JOIN registered_courses rc ON rc.registration_id = cr.id
-                   WHERE cr.student_id = %s
-                     AND cr.session    = %s
-                     AND cr.semester   = %s
-                   GROUP BY cr.id, cr.status''',
-                ('{}', student_id, session, semester)
+                   JOIN registered_courses rc ON rc.registration_id = cr.id
+                   WHERE cr.student_id = %s AND cr.session = %s''',
+                (student_id, db_session)
             )
-            reg_row = cur.fetchone()
+            reg_rows = cur.fetchall()
 
-        reg_status      = reg_row['status']         if reg_row else None
-        registered_ids  = list(reg_row['registered_ids']) if reg_row else []
+        # ── Build registered lookup ───────────────────────────────────────────
+        registered_ids     = [r['course_id'] for r in reg_rows]
+        reg_status_by_sem  = {}   # { "First": "submitted", ... }
+        reg_id_by_sem      = {}   # { "First": cr_id, ... }
+        for r in reg_rows:
+            s = r['semester']
+            reg_status_by_sem[s] = r['status']
+            reg_id_by_sem[s]     = r['reg_id']
+
+        # ── Classify courses ──────────────────────────────────────────────────
+        COMPULSORY_REMARKS = {'compulsory', 'compulsary'}   # handle typo in DB
+        CORE_REMARKS       = {'core'}
+        ELECTIVE_REMARKS   = {'elective', 'rlective'}        # handle typo in DB
+        REQUIRED_REMARKS   = {'required'}
+
+        semesters_data  = {}   # { semester_label: { compulsory: [], core: [] } }
+        available       = []   # elective + required across all semesters
+
+        for c in all_courses:
+            row = dict(c)
+            row['is_registered'] = c['id'] in registered_ids
+            remark = (c['remark'] or '').lower().strip()
+            sem    = c['semester'] or 'Unknown'   # "First semester" / "Second semester"
+
+            if remark in COMPULSORY_REMARKS or remark in CORE_REMARKS:
+                bucket = 'compulsory' if remark in COMPULSORY_REMARKS else 'core'
+                if sem not in semesters_data:
+                    semesters_data[sem] = {'compulsory': [], 'core': []}
+                semesters_data[sem][bucket].append(row)
+            else:
+                # elective, required, unknown → available for manual selection
+                available.append(row)
 
         return jsonify({
-            'courses':               [dict(c) for c in courses],
-            'registration_status':   reg_status,
-            'registered_course_ids': registered_ids,
             'student':               dict(student),
-            'registration_deadline': None,
-            'is_global_locked':      check_registration_status()
+            'semesters':             semesters_data,
+            'available_courses':     available,
+            'registered_course_ids': registered_ids,
+            'reg_status_by_semester': reg_status_by_sem,
+            'is_global_locked':      check_registration_status(),
         }), 200
 
     except Exception as e:
         print(f'Error in get_courses: {e}')
+        import traceback; traceback.print_exc()
         return jsonify({'message': 'An unexpected error occurred while fetching courses. Please try again later or contact support.'}), 500
     finally:
         Database.release_connection(conn)
+
 
 @student_bp.route('/register-courses', methods=['POST'])
 @AuthHandler.token_required
@@ -190,22 +304,41 @@ def register_courses(payload):
          return jsonify({'message': 'course_ids must be a list'}), 400
 
     student = Database.execute_query(
-        '''SELECT a.degree_id, l.name as current_level, acs.name as session, 
+        '''SELECT a.degree_id, l.name as current_level, acs.name as session,
                   d.name as department_name, s."Id" as student_id
            FROM applications a
            JOIN level l ON a.level_id = l.id
            JOIN academic_sessions acs ON a.academic_session_id = acs.id
-           JOIN program_setup ps ON ps.degree_id = a.degree_id
+           JOIN program_setup ps ON ps.name = a.finalised_course
            JOIN departments d ON d.id = ps.department_id
            JOIN students s ON s."UserId" = a.user_id
            WHERE a.user_id = %s
            ORDER BY a.updated_at DESC LIMIT 1''',
         (user_id,)
     )
-    
+
     if not student:
         return jsonify({'message': 'Student record not found'}), 404
-        
+
+    # ── Independent tuition payment check per session + semester ─────────────
+    active_sem = _get_active_semester()
+    if active_sem:
+        paid = (
+            _verify_tuition_paid(user_id, active_sem['session_id'], active_sem['id'])
+            or _has_any_tuition_paid(user_id)   # grandfather: pre-tracking payments
+        )
+        if not paid:
+            return jsonify({
+                'message': (
+                    f'Tuition payment for {active_sem["session_name"]} '
+                    f'{active_sem["name"]} semester is required before '
+                    f'you can register courses.'
+                ),
+                'payment_required': True,
+                'semester': active_sem['name'],
+                'session':  active_sem['session_name'],
+            }), 402
+
     s_data = student[0]
     student_id = s_data['student_id']
     current_session = s_data['session']

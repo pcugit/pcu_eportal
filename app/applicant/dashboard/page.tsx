@@ -324,7 +324,7 @@ function ApplicantDashboardInner() {
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground font-medium">Authenticating e-portal session...</p>
+          <p className="text-muted-foreground font-medium">Authenticating</p>
         </div>
       </div>
     );
@@ -772,7 +772,17 @@ function ApplicantDashboardInner() {
                 </div>
                 <div className="space-y-3">
                   <Button
-                    onClick={() => router.push("/student/login")}
+                    onClick={async () => {
+                      // Refresh token so the role updates from 'applicant' → 'admitted'
+                      // before navigating, preventing the student login from bouncing back.
+                      try {
+                        const response = await ApiClient.verifyToken() as any;
+                        if (response.token) ApiClient.setToken(response.token);
+                      } catch {}
+                      window.location.href = window.location.pathname.startsWith('/e-portal')
+                        ? '/e-portal/student/dashboard'
+                        : '/student/dashboard';
+                    }}
                     className="w-full h-14 bg-purple-700 hover:bg-purple-800 text-white font-bold text-lg rounded-xl shadow-lg shadow-purple-700/30"
                   >
                     Go to Student Portal

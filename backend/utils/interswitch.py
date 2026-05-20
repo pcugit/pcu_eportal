@@ -59,7 +59,6 @@ class InterswitchClient:
         cls._token_expires_at = now + int(body.get("expires_in", 3600))
         return cls._token
 
-    # ── HMAC-SHA512 signature ─────────────────────────────────────────────────
     @classmethod
     def _sign(cls, nonce: str, timestamp: str) -> str:
         client_id = Config.INTERSWITCH_CLIENT_ID

@@ -45,7 +45,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   signup: (first_name: string, last_name: string, email: string, password: string, phone_number: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: (redirectUrl?: string) => Promise<void>;
   refreshStatus: () => Promise<void>;
   error: string | null;
   portalStatus: PortalStatus | null;
@@ -92,14 +92,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
     localStorage.setItem('last_active', Date.now().toString());
     inactivityTimer.current = setTimeout(() => {
+      window.alert('Your session has expired due to 15 minutes of inactivity. Please sign in again.');
+      
       // Auto-logout on inactivity
       ApiClient.setToken(null);
-      saveUserAndRole(null);
-      setApplicant(null);
-      setStudent(null);
-      setError('You have been signed out due to inactivity. Please sign in again.');
+      localStorage.removeItem('auth_user');
+      localStorage.removeItem('last_active');
+      
+      let finalUrl = "/";
+      if (user?.role === 'student' || user?.role === 'admitted') {
+        finalUrl = "/student/login";
+      } else if (user?.role === 'applicant' || user?.role === 'freshapplicant') {
+        finalUrl = "/auth/login";
+      }
+
+      let redirectPath = finalUrl;
+      // Handle Next.js basePath configuration for hard reloads
+      if (window.location.pathname.startsWith('/e-portal')) {
+        redirectPath = `/e-portal${finalUrl === '/' ? '' : finalUrl}`;
+      }
+      
+      window.location.href = redirectPath || '/';
     }, INACTIVITY_LIMIT);
-  }, []);
+  }, [user?.role]);
 
   // Attach activity listeners when user is authenticated
   useEffect(() => {
@@ -223,9 +238,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // ── Background warm-up: pre-fetch all applicant form data immediately
       // after login so the ApiClient cache is hot before the dashboard mounts.
-      // Only runs for applicant / freshapplicant roles — staff don't need it.
+      // Only runs for applicants who have paid — freshapplicants have no forms.
       const role = response.user?.role;
-      if (role === 'applicant' || role === 'freshapplicant') {
+      if (role === 'applicant') {
         Promise.resolve().then(async () => {
           try {
             // 1. Get the list of applications (also warms the status cache)
@@ -257,21 +272,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const logout = useCallback(async () => {
-    setIsLoading(true);
+  const logout = useCallback(async (redirectUrl?: string) => {
+    let finalUrl = redirectUrl;
+    if (!finalUrl) {
+      if (user?.role === 'student' || user?.role === 'admitted') {
+        finalUrl = "/student/login";
+      } else if (user?.role === 'applicant' || user?.role === 'freshapplicant') {
+        finalUrl = "/auth/login";
+      } else {
+        finalUrl = "/";
+      }
+    }
+
     try {
       await ApiClient.logout();
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
       ApiClient.setToken(null);
-      saveUserAndRole(null);
-      setApplicant(null);
-      setStudent(null);
-      setError(null);
-      setIsLoading(false);
+      localStorage.removeItem('auth_user');
+      localStorage.removeItem('last_active');
+      
+      let redirectPath = finalUrl;
+      // Handle Next.js basePath configuration for hard reloads
+      if (window.location.pathname.startsWith('/e-portal')) {
+        redirectPath = `/e-portal${finalUrl === '/' ? '' : finalUrl}`;
+      }
+      
+      window.location.href = redirectPath || '/';
     }
-  }, []);
+  }, [user?.role]);
 
   const refreshStatus = useCallback(async () => {
     try {

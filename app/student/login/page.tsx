@@ -182,21 +182,23 @@ export default function StudentLoginPage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2"> 
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password" className="text-sm font-semibold">Password</Label>
+                  {/*
                   <Link 
                     href="/auth/forgot-password" 
                     className="text-xs text-[#3d2b3d] hover:underline font-medium"
                   >
                     Forgot password?
                   </Link>
+                  */}
                 </div>
                 <Input
                   id="password"
                   name="password"
                   type="password"
-                  placeholder="First time? Try your Surname (in lowercase)"
+                  placeholder="Enter your password"
                   className="h-11 border-slate-200 focus:border-[#3d2b3d] focus:ring-[#3d2b3d]/20 transition-all font-medium"
                   value={formData.password}
                   onChange={handleChange}
@@ -219,7 +221,7 @@ export default function StudentLoginPage() {
                     <span>Signing in...</span>
                   </div>
                 ) : (
-                  "Sign In to Portal"
+                  "Sign In"
                 )}
               </Button>
             </form>

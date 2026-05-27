@@ -33,7 +33,7 @@ export default function AdmissionsPage() {
   ];
 
   return (
-    <div className="w-full bg-white font-sans text-gray-800">
+    <div className="w-full bg-background font-sans text-foreground">
       {/* Hero Banner */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img
@@ -59,7 +59,7 @@ export default function AdmissionsPage() {
       </div>
 
       {/* Main Content */}
-      <div className="flex justify-center bg-white">
+      <div className="flex justify-center bg-background">
         <div className="flex flex-col md:flex-row w-full max-w-6xl py-16 px-6 gap-12">
           {/* Right Content */}
           <div className="flex-1 min-w-0 w-full">
@@ -73,7 +73,7 @@ export default function AdmissionsPage() {
               <h2 className="text-3xl md:text-[34px] font-normal text-[#54255f] mb-8 leading-tight">
                 horizons? Look no further!
               </h2>
-              <p className="text-gray-700 leading-[1.8] text-[15px]">
+              <p className="text-muted-foreground leading-[1.8] text-[15px]">
                 It’s a very exciting time to see what you could gain from studying with us at Precious Cornerstone University. By choosing Precious Cornerstone University, you’ll join bold and independent thinkers, get real-world experience, gain a global perspective and graduate ready to change the world. You’ll find everything you need to start your university life with us here.
               </p>
             </div>
@@ -82,7 +82,7 @@ export default function AdmissionsPage() {
               {admissionPrograms.map((program, index) => (
                 <div key={index} className="flex flex-col md:flex-row gap-8 items-start border-b border-[#54255f]/10 pb-12 last:border-0">
                   <div className="w-full md:w-[40%] shrink-0">
-                    <div className="relative w-full aspect-[4/3] bg-gray-100 overflow-hidden">
+                    <div className="relative w-full aspect-[4/3] bg-muted overflow-hidden">
                       {/* Using a placeholder for user to replace */}
                       <img 
                         src={program.image} 
@@ -95,7 +95,7 @@ export default function AdmissionsPage() {
                     <h3 className="text-[22px] font-normal text-[#54255f] mb-4">
                       {program.title}
                     </h3>
-                    <p className="text-gray-700 leading-[1.8] text-[15px] mb-8">
+                    <p className="text-muted-foreground leading-[1.8] text-[15px] mb-8">
                       {program.description}
                     </p>
                     <div className="mt-auto">
@@ -113,7 +113,7 @@ export default function AdmissionsPage() {
               <h2 className="text-3xl font-bold text-[#54255f] mb-6">
                 How to Apply
               </h2>
-              <ol className="list-decimal pl-5 space-y-3 text-[15px] text-gray-700 leading-relaxed">
+              <ol className="list-decimal pl-5 space-y-3 text-[15px] text-muted-foreground leading-relaxed">
                 <li>
                   Choose the programme and admission route that fits your
                   goals.
@@ -139,7 +139,7 @@ export default function AdmissionsPage() {
               <h2 className="text-3xl font-bold text-[#54255f] mb-6">
                 Contact & Support
               </h2>
-              <p className="text-gray-700 leading-[1.8] text-[15px] mb-6">
+              <p className="text-muted-foreground leading-[1.8] text-[15px] mb-6">
                 Need help with your application? Reach out to our admissions
                 team for guidance, clarifications, or support with document
                 submission.
@@ -149,7 +149,7 @@ export default function AdmissionsPage() {
                   <h3 className="text-lg font-semibold text-[#b91c1c] mb-3">
                     Admissions Office
                   </h3>
-                  <p className="text-[15px] text-gray-700 leading-relaxed">
+                  <p className="text-[15px] text-muted-foreground leading-relaxed">
                     Email: admissions@pcu.edu.ng
                     <br />
                     Phone: +234 800 PCU HELP
@@ -157,7 +157,7 @@ export default function AdmissionsPage() {
                 </div>
                 <div className="rounded-xl border border-[#54255f]/10 p-6 bg-[#54255f]/[0.02]">
                   <h3 className="text-lg font-semibold text-[#b91c1c] mb-3">Next Steps</h3>
-                  <p className="text-[15px] text-gray-700 leading-relaxed">
+                  <p className="text-[15px] text-muted-foreground leading-relaxed">
                     After submitting your application, check your email
                     regularly for updates and login details to the student
                     portal.

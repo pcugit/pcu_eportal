@@ -47,7 +47,7 @@ function CourseCard({
           : `translateX(${isEven ? "-60px" : "60px"})`,
         transition: `opacity 0.55s ease ${index * 0.08}s, transform 0.55s ease ${index * 0.08}s`,
       }}
-      className="relative bg-white border border-[#54255f]/10 shadow-sm mx-2 mb-6 overflow-hidden rounded-r-lg border-l-4"
+      className="relative bg-card border border-[#54255f]/10 shadow-sm mx-2 mb-6 overflow-hidden rounded-r-lg border-l-4"
     >
       {/* Brand Color Left Border */}
       <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-[#b91c1c] to-[#54255f]" />
@@ -68,7 +68,7 @@ function CourseCard({
           <h2 className="text-[22px] font-semibold mb-3 text-[#54255f]">
             {course.degree}
           </h2>
-          <p className="text-[15px] leading-relaxed line-clamp-4 text-gray-700">
+          <p className="text-[15px] leading-relaxed line-clamp-4 text-muted-foreground">
             {course.shortDescription}
           </p>
         </div>
@@ -111,7 +111,7 @@ export default function UndergraduatePage() {
     });
 
   return (
-    <div className="w-full min-h-screen font-sans text-gray-800 bg-white">
+    <div className="w-full min-h-screen font-sans text-foreground bg-background">
       {/* ── HERO BANNER ── */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img
@@ -131,7 +131,7 @@ export default function UndergraduatePage() {
       </div>
 
       {/* ── BODY: Sidebar (left) + Content (right) ── */}
-      <div className="flex justify-center bg-white">
+      <div className="flex justify-center bg-background">
         <div className="flex flex-col md:flex-row w-full max-w-6xl py-16 px-6 gap-12 items-stretch">
 
           {/* Right: Intro + Course list */}
@@ -141,7 +141,7 @@ export default function UndergraduatePage() {
               <h2 className="text-3xl font-bold mb-4 text-[#54255f]">
                 Explore Our Programs
               </h2>
-              <p className="text-[15px] leading-relaxed text-gray-700">
+              <p className="text-[15px] leading-relaxed text-muted-foreground">
                 The University currently has two faculties with 6 departments,
                 offering various courses cut across different specialisations. 
                 Use the tools below to find the perfect course for your career path.
@@ -156,9 +156,9 @@ export default function UndergraduatePage() {
                   placeholder="Search programs by name or keyword..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-4 pr-10 py-3 border border-gray-200 rounded-md focus:outline-none focus:border-[#54255f] focus:ring-1 focus:ring-[#54255f] transition-colors text-[14px]"
+                  className="w-full pl-4 pr-10 py-3 border border-border rounded-md focus:outline-none focus:border-[#54255f] focus:ring-1 focus:ring-[#54255f] transition-colors text-[14px] text-foreground bg-input"
                 />
-                <div className="absolute right-3 top-3 text-gray-400">
+                <div className="absolute right-3 top-3 text-muted-foreground">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                   </svg>
@@ -168,7 +168,7 @@ export default function UndergraduatePage() {
                 <select
                   value={filterCategory}
                   onChange={(e) => setFilterCategory(e.target.value)}
-                  className="flex-1 md:w-48 px-4 py-3 border border-gray-200 rounded-md focus:outline-none focus:border-[#54255f] focus:ring-1 focus:ring-[#54255f] transition-colors text-[14px] bg-white cursor-pointer"
+                  className="flex-1 md:w-48 px-4 py-3 border border-border rounded-md focus:outline-none focus:border-[#54255f] focus:ring-1 focus:ring-[#54255f] transition-colors text-[14px] bg-input text-foreground cursor-pointer"
                 >
                   {categories.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
@@ -184,7 +184,7 @@ export default function UndergraduatePage() {
                   <CourseCard key={course.slug} course={course} index={i} />
                 ))
               ) : (
-                <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-100">
+                <div className="text-center py-12 bg-muted rounded-lg border border-border">
                   <p className="text-[#54255f] font-medium text-lg">No programs found matching your search.</p>
                   <button 
                     onClick={() => { setSearchQuery(""); setFilterCategory("All"); }}

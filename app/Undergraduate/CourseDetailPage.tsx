@@ -22,15 +22,15 @@ function Accordion({
   onToggle: () => void;
 }) {
   return (
-    <div className="border border-gray-200 mb-2 overflow-hidden">
+    <div className="border border-border mb-2 overflow-hidden">
       {/* Header row */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 text-left bg-white hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 text-left bg-card hover:bg-muted transition-colors"
       >
-        <span className="text-sm font-semibold text-gray-800">{title}</span>
+        <span className="text-sm font-semibold text-foreground">{title}</span>
         {/* + / – icon */}
-        <span className="ml-4 shrink-0 text-gray-600 text-xl leading-none font-light select-none">
+        <span className="ml-4 shrink-0 text-muted-foreground text-xl leading-none font-light select-none">
           {isOpen ? "−" : "+"}
         </span>
       </button>
@@ -41,7 +41,7 @@ function Accordion({
           isOpen ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className="px-5 pb-6 pt-1 bg-white border-t border-gray-100 text-sm text-gray-700 leading-relaxed">
+        <div className="px-5 pb-6 pt-1 bg-card border-t border-border text-sm text-muted-foreground leading-relaxed">
           {Array.isArray(content) ? (
             <div className="space-y-2">
               {content.map((item, i) => (
@@ -73,7 +73,7 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
     setOpenIndex((prev) => (prev === i ? null : i));
 
   return (
-    <div className="w-full font-sans text-gray-800">
+    <div className="w-full font-sans text-foreground">
 
       {/* ── HERO BANNER ── */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
@@ -105,7 +105,7 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
           <div className="flex-1 min-w-0 w-full">
 
             {/* Short summary — shown above accordions */}
-            <p className="text-sm text-gray-700 leading-relaxed mb-8">
+            <p className="text-sm text-muted-foreground leading-relaxed mb-8">
               {course.shortSummary}
             </p>
 

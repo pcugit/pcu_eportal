@@ -227,19 +227,19 @@ export default function SignupPage() {
         </Link>
         <Card className="w-full relative overflow-hidden">
           {loadingConfig ? (
-            <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur flex items-center justify-center">
+            <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
             </div>
           ) : isPortalLocked ? (
-            <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
+            <div className="absolute inset-0 z-50 bg-card flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
               <div className="mb-6 relative">
                 <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
                 <div className="relative bg-red-50 text-red-500 rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
                   <AlertCircle className="h-10 w-10" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-slate-800 mb-4 tracking-tight">Portal Closed</h2>
-              <p className="text-slate-500 max-w-sm mx-auto leading-relaxed">
+              <h2 className="text-3xl font-black text-foreground mb-4 tracking-tight">Portal Closed</h2>
+              <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
                 We are sorry, but the admissions portal is currently closed. We are not accepting new logins or applications at this time. Please check back later!
               </p>
               <Button 

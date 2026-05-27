@@ -8,7 +8,7 @@ declare global {
       pay_item_id: string;
       txn_ref: string;
       amount: number;
-      currency: number;
+      currency: string;
       site_redirect_url: string;
       mode: "TEST" | "LIVE";
       onComplete: (response: { resp: string; [key: string]: any }) => void;
@@ -96,6 +96,28 @@ export default function StudentDashboard() {
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
 
+  // Check if fully paid
+  const isFullyPaid = (() => {
+    // 1. Did they make a successful full tuition payment (installment_plan_id is null/undefined)?
+    const hasFullPayment = (paymentHistory || []).some(
+      (p) => p.payment_type === "tuition" && p.is_successful && !p.installment_plan_id
+    );
+    if (hasFullPayment) return true;
+
+    // 2. If installment plans exist, have they paid ALL of them successfully?
+    if (installmentPlans && installmentPlans.length > 0) {
+      const paidPlanIds = new Set(
+        (paymentHistory || [])
+          .filter((p) => p.payment_type === "tuition" && p.is_successful && p.installment_plan_id)
+          .map((p) => p.installment_plan_id)
+      );
+      const allPaid = installmentPlans.every((plan) => paidPlanIds.has(plan.id));
+      return allPaid;
+    }
+
+    return false;
+  })();
+
   const fetchStatus = async () => {
     if (isAuthenticated && !student?.is_first_login) {
       try {
@@ -124,6 +146,11 @@ export default function StudentDashboard() {
       try {
         const pHistory = await ApiClient.getPaymentHistory();
         setPaymentHistory(pHistory.payment_history);
+      } catch (e) {}
+
+      try {
+        const plansRes = await ApiClient.getInstallmentPlans();
+        setInstallmentPlans(plansRes.installment_plans || []);
       } catch (e) {}
     } catch (err) {
       console.error(err);
@@ -214,7 +241,7 @@ export default function StudentDashboard() {
         "tuition",
         undefined,
         undefined,
-        paymentMode === "installment" ? selectedInstallmentPlanId : undefined,
+        paymentMode === "installment" ? (selectedInstallmentPlanId ?? undefined) : undefined,
       );
       const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/e-portal/applicant/payment/callback`;
 
@@ -230,7 +257,7 @@ export default function StudentDashboard() {
         pay_item_id: init.pay_item_id,
         txn_ref: init.reference_no,
         amount: init.amount_kobo,
-        currency: 566,
+        currency: "566",
         site_redirect_url: callbackUrl,
         mode: "LIVE",
         onComplete: async (response: any) => {
@@ -567,14 +594,23 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 <Button
-                  className="w-full gap-2 font-bold py-6 text-base bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/15 hover:shadow-amber-500/25 transition-all duration-200 hover:scale-[1.01]"
+                  className={`w-full gap-2 font-bold py-6 text-base shadow-lg transition-all duration-200 ${
+                    isFullyPaid 
+                      ? "bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/10 shadow-none border border-emerald-600/20" 
+                      : "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/15 hover:shadow-amber-500/25 hover:scale-[1.01]"
+                  }`}
                   onClick={handlePayTuition}
-                  disabled={isPayingTuition || !scriptReady}
+                  disabled={isPayingTuition || !scriptReady || isFullyPaid}
                 >
                   {isPayingTuition ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
                       Opening Payment...
+                    </>
+                  ) : isFullyPaid ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      Fees Fully Paid
                     </>
                   ) : (
                     <>{scriptReady ? "Proceed to Pay Fees" : "Loading..."}</>

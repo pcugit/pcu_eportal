@@ -230,6 +230,10 @@ export interface StudentProfile {
 }
 
 export class ApiClient {
+  static getBaseUrl() {
+    return API_BASE_URL;
+  }
+
   private static token: string | null = null;
   private static cache = new Map<string, { data: any; timestamp: number }>();
   private static CACHE_TTL = 10 * 60 * 1000; // 10 minutes — form data rarely changes mid-session

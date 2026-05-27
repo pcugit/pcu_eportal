@@ -761,7 +761,7 @@ def upload_document(payload):
     }), 201
 
 
-@applicant_bp.route('/delete-document/<int:document_id>', methods=['DELETE'])
+@applicant_bp.route('/delete-document/<document_id>', methods=['DELETE'])
 @AuthHandler.token_required
 def delete_document(payload, document_id):
     user_id = payload['user_id']

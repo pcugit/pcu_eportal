@@ -85,17 +85,17 @@ const ADMIN_NAV_ITEMS = [
     href: "/admission_officer/send-letters",
     icon: UserPlus,
   },
-  { label: "Change Password", href: "/applicant/change-password", icon: Lock },
+  { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
 const REGISTRAR_NAV_ITEMS = [
   { label: "Dashboard", href: "/registrar/dashboard", icon: LayoutDashboard },
-  { label: "Change Password", href: "/applicant/change-password", icon: Lock },
+  { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
 const LECTURER_NAV_ITEMS = [
   { label: "Dashboard", href: "/lecturer/dashboard", icon: LayoutDashboard },
-  { label: "Change Password", href: "/applicant/change-password", icon: Lock },
+  { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
 const ICT_NAV_ITEMS = [
@@ -103,7 +103,7 @@ const ICT_NAV_ITEMS = [
   { label: "Students", href: "/ict/students", icon: GraduationCap },
   { label: "Staff", href: "/ict/staff", icon: Users },
   { label: "Settings", href: "/ict/settings", icon: ShieldCheck },
-  { label: "Change Password", href: "/applicant/change-password", icon: Lock },
+  { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
 export function GlobalNav() {
@@ -149,6 +149,13 @@ export function GlobalNav() {
     return () => window.removeEventListener("application-reviewed", fetchCount);
   }, [isAdminPortal]);
 
+  // Close mobile sidebar drawer on path change
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024 && isOpen) {
+      toggle();
+    }
+  }, [pathname]);
+
   // Determine nav items based on role
   const getNavItems = () => {
     // While verifying the token, always show public nav to avoid sidebar flash
@@ -179,7 +186,31 @@ export function GlobalNav() {
     return LANDING_NAV_ITEMS;
   };
 
-  const navItems = getNavItems();
+  const getStaffDashboardRoute = () => {
+    switch (user?.role) {
+      case "admissionofficer":
+        return "/admission_officer/dashboard";
+      case "registrar":
+        return "/registrar/dashboard";
+      case "lecturer":
+        return "/lecturer/dashboard";
+      case "ictdirector":
+        return "/ict/dashboard";
+      default:
+        return "/";
+    }
+  };
+
+  const getChangePasswordHref = () => {
+    const dashboardPath = getStaffDashboardRoute();
+    return `/staff/change-password?returnTo=${encodeURIComponent(dashboardPath)}`;
+  };
+
+  const navItems = getNavItems().map((item) =>
+    item.href === "/staff/change-password"
+      ? { ...item, href: getChangePasswordHref() }
+      : item,
+  );
 
   return (
     <>

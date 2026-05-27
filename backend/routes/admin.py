@@ -39,7 +39,18 @@ def get_applications(payload):
                              {USER_NAME_EXPR} AS name,
                              u.email, u.phone_number,
                              app.prog_type AS program_id,
-                             pt.name AS program_name,
+                             (
+                                 CASE 
+                                     WHEN app.applicant_stage = 'submitted' THEN 
+                                         COALESCE(dg.code || ' ', '') || COALESCE(aq.choice1, '')
+                                     WHEN app.applicant_stage = 'screening' THEN 
+                                         COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, aq.choice1, '')
+                                     WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 
+                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                                     ELSE 
+                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                                 END
+                             ) AS program_name,
                              app.applicant_stage AS application_status,
                              app.updated_at AS submitted_at,
                              app.form_no,
@@ -47,7 +58,9 @@ def get_applications(payload):
                       FROM applications app
                       JOIN users u ON app.user_id = u.id
                       LEFT JOIN program_types pt ON app.prog_type = pt.id
-                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id'''
+                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+                      LEFT JOIN degrees dg ON app.degree_id = dg.id
+                      LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id'''
 
     if status == 'admitted':
         # Show both admitted (awaiting fee) and accepted (fee paid)
@@ -82,7 +95,18 @@ def get_application_details(payload, applicant_id):
                    {USER_NAME_EXPR} AS name,
                    u.email, u.phone_number,
                    app.prog_type AS program_id,
-                   pt.name AS program_name,
+                   (
+                       CASE 
+                           WHEN app.applicant_stage = 'submitted' THEN 
+                               COALESCE(dg.code || ' ', '') || COALESCE(aq.choice1, '')
+                           WHEN app.applicant_stage = 'screening' THEN 
+                               COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, aq.choice1, '')
+                           WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 
+                               COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                           ELSE 
+                               COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                       END
+                   ) AS program_name,
                    app.applicant_stage AS application_status,
                    app.updated_at AS submitted_at,
                    app.form_no,
@@ -95,6 +119,8 @@ def get_application_details(payload, applicant_id):
             FROM applications app
             JOIN users u ON app.user_id = u.id
             LEFT JOIN program_types pt ON app.prog_type = pt.id
+            LEFT JOIN degrees dg ON app.degree_id = dg.id
+            LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
             WHERE app.id = %s''',
         (applicant_id,)
     )

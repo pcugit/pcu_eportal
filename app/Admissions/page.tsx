@@ -2,34 +2,38 @@
 
 import Link from "next/link";
 
-
-
 export default function AdmissionsPage() {
   const admissionPrograms = [
     {
       title: "Foundation Program Admission",
-      description: "Students who have been exposed to a minimum of one-year approved preparatory courses in PCU and subsequently have passed can seek Direct Entry admissions into the University Degree programmes at 200 level.",
+      description:
+        "Students who have been exposed to a minimum of one-year approved preparatory courses in PCU and subsequently have passed can seek Direct Entry admissions into the University Degree programmes at 200 level.",
       link: "/FoundationProgram",
       image: "/e-portal/images/social-sciences.jpeg",
     },
-     {
+    {
       title: "Part Time Admission",
-      description: "Students who have been exposed to a minimum of one-year approved preparatory courses in PCU and subsequently have passed can seek Direct Entry admissions into the University Degree programmes at 200 level.",
+      description:
+        "Students who have been exposed to a minimum of one-year approved preparatory courses in PCU and subsequently have passed can seek Direct Entry admissions into the University Degree programmes at 200 level.",
       link: "/FoundationProgram",
-      image: "/e-portal/images/a8-o8lkuj1li6ghb3dw31wbxviedhakhl9r3w04ydthe2.jpg",
+      image:
+        "/e-portal/images/a8-o8lkuj1li6ghb3dw31wbxviedhakhl9r3w04ydthe2.jpg",
     },
     {
       title: "Undergraduate Admission",
-      description: "Our programs fosters the growth and development of intellectuals and creativity in all our students through the delivery of a well designed training curriculum.",
+      description:
+        "Our programs fosters the growth and development of intellectuals and creativity in all our students through the delivery of a well designed training curriculum.",
       link: "/Undergraduate",
       image: "/e-portal/images/students.jpg",
     },
     {
       title: "Postgraduate Admission",
-      description: "We offer a wide range of professional courses in different fields.",
+      description:
+        "We offer a wide range of professional courses in different fields.",
       link: "/Postgraduate#accredited-courses",
-      image: "/e-portal/images/professional-2-og9n9wctzgx2f32uhvrzphkoq4lr5eg535henculvu.jpg",
-    }
+      image:
+        "/e-portal/images/professional-2-og9n9wctzgx2f32uhvrzphkoq4lr5eg535henculvu.jpg",
+    },
   ];
 
   return (
@@ -41,12 +45,9 @@ export default function AdmissionsPage() {
           alt="Admissions at PCU"
           className="absolute inset-0 w-full h-full object-cover"
         />
-        <div
-          className= "absolute inset-0 bg-purple-900/60"/>
-    
-        
+        <div className="absolute inset-0 bg-purple-900/60" />
+
         <div className="relative z-10 max-w-5xl mx-auto h-full flex flex-col justify-end px-6 md:px-10 pb-10">
-         
           <h1 className="text-4xl md:text-5xl font-bold text-white drop-shadow-xl">
             Join Precious Cornerstone University
           </h1>
@@ -64,9 +65,6 @@ export default function AdmissionsPage() {
           {/* Right Content */}
           <div className="flex-1 min-w-0 w-full">
             <div className="mb-14">
-             
-            
-
               <h2 className="text-3xl md:text-[34px] font-normal text-[#54255f] mb-2 leading-tight">
                 Want to earn a degree or improve you educational
               </h2>
@@ -74,18 +72,26 @@ export default function AdmissionsPage() {
                 horizons? Look no further!
               </h2>
               <p className="text-muted-foreground leading-[1.8] text-[15px]">
-                It’s a very exciting time to see what you could gain from studying with us at Precious Cornerstone University. By choosing Precious Cornerstone University, you’ll join bold and independent thinkers, get real-world experience, gain a global perspective and graduate ready to change the world. You’ll find everything you need to start your university life with us here.
+                It’s a very exciting time to see what you could gain from
+                studying with us at Precious Cornerstone University. By choosing
+                Precious Cornerstone University, you’ll join bold and
+                independent thinkers, get real-world experience, gain a global
+                perspective and graduate ready to change the world. You’ll find
+                everything you need to start your university life with us here.
               </p>
             </div>
 
             <div className="space-y-12">
               {admissionPrograms.map((program, index) => (
-                <div key={index} className="flex flex-col md:flex-row gap-8 items-start border-b border-[#54255f]/10 pb-12 last:border-0">
+                <div
+                  key={index}
+                  className="flex flex-col md:flex-row gap-8 items-start border-b border-[#54255f]/10 pb-12 last:border-0"
+                >
                   <div className="w-full md:w-[40%] shrink-0">
                     <div className="relative w-full aspect-[4/3] bg-muted overflow-hidden">
                       {/* Using a placeholder for user to replace */}
-                      <img 
-                        src={program.image} 
+                      <img
+                        src={program.image}
                         alt={program.title}
                         className="object-cover w-full h-full"
                       />
@@ -99,8 +105,12 @@ export default function AdmissionsPage() {
                       {program.description}
                     </p>
                     <div className="mt-auto">
-                      <Link href={program.link} className="inline-flex items-center text-[#b91c1c] font-semibold text-[13px] tracking-wide hover:text-[#54255f] transition-colors uppercase">
-                        LEARN MORE <span className="ml-3 text-lg leading-none">→</span>
+                      <Link
+                        href={program.link}
+                        className="inline-flex items-center text-[#b91c1c] font-semibold text-[13px] tracking-wide hover:text-[#54255f] transition-colors uppercase"
+                      >
+                        LEARN MORE{" "}
+                        <span className="ml-3 text-lg leading-none">→</span>
                       </Link>
                     </div>
                   </div>
@@ -115,8 +125,7 @@ export default function AdmissionsPage() {
               </h2>
               <ol className="list-decimal pl-5 space-y-3 text-[15px] text-muted-foreground leading-relaxed">
                 <li>
-                  Choose the programme and admission route that fits your
-                  goals.
+                  Choose the programme and admission route that fits your goals.
                 </li>
                 <li>
                   Gather all required documents before starting your
@@ -124,8 +133,7 @@ export default function AdmissionsPage() {
                 </li>
                 <li>Complete the online application form at our portal.</li>
                 <li>
-                  Pay the application fee and upload your supporting
-                  documents.
+                  Pay the application fee and upload your supporting documents.
                 </li>
                 <li>
                   Wait for the admissions team to review your submission and
@@ -156,7 +164,9 @@ export default function AdmissionsPage() {
                   </p>
                 </div>
                 <div className="rounded-xl border border-[#54255f]/10 p-6 bg-[#54255f]/[0.02]">
-                  <h3 className="text-lg font-semibold text-[#b91c1c] mb-3">Next Steps</h3>
+                  <h3 className="text-lg font-semibold text-[#b91c1c] mb-3">
+                    Next Steps
+                  </h3>
                   <p className="text-[15px] text-muted-foreground leading-relaxed">
                     After submitting your application, check your email
                     regularly for updates and login details to the student
@@ -171,4 +181,3 @@ export default function AdmissionsPage() {
     </div>
   );
 }
-

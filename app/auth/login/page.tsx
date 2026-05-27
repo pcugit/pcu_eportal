@@ -20,13 +20,23 @@ import { AlertCircle, X, CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, logout, isLoading, error, isAuthenticated, user, applicant, student, portalStatus, isPortalLoading } =
-    useAuth();
+  const {
+    login,
+    logout,
+    isLoading,
+    error,
+    isAuthenticated,
+    user,
+    applicant,
+    student,
+    portalStatus,
+    isPortalLoading,
+  } = useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
-  
+
   // TEMPORARILY DISABLED — set back to `portalStatus?.locked` to re-enable
   const isPortalLocked = false; // portalStatus?.locked;
   const loadingConfig = isPortalLoading && false; // disabled alongside lock check
@@ -62,7 +72,16 @@ export default function LoginPage() {
     const role = user.role;
 
     // Staff roles that don't belong here — deny access with a clear error
-    const staffRoles = ["admissionofficer", "admin", "ictdirector", "lecturer", "deo", "hod", "dean", "registrar"];
+    const staffRoles = [
+      "admissionofficer",
+      "admin",
+      "ictdirector",
+      "lecturer",
+      "deo",
+      "hod",
+      "dean",
+      "registrar",
+    ];
     if (staffRoles.includes(role)) {
       setAccessDenied(true);
       setLocalError("Access denied.");
@@ -121,19 +140,23 @@ export default function LoginPage() {
             <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
               <CheckCircle2 className="h-10 w-10 text-green-600" />
             </div>
-            <CardTitle className="text-2xl text-primary">Congratulations!</CardTitle>
+            <CardTitle className="text-2xl text-primary">
+              Congratulations!
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-lg">
-              You have been admitted to <strong>{student?.program_name || "your program"}</strong>.
+              You have been admitted to{" "}
+              <strong>{student?.program_name || "your program"}</strong>.
             </p>
             <p className="text-sm text-muted-foreground mt-2">
-              Your account has been upgraded to a Student profile. Please, sign in to your student portal to continue.
+              Your account has been upgraded to a Student profile. Please, sign
+              in to your student portal to continue.
             </p>
           </CardContent>
           <CardFooter>
-            <Button 
-              className="w-full" 
+            <Button
+              className="w-full"
               onClick={async () => {
                 await logout();
                 router.push("/student/login");
@@ -211,34 +234,38 @@ export default function LoginPage() {
         </div>
       )}
 
-  <Card className="w-full max-w-md relative overflow-hidden">
-    {loadingConfig ? (
-      <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
-      </div>
-    ) : isPortalLocked ? (
-      <div className="absolute inset-0 z-50 bg-card flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
-        <div className="mb-6 relative">
-          <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
-          <div className="relative bg-red-50 text-red-500 rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
-            <AlertCircle className="h-10 w-10" />
+      <Card className="w-full max-w-md relative overflow-hidden">
+        {loadingConfig ? (
+          <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
           </div>
-        </div>
-        <h2 className="text-3xl font-black text-foreground mb-4 tracking-tight">Portal Closed</h2>
-        <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
-          We are sorry, but the admissions portal is currently closed. We are not accepting new logins or applications at this time. Please check back later!
-        </p>
-        <Button 
-          variant="outline" 
-          className="mt-8 shadow-sm rounded-xl font-semibold border-slate-200"
-          onClick={() => router.push("/")}
-        >
-          Return to Home
-        </Button>
-      </div>
-    ) : null}
+        ) : isPortalLocked ? (
+          <div className="absolute inset-0 z-50 bg-card flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
+            <div className="mb-6 relative">
+              <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
+              <div className="relative bg-red-50 text-red-500 rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
+                <AlertCircle className="h-10 w-10" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-black text-foreground mb-4 tracking-tight">
+              Portal Closed
+            </h2>
+            <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
+              We are sorry, but the admissions portal is currently closed. We
+              are not accepting new logins or applications at this time. Please
+              check back later!
+            </p>
+            <Button
+              variant="outline"
+              className="mt-8 shadow-sm rounded-xl font-semibold border-slate-200"
+              onClick={() => router.push("/")}
+            >
+              Return to Home
+            </Button>
+          </div>
+        ) : null}
 
-    <CardHeader className="space-y-4 text-center">
+        <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
             <Image
               src="/e-portal/images/logo new.png"
@@ -281,9 +308,15 @@ export default function LoginPage() {
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading} style={{
-  background: "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)"
-}}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isLoading}
+              style={{
+                background:
+                  "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)",
+              }}
+            >
               {isLoading ? "Logging in..." : "Log In"}
             </Button>
           </form>

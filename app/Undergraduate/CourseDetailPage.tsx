@@ -69,12 +69,10 @@ function Accordion({
 export default function UndergraduateCourseDetailPage({ course }: Props) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
-  const toggle = (i: number) =>
-    setOpenIndex((prev) => (prev === i ? null : i));
+  const toggle = (i: number) => setOpenIndex((prev) => (prev === i ? null : i));
 
   return (
     <div className="w-full font-sans text-foreground">
-
       {/* ── HERO BANNER ── */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img
@@ -82,7 +80,13 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
           alt={course.heroTitle}
           className="absolute inset-0 w-full h-full object-cover object-center"
         />
-        <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(123,36,66,0.82) 0%, rgba(91,44,126,0.78) 100%)" }} />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(123,36,66,0.82) 0%, rgba(91,44,126,0.78) 100%)",
+          }}
+        />
         <div className="relative z-10 flex items-end justify-start h-full px-10 pb-10">
           <h1 className="text-3xl md:text-4xl font-bold text-white">
             {course.heroTitle}
@@ -100,10 +104,8 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
         // }}
       >
         <div className="flex w-full max-w-5xl py-10 px-4 md:px-6 gap-10">
-
           {/* Right: Content */}
           <div className="flex-1 min-w-0 w-full">
-
             {/* Short summary — shown above accordions */}
             <p className="text-sm text-muted-foreground leading-relaxed mb-8">
               {course.shortSummary}
@@ -133,10 +135,8 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
               </Link>
             </div>
           </div>
-
         </div>
       </div>
     </div>
   );
 }
-

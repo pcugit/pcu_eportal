@@ -19,7 +19,14 @@ import { AlertCircle, X } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
-  const { signup, isLoading, error, isAuthenticated, portalStatus, isPortalLoading } = useAuth();
+  const {
+    signup,
+    isLoading,
+    error,
+    isAuthenticated,
+    portalStatus,
+    isPortalLoading,
+  } = useAuth();
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
@@ -70,12 +77,10 @@ export default function SignupPage() {
     router.replace("/applicant/dashboard");
   }
 
-
   useEffect(() => {
     setShowError(false);
     setLocalError("");
   }, []);
-
 
   useEffect(() => {
     if (showError) {
@@ -238,12 +243,16 @@ export default function SignupPage() {
                   <AlertCircle className="h-10 w-10" />
                 </div>
               </div>
-              <h2 className="text-3xl font-black text-foreground mb-4 tracking-tight">Portal Closed</h2>
+              <h2 className="text-3xl font-black text-foreground mb-4 tracking-tight">
+                Portal Closed
+              </h2>
               <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
-                We are sorry, but the admissions portal is currently closed. We are not accepting new logins or applications at this time. Please check back later!
+                We are sorry, but the admissions portal is currently closed. We
+                are not accepting new logins or applications at this time.
+                Please check back later!
               </p>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="mt-8 shadow-sm rounded-xl font-semibold border-slate-200"
                 onClick={() => router.push("/")}
               >
@@ -347,9 +356,15 @@ export default function SignupPage() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading} style={{
-  background: "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)"
-}}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+                style={{
+                  background:
+                    "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)",
+                }}
+              >
                 {isLoading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>

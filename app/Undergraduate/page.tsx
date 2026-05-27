@@ -18,7 +18,7 @@ function useInView(threshold = 0.15) {
           observer.disconnect();
         }
       },
-      { threshold }
+      { threshold },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -94,21 +94,31 @@ export default function UndergraduatePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("All");
 
-  const categories = ["All", "Pure and Applied Sciences", "Management & Social Sciences"];
+  const categories = [
+    "All",
+    "Pure and Applied Sciences",
+    "Management & Social Sciences",
+  ];
 
   const getCategory = (degree: string) => {
     const lower = degree.toLowerCase();
-    if (lower.includes('science') || lower.includes('biochem') || lower.includes('computer')) return 'Pure and Applied Sciences';
-    return 'Management & Social Sciences';
+    if (
+      lower.includes("science") ||
+      lower.includes("biochem") ||
+      lower.includes("computer")
+    )
+      return "Pure and Applied Sciences";
+    return "Management & Social Sciences";
   };
 
-  const filteredAndSortedCourses = undergraduateCourses
-    .filter(course => {
-      const matchesSearch = course.degree.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            course.shortDescription.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = filterCategory === "All" || getCategory(course.degree) === filterCategory;
-      return matchesSearch && matchesCategory;
-    });
+  const filteredAndSortedCourses = undergraduateCourses.filter((course) => {
+    const matchesSearch =
+      course.degree.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      course.shortDescription.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      filterCategory === "All" || getCategory(course.degree) === filterCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="w-full min-h-screen font-sans text-foreground bg-background">
@@ -119,7 +129,13 @@ export default function UndergraduatePage() {
           alt="Undergraduate Programs"
           className="absolute inset-0 w-full h-full object-cover"
         />
-        <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(185,28,28,0.85) 0%, rgba(84,37,95,0.8) 100%)" }} />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(185,28,28,0.85) 0%, rgba(84,37,95,0.8) 100%)",
+          }}
+        />
         <div className="relative z-10 flex flex-col justify-end h-full px-6 md:px-10 pb-10 max-w-5xl mx-auto">
           <span className="text-xs uppercase tracking-[0.4em] text-white/80 mb-3">
             Academics
@@ -133,7 +149,6 @@ export default function UndergraduatePage() {
       {/* ── BODY: Sidebar (left) + Content (right) ── */}
       <div className="flex justify-center bg-background">
         <div className="flex flex-col md:flex-row w-full max-w-6xl py-16 px-6 gap-12 items-stretch">
-
           {/* Right: Intro + Course list */}
           <div className="flex-1 min-w-0 w-full">
             {/* Intro */}
@@ -143,8 +158,9 @@ export default function UndergraduatePage() {
               </h2>
               <p className="text-[15px] leading-relaxed text-muted-foreground">
                 The University currently has two faculties with 6 departments,
-                offering various courses cut across different specialisations. 
-                Use the tools below to find the perfect course for your career path.
+                offering various courses cut across different specialisations.
+                Use the tools below to find the perfect course for your career
+                path.
               </p>
             </div>
 
@@ -159,8 +175,19 @@ export default function UndergraduatePage() {
                   className="w-full pl-4 pr-10 py-3 border border-border rounded-md focus:outline-none focus:border-[#54255f] focus:ring-1 focus:ring-[#54255f] transition-colors text-[14px] text-foreground bg-input"
                 />
                 <div className="absolute right-3 top-3 text-muted-foreground">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                    className="w-5 h-5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+                    />
                   </svg>
                 </div>
               </div>
@@ -170,8 +197,10 @@ export default function UndergraduatePage() {
                   onChange={(e) => setFilterCategory(e.target.value)}
                   className="flex-1 md:w-48 px-4 py-3 border border-border rounded-md focus:outline-none focus:border-[#54255f] focus:ring-1 focus:ring-[#54255f] transition-colors text-[14px] bg-input text-foreground cursor-pointer"
                 >
-                  {categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -185,9 +214,14 @@ export default function UndergraduatePage() {
                 ))
               ) : (
                 <div className="text-center py-12 bg-muted rounded-lg border border-border">
-                  <p className="text-[#54255f] font-medium text-lg">No programs found matching your search.</p>
-                  <button 
-                    onClick={() => { setSearchQuery(""); setFilterCategory("All"); }}
+                  <p className="text-[#54255f] font-medium text-lg">
+                    No programs found matching your search.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setFilterCategory("All");
+                    }}
                     className="mt-4 text-[#b91c1c] hover:underline font-medium"
                   >
                     Clear all filters
@@ -196,7 +230,6 @@ export default function UndergraduatePage() {
               )}
             </div>
           </div>
-
         </div>
       </div>
     </div>

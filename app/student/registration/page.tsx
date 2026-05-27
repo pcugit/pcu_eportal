@@ -718,7 +718,10 @@ export default function CourseRegistration() {
                           secondSelectedIds.length === 0)
                       }
                       className="w-full font-black py-6 text-base rounded-xl shadow-xl hover:scale-[1.02] transition-transform text-white"
-                      style={{ background: "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)" }}
+                      style={{
+                        background:
+                          "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)",
+                      }}
                     >
                       {submitting ? (
                         <span className="animate-spin relative flex h-4 w-4">
@@ -726,9 +729,7 @@ export default function CourseRegistration() {
                           <span className="relative inline-flex rounded-full h-4 w-4 bg-foreground"></span>
                         </span>
                       ) : (
-                        <>
-                           Save Selection
-                        </>
+                        <>Save Selection</>
                       )}
                     </Button>
                     <p className="text-[10px] text-center text-muted-foreground font-bold mt-4 px-2 uppercase tracking-tight leading-tight">

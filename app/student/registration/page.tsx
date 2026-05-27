@@ -74,14 +74,12 @@ export default function CourseRegistration() {
       const firstSem = sems["First semester"] ?? { compulsory: [], core: [] };
       const secondSem = sems["Second semester"] ?? { compulsory: [], core: [] };
 
-      const newFirstCourses = [
-        ...firstSem.compulsory,
-        ...firstSem.core,
-      ].map(norm);
-      const newSecondCourses = [
-        ...secondSem.compulsory,
-        ...secondSem.core,
-      ].map(norm);
+      const newFirstCourses = [...firstSem.compulsory, ...firstSem.core].map(
+        norm,
+      );
+      const newSecondCourses = [...secondSem.compulsory, ...secondSem.core].map(
+        norm,
+      );
 
       setFirstCourses(newFirstCourses);
       setSecondCourses(newSecondCourses);
@@ -109,7 +107,9 @@ export default function CourseRegistration() {
                   newFirstCourses.some((c) => c.id === id),
                 ),
                 ...newFirstCourses
-                  .filter((c) => MANDATORY.has((c.category || "").toLowerCase()))
+                  .filter((c) =>
+                    MANDATORY.has((c.category || "").toLowerCase()),
+                  )
                   .map((c) => c.id),
               ]),
             );
@@ -126,7 +126,9 @@ export default function CourseRegistration() {
                   newSecondCourses.some((c) => c.id === id),
                 ),
                 ...newSecondCourses
-                  .filter((c) => MANDATORY.has((c.category || "").toLowerCase()))
+                  .filter((c) =>
+                    MANDATORY.has((c.category || "").toLowerCase()),
+                  )
                   .map((c) => c.id),
               ]),
             );
@@ -136,7 +138,10 @@ export default function CourseRegistration() {
       // Handle 402 payment required
       if (err?.status === 402 || err?.message?.includes("payment")) {
         setPaymentRequired(true);
-        setError(err?.data?.message ?? "Tuition payment is required before you can register courses.");
+        setError(
+          err?.data?.message ??
+            "Tuition payment is required before you can register courses.",
+        );
       } else {
         setError(err instanceof Error ? err.message : "Failed to load courses");
       }
@@ -276,7 +281,6 @@ export default function CourseRegistration() {
     );
   }
 
-  
   const CourseRow = ({
     course,
     isSelected,
@@ -295,7 +299,9 @@ export default function CourseRegistration() {
       <div
         onClick={() => !isLocked && toggleCourse(course.id, isMandatory)}
         className={`flex items-center gap-2 py-1 px-1 rounded group ${
-          isLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"
+          isLocked
+            ? "opacity-60 cursor-not-allowed"
+            : "cursor-pointer hover:bg-slate-50"
         }`}
       >
         {/* Checkbox */}
@@ -305,8 +311,18 @@ export default function CourseRegistration() {
           }`}
         >
           {isSelected && (
-            <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            <svg
+              className="w-2 h-2 text-white"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={3}
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           )}
         </div>
@@ -329,43 +345,6 @@ export default function CourseRegistration() {
   return (
     <div className="min-h-screen bg-slate-50/50 pb-20">
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* Top Info Bar */}
-        <div className="flex flex-col gap-6">
-          <Card className="shadow-md bg-white border-none flex items-center p-6 gap-4">
-            <div className="bg-primary/10 p-3 rounded-xl h-fit">
-              <BookOpen className="text-primary h-6 w-6" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground font-medium uppercase tracking-wider">
-                Total Credit Load
-              </p>
-              <div className="flex items-end gap-2">
-                <p className="text-3xl font-black text-primary">
-                  {calculateTotalCredits()}
-                </p>
-                <p className="text-sm text-muted-foreground mb-1">
-                  Units Selected
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Notification Banner */}
-          {isGlobalLocked && (
-            <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-200 flex items-center gap-3">
-              <AlertCircle className="w-6 h-6 shrink-0" />
-              <div>
-                <h4 className="font-bold">Course Registration is Closed</h4>
-                <p className="text-sm opacity-90">
-                  The institutional registration window is currently locked. You
-                  may view and print your active courses, but modifications are
-                  not allowed.
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
         {error && (
           <div className="bg-destructive/10 text-destructive text-sm p-4 rounded-xl border border-destructive/20 flex items-center gap-3">
             <AlertCircle className="h-5 w-5 fill-destructive/10 shrink-0" />
@@ -393,7 +372,7 @@ export default function CourseRegistration() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search database for additional courses... (e.g. GST111)"
+              placeholder="Search for additional courses (e.g. GST111)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-12 h-14 bg-transparent border-none text-base w-full focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-2xl"
@@ -492,23 +471,29 @@ export default function CourseRegistration() {
 
                 {firstStatus === "submitted" && (
                   <div className="bg-green-100 text-green-800 px-2 py-1 rounded text-[10px] flex items-center gap-1.5 font-medium mb-2">
-                    <CheckCircle2 className="h-3 w-3 text-green-600" /> Submitted
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />{" "}
+                    Submitted
                   </div>
                 )}
 
-                {[...firstCourses, ...availableCourses.filter((c) =>
-                    (c.semester ?? "").toLowerCase().startsWith("first")
-                  )]
-                  .filter((c) => firstSelectedIds.includes(c.id))
-                  .length === 0 ? (
+                {[
+                  ...firstCourses,
+                  ...availableCourses.filter((c) =>
+                    (c.semester ?? "").toLowerCase().startsWith("first"),
+                  ),
+                ].filter((c) => firstSelectedIds.includes(c.id)).length ===
+                0 ? (
                   <p className="text-xs text-muted-foreground italic px-1">
                     No courses selected.
                   </p>
                 ) : (
                   <div>
-                    {[...firstCourses, ...availableCourses.filter((c) =>
-                        (c.semester ?? "").toLowerCase().startsWith("first")
-                      )]
+                    {[
+                      ...firstCourses,
+                      ...availableCourses.filter((c) =>
+                        (c.semester ?? "").toLowerCase().startsWith("first"),
+                      ),
+                    ]
                       .filter((c) => firstSelectedIds.includes(c.id))
                       .map((course) => (
                         <CourseRow
@@ -536,23 +521,29 @@ export default function CourseRegistration() {
 
                 {secondStatus === "submitted" && (
                   <div className="bg-green-100 text-green-800 px-2 py-1 rounded text-[10px] flex items-center gap-1.5 font-medium mb-2">
-                    <CheckCircle2 className="h-3 w-3 text-green-600" /> Submitted
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />{" "}
+                    Submitted
                   </div>
                 )}
 
-                {[...secondCourses, ...availableCourses.filter((c) =>
-                    (c.semester ?? "").toLowerCase().startsWith("second")
-                  )]
-                  .filter((c) => secondSelectedIds.includes(c.id))
-                  .length === 0 ? (
+                {[
+                  ...secondCourses,
+                  ...availableCourses.filter((c) =>
+                    (c.semester ?? "").toLowerCase().startsWith("second"),
+                  ),
+                ].filter((c) => secondSelectedIds.includes(c.id)).length ===
+                0 ? (
                   <p className="text-xs text-muted-foreground italic px-1">
                     No courses selected.
                   </p>
                 ) : (
                   <div>
-                    {[...secondCourses, ...availableCourses.filter((c) =>
-                        (c.semester ?? "").toLowerCase().startsWith("second")
-                      )]
+                    {[
+                      ...secondCourses,
+                      ...availableCourses.filter((c) =>
+                        (c.semester ?? "").toLowerCase().startsWith("second"),
+                      ),
+                    ]
                       .filter((c) => secondSelectedIds.includes(c.id))
                       .map((course) => (
                         <CourseRow
@@ -566,7 +557,8 @@ export default function CourseRegistration() {
                   </div>
                 )}
               </div>
-            </div>{/* end selected grid */}
+            </div>
+            {/* end selected grid */}
 
             {/* Available Courses */}
             {!isGlobalLocked && (
@@ -584,10 +576,14 @@ export default function CourseRegistration() {
                       First Semester
                     </p>
                     {[
-                      ...firstCourses.filter((c) => !firstSelectedIds.includes(c.id)),
+                      ...firstCourses.filter(
+                        (c) => !firstSelectedIds.includes(c.id),
+                      ),
                       ...availableCourses.filter(
                         (c) =>
-                          (c.semester ?? "").toLowerCase().startsWith("first") &&
+                          (c.semester ?? "")
+                            .toLowerCase()
+                            .startsWith("first") &&
                           !firstSelectedIds.includes(c.id),
                       ),
                     ].length === 0 ? (
@@ -597,10 +593,14 @@ export default function CourseRegistration() {
                     ) : (
                       <div>
                         {[
-                          ...firstCourses.filter((c) => !firstSelectedIds.includes(c.id)),
+                          ...firstCourses.filter(
+                            (c) => !firstSelectedIds.includes(c.id),
+                          ),
                           ...availableCourses.filter(
                             (c) =>
-                              (c.semester ?? "").toLowerCase().startsWith("first") &&
+                              (c.semester ?? "")
+                                .toLowerCase()
+                                .startsWith("first") &&
                               !firstSelectedIds.includes(c.id),
                           ),
                         ].map((course) => (
@@ -622,10 +622,14 @@ export default function CourseRegistration() {
                       Second Semester
                     </p>
                     {[
-                      ...secondCourses.filter((c) => !secondSelectedIds.includes(c.id)),
+                      ...secondCourses.filter(
+                        (c) => !secondSelectedIds.includes(c.id),
+                      ),
                       ...availableCourses.filter(
                         (c) =>
-                          (c.semester ?? "").toLowerCase().startsWith("second") &&
+                          (c.semester ?? "")
+                            .toLowerCase()
+                            .startsWith("second") &&
                           !secondSelectedIds.includes(c.id),
                       ),
                     ].length === 0 ? (
@@ -635,10 +639,14 @@ export default function CourseRegistration() {
                     ) : (
                       <div>
                         {[
-                          ...secondCourses.filter((c) => !secondSelectedIds.includes(c.id)),
+                          ...secondCourses.filter(
+                            (c) => !secondSelectedIds.includes(c.id),
+                          ),
                           ...availableCourses.filter(
                             (c) =>
-                              (c.semester ?? "").toLowerCase().startsWith("second") &&
+                              (c.semester ?? "")
+                                .toLowerCase()
+                                .startsWith("second") &&
                               !secondSelectedIds.includes(c.id),
                           ),
                         ].map((course) => (
@@ -656,7 +664,8 @@ export default function CourseRegistration() {
                 </div>
               </div>
             )}
-          </div>{/* end left side */}
+          </div>
+          {/* end left side */}
 
           {/* Right: sticky summary */}
           <div className="md:w-72 shrink-0">
@@ -708,7 +717,8 @@ export default function CourseRegistration() {
                         (firstSelectedIds.length === 0 &&
                           secondSelectedIds.length === 0)
                       }
-                      className="w-full font-black py-6 text-base rounded-xl shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
+                      className="w-full font-black py-6 text-base rounded-xl shadow-xl hover:scale-[1.02] transition-transform text-white"
+                      style={{ background: "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)" }}
                     >
                       {submitting ? (
                         <span className="animate-spin relative flex h-4 w-4">
@@ -717,7 +727,7 @@ export default function CourseRegistration() {
                         </span>
                       ) : (
                         <>
-                          <Save className="h-4 w-4" /> Save Selection
+                           Save Selection
                         </>
                       )}
                     </Button>
@@ -730,7 +740,8 @@ export default function CourseRegistration() {
               </Card>
             </div>
           </div>
-        </div>{/* end flex row */}
+        </div>
+        {/* end flex row */}
       </div>
     </div>
   );

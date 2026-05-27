@@ -99,9 +99,7 @@ export default function StudentLoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] p-4">
       {/* Toast Error Notification */}
       {showError && displayError && (
-        <div
-          className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50"
-        >
+        <div className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50">
           <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg overflow-hidden border border-red-400/20">
             <div className="flex items-start gap-3 p-4">
               <div className="flex-shrink-0 mt-0.5">
@@ -129,8 +127,12 @@ export default function StudentLoginPage() {
             />
             <style jsx>{`
               @keyframes shrink {
-                from { transform: scaleX(1); }
-                to { transform: scaleX(0); }
+                from {
+                  transform: scaleX(1);
+                }
+                to {
+                  transform: scaleX(0);
+                }
               }
             `}</style>
           </div>
@@ -139,27 +141,30 @@ export default function StudentLoginPage() {
 
       <div className="w-full max-w-md space-y-8">
         <div className="flex flex-col items-center">
-            <Link href="/" className="mb-8 hover:opacity-80 transition-opacity">
-                <Image
-                src="/e-portal/images/logo new.png"
-                alt="University Logo"
-                width={100}
-                height={100}
-                className="object-contain"
-                />
-            </Link>
-          
+          <Link href="/" className="mb-8 hover:opacity-80 transition-opacity">
+            <Image
+              src="/e-portal/images/logo new.png"
+              alt="University Logo"
+              width={100}
+              height={100}
+              className="object-contain"
+            />
+          </Link>
+
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight text-[#3d2b3d]">Student Portal</h1>
-            <p className="text-muted-foreground italic">Precious Cornerstone University</p>
+            <h1 className="text-3xl font-bold tracking-tight text-[#3d2b3d]">
+              Student Portal
+            </h1>
+            <p className="text-muted-foreground italic">
+              Precious Cornerstone University
+            </p>
           </div>
         </div>
 
         <Card className="border-none shadow-2xl bg-white/80 backdrop-blur-sm overflow-hidden">
           <div className="h-2 w-full bg-gradient-to-r from-[#3d2b3d] via-[#6b4f6b] to-[#4a3050]" />
           <CardHeader className="space-y-1">
-            <div className="flex items-center gap-2 mb-2">
-            </div>
+            <div className="flex items-center gap-2 mb-2"></div>
             <CardTitle className="text-xl">Welcome back</CardTitle>
             <CardDescription>
               Enter your email and password to access your dashboard
@@ -168,7 +173,9 @@ export default function StudentLoginPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-semibold">Email Address</Label>
+                <Label htmlFor="email" className="text-sm font-semibold">
+                  Email Address
+                </Label>
                 <Input
                   id="email"
                   name="email"
@@ -182,9 +189,11 @@ export default function StudentLoginPage() {
                 />
               </div>
 
-              <div className="space-y-2"> 
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-sm font-semibold">Password</Label>
+                  <Label htmlFor="password" className="text-sm font-semibold">
+                    Password
+                  </Label>
                   {/*
                   <Link 
                     href="/auth/forgot-password" 
@@ -198,7 +207,7 @@ export default function StudentLoginPage() {
                   id="password"
                   name="password"
                   type="password"
-                  placeholder="Enter your password"
+                  placeholder="First time? Try your Surname (in lowercase)"
                   className="h-11 border-slate-200 focus:border-[#3d2b3d] focus:ring-[#3d2b3d]/20 transition-all font-medium"
                   value={formData.password}
                   onChange={handleChange}
@@ -207,12 +216,13 @@ export default function StudentLoginPage() {
                 />
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full h-11 text-base font-semibold shadow-lg shadow-[#3d2b3d]/20 hover:shadow-xl transition-all active:scale-[0.98]" 
+              <Button
+                type="submit"
+                className="w-full h-11 text-base font-semibold shadow-lg shadow-[#3d2b3d]/20 hover:shadow-xl transition-all active:scale-[0.98]"
                 disabled={isLoading}
                 style={{
-                  background: "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)"
+                  background:
+                    "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)",
                 }}
               >
                 {isLoading ? (

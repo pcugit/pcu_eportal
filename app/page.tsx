@@ -19,11 +19,27 @@ import UpcomingEvents from "./HomePage/UpcomingEvents";
 import { AdmissionHero } from "./HomePage/AdmissionHero";
 import PcuFooter from "./HomePage/PcuFooter";
 
+const heroSlides = [
+  {
+    image: "/e-portal/images/school1.png",
+    title: ["Welcome to Precious", "Cornerstone University"],
+    alt: "Precious Cornerstone University campus",
+  },
+  {
+    image: "/e-portal/images/students.jpg",
+    title: ["50% Off Selected Courses", "Apply Now"],
+    alt: "Precious Cornerstone University students",
+  },
+];
+
+const HERO_SLIDE_INTERVAL_MS = 10000;
+
 export default function Home() {
   const router = useRouter();
   const { isAuthenticated, user, isLoading } = useAuth();
   const [selectedProgram, setSelectedProgram] = useState<string | null>(null);
   const [heroVisible, setHeroVisible] = useState(false);
+  const [activeHeroSlide, setActiveHeroSlide] = useState(0);
 
   useEffect(() => {
     if (isAuthenticated && user && !isLoading) {
@@ -40,17 +56,35 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveHeroSlide((currentSlide) =>
+        currentSlide === heroSlides.length - 1 ? 0 : currentSlide + 1
+      );
+    }, HERO_SLIDE_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [heroSlides.length]);
+
+  const activeHero = heroSlides[activeHeroSlide];
+
   return (
     <div className="min-h-screen bg-[#d9251b]">
       <div className="bg-[white] w-full md:w-[100%] mx-auto">
         {/* Hero Section */}
         <section className="relative h-[85vh] w-full overflow-hidden">
-          {/* Background Video */}
-          <img
-            src="/e-portal/images/school1.png"
-            alt="Hero Background"
-            className="absolute top-0 left-0 w-full h-full object-cover"
-          />
+          {/* Background carousel */}
+          {heroSlides.map((slide, index) => (
+            <img
+              key={slide.image}
+              src={slide.image}
+              alt={slide.alt}
+              className="absolute top-0 left-0 h-full w-full object-cover transition-opacity duration-1000 ease-in-out"
+              style={{
+                opacity: activeHeroSlide === index ? 1 : 0,
+              }}
+            />
+          ))}
 
           {/* Dark Overlay */}
           <div className="absolute inset-0 bg-black/60"></div>
@@ -92,7 +126,7 @@ export default function Home() {
                     "opacity 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s, transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.5s",
                 }}
               >
-                Welcome to Precious
+                {activeHero.title[0]}
               </h1>
             </div>
 
@@ -110,7 +144,7 @@ export default function Home() {
                     "opacity 0.8s cubic-bezier(0.16,1,0.3,1) 0.65s, transform 0.8s cubic-bezier(0.16,1,0.3,1) 0.65s",
                 }}
               >
-                Cornerstone University
+                {activeHero.title[1]}
               </h1>
             </div>
             <div

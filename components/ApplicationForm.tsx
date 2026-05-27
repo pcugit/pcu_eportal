@@ -767,7 +767,7 @@ export default function ApplicationForm({
                     <div className="flex justify-end">
                         <Button 
                             variant="secondary"
-                            className="bg-[#4aa0f0] hover:bg-blue-500 text-white"
+                            className="bg-[#6b21a8] hover:bg-purple-800 text-white"
                             onClick={() => {
                                 if (olevelExams.length >= 3) {
                                     alert("You can only add a maximum of 3 O'Level sittings.");
@@ -1015,7 +1015,7 @@ export default function ApplicationForm({
                         }
                       }}
                       disabled={saving || !selectedFiles['general'] || !docType}
-                      className="bg-[#4aa0f0] hover:bg-blue-500 text-white font-bold h-12 px-10 shrink-0"
+                      className="bg-[#6b21a8] hover:bg-purple-800 text-white font-bold h-12 px-10 shrink-0"
                     >
                       {saving ? 'Uploading...' : 'Upload'}
                     </Button>
@@ -1042,7 +1042,7 @@ export default function ApplicationForm({
             <Button
               onClick={handleNextStep}
               disabled={saving || submitting}
-              className="bg-[#4aa0f0] hover:bg-blue-500 text-white border-none"
+              className="bg-[#6b21a8] hover:bg-purple-800 text-white border-none"
             >
               {saving ? 'Saving...' : 'Save & Continue'}
             </Button>

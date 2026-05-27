@@ -255,6 +255,18 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
     raise ValueError(f"Unknown payment_type: {payment_type}")
 
 
+def _get_processing_fee() -> float:
+    """Fetch the processing fee from system_settings (key='processing_fee').
+    Falls back to 300.0 if the key is missing or cannot be parsed."""
+    try:
+        res = Database.execute_query(
+            "SELECT value FROM system_settings WHERE key = 'processing_fee' LIMIT 1"
+        )
+        return float(res[0]['value']) if res else 300.0
+    except Exception:
+        return 300.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public / lookup endpoints
 # ─────────────────────────────────────────────────────────────────────────────
@@ -851,10 +863,14 @@ def initiate_payment(payload):
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
+    # ── Processing fee (fetched from system_settings) ─────────────────────────
+    processing_fee = _get_processing_fee()
+    amount_naira_with_fee = amount_naira + processing_fee
+
     # ── References ────────────────────────────────────────────────────────────
     reference_no = generate_reference_no()
     receipt_no   = None
-    amount_kobo  = (round(amount_naira * 100))
+    amount_kobo  = round(amount_naira_with_fee * 100)
 
     # ── Validate Interswitch config ───────────────────────────────────────────
     missing = []
@@ -944,7 +960,7 @@ def initiate_payment(payload):
                 user_id, fee_component_id, current_session_id,
                 active_semester_id if payment_type == 'tuition' else None,
                 installment_plan_id,
-                amount_naira, amount_kobo, reference_no, receipt_no,
+                amount_naira_with_fee, amount_kobo, reference_no, receipt_no,
                 'pending', payment_type, 'NGN',
                 InterswitchClient._pay_item_id(payment_type),
                 Config.INTERSWITCH_MERCHANT_CODE,
@@ -959,11 +975,12 @@ def initiate_payment(payload):
     merchant_code = Config.INTERSWITCH_MERCHANT_CODE
 
     return jsonify({
-        'reference_no':  reference_no,
-        'amount':        amount_naira,
-        'amount_kobo':   amount_kobo,
-        'pay_item_id':   pay_item_id,
-        'merchant_code': merchant_code,
+        'reference_no':   reference_no,
+        'amount':         amount_naira,          # base fee (without processing fee)
+        'amount_kobo':    amount_kobo,           # total including processing fee, in kobo
+        'processing_fee': processing_fee,
+        'pay_item_id':    pay_item_id,
+        'merchant_code':  merchant_code,
         'customer_name':  customer_name,
         'customer_email': customer_email,
     }), 200
@@ -976,15 +993,6 @@ def initiate_payment(payload):
 @applicant_bp.route('/verify-payment', methods=['POST'])
 @AuthHandler.token_required
 def verify_payment(payload):
-    """
-    Step 2: Called from the callback page after Interswitch redirects back.
-
-    Response-code handling:
-      '00'            → successful
-      Z0 / T0 / ''    → pending  (network delay — never fail immediately)
-      other           → pending until requery_count >= FAIL_AFTER_REQUERIES,
-                        then failed
-    """
     user_id = payload['user_id']
     data    = request.get_json() or {}
 
@@ -1312,11 +1320,20 @@ def get_applicant_status(payload):
 @AuthHandler.token_required
 def get_acceptance_fee(payload):
     user_id = payload['user_id']
+    processing_fee = _get_processing_fee()
     try:
         amount = _resolve_fee_amount('acceptance_fee', user_id)
-        return jsonify({'acceptance_fee': amount, 'found': True}), 200
+        return jsonify({
+            'acceptance_fee': amount,
+            'processing_fee': processing_fee,
+            'found': True,
+        }), 200
     except ValueError:
-        return jsonify({'acceptance_fee': 0, 'found': False}), 200
+        return jsonify({
+            'acceptance_fee': 0,
+            'processing_fee': processing_fee,
+            'found': False,
+        }), 200
 
 
 @applicant_bp.route('/tuition-fee-breakdown', methods=['GET'])
@@ -1355,15 +1372,17 @@ def get_tuition_fee_breakdown(payload):
             total += amount
             components.append({'name': name, 'amount': amount})
 
+        processing_fee = _get_processing_fee()
         return jsonify({
-            'components': components,
-            'total':      total,
-            'found':      len(components) > 0,
+            'components':     components,
+            'total':          total,
+            'processing_fee': processing_fee,
+            'found':          len(components) > 0,
         }), 200
 
     except Exception as e:
         print(f'[tuition-fee-breakdown] Error: {e}')
-        return jsonify({'message': 'Failed to load fee breakdown', 'components': [], 'total': 0}), 500
+        return jsonify({'message': 'Failed to load fee breakdown', 'components': [], 'total': 0, 'processing_fee': 300.0}), 500
 
 
 @applicant_bp.route('/admission-letter', methods=['GET'])

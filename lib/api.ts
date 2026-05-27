@@ -474,11 +474,13 @@ export class ApiClient {
 
   static async getAcceptanceFee(): Promise<{
     acceptance_fee: number;
+    processing_fee: number;
     fee_name: string;
     found: boolean;
   }> {
     const { data } = await this.fetch<{
       acceptance_fee: number;
+      processing_fee: number;
       fee_name: string;
       found: boolean;
     }>("/applicant/acceptance-fee");
@@ -488,11 +490,13 @@ export class ApiClient {
   static async getTuitionBreakdown(): Promise<{
     components: { name: string; amount: number }[];
     total: number;
+    processing_fee: number;
     found: boolean;
   }> {
     const { data } = await this.fetch<{
       components: { name: string; amount: number }[];
       total: number;
+      processing_fee: number;
       found: boolean;
     }>("/applicant/tuition-fee-breakdown");
     return data;
@@ -601,6 +605,7 @@ export class ApiClient {
     reference_no: string;
     amount: number;
     amount_kobo: number;
+    processing_fee: number;
     pay_item_id: string;
     merchant_code: string;
     customer_name: string;
@@ -610,6 +615,7 @@ export class ApiClient {
       reference_no: string;
       amount: number;
       amount_kobo: number;
+      processing_fee: number;
       pay_item_id: string;
       merchant_code: string;
       customer_name: string;

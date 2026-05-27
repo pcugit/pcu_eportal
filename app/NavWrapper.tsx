@@ -27,7 +27,7 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isAuthenticated, isLoading } = useAuth();
 
-  const isPublicPage = PUBLIC_PATHS.some(
+  const isPublicPage = pathname && PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
   );
 

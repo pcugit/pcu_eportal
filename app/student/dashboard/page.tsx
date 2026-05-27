@@ -45,6 +45,8 @@ import {
   Settings,
   Loader2,
   AlertCircle,
+  ChevronDown,
+  DollarSign,
 } from "lucide-react";
 
 import FirstLoginPasswordChange from "@/components/FirstLoginPasswordChange";
@@ -66,6 +68,8 @@ export default function StudentDashboard() {
     [],
   );
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [isDocumentsOpen, setIsDocumentsOpen] = useState(false);
+  const [isPaymentsOpen, setIsPaymentsOpen] = useState(false);
 
   // ── Tuition payment states (Interswitch) ────────────────────────────────────
   const [scriptReady, setScriptReady] = useState(false);
@@ -78,6 +82,7 @@ export default function StudentDashboard() {
   const [showBreakdownModal, setShowBreakdownModal] = useState(false);
   const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([]);
   const [feeTotal, setFeeTotal] = useState(0);
+  const [processingFee, setProcessingFee] = useState(300);
   const [paymentMode, setPaymentMode] = useState<"full" | "installment">(
     "full",
   );
@@ -160,6 +165,7 @@ export default function StudentDashboard() {
       ]);
       setFeeComponents(breakdown.components);
       setFeeTotal(breakdown.total);
+      setProcessingFee(typeof breakdown.processing_fee === "number" ? breakdown.processing_fee : 300);
       setInstallmentPlans(plansRes.installment_plans || []);
       // Determine next unpaid installment based on paymentHistory
       const plans = plansRes.installment_plans || [];
@@ -415,89 +421,103 @@ export default function StudentDashboard() {
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Welcome & Info */}
-        <div className="grid md:grid-cols-4 gap-6">
-          <Card className="md:col-span-2 overflow-hidden border-none shadow-lg bg-primary text-primary-foreground relative group">
-            <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card className="col-span-full md:col-span-2 overflow-hidden border-none shadow-xl bg-gradient-to-r from-[#6b21a8] to-[#881337] text-white relative group">
+            <div className="absolute top-0 right-0 p-8 opacity-15 group-hover:scale-110 transition-transform duration-300">
               <GraduationCap className="w-24 h-24" />
             </div>
-            <CardHeader className="relative z-10">
-              <CardTitle className="text-2xl font-bold">
+            <CardHeader className="relative z-10 pb-2">
+              <CardTitle className="text-2xl font-bold tracking-tight">
                 Welcome, {user?.name}
               </CardTitle>
-              <CardDescription className="text-primary-foreground/80 font-medium">
+              <CardDescription className="text-white/80 font-medium text-sm mt-1">
                 Matric Number: {student?.matric_number}
               </CardDescription>
             </CardHeader>
             <CardContent className="relative z-10">
-              <div className="flex flex-wrap gap-2 mt-2">
+              {/* Desktop Badges */}
+              <div className="hidden md:flex flex-wrap gap-2 mt-2">
                 <Badge
                   variant="secondary"
-                  className="bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-none px-3 py-1"
+                  className="bg-white/15 text-white hover:bg-white/25 border border-white/10 backdrop-blur-md px-3 py-1 font-semibold"
                 >
                   {student?.current_level}
                 </Badge>
                 <Badge
                   variant="secondary"
-                  className="bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-none px-3 py-1"
+                  className="bg-white/15 text-white hover:bg-white/25 border border-white/10 backdrop-blur-md px-3 py-1 font-semibold"
                 >
                   {student?.session}
                 </Badge>
               </div>
+              
+              {/* Mobile String representation */}
+              <div className="md:hidden mt-2.5 text-xs font-semibold text-white/90 bg-white/10 border border-white/15 backdrop-blur-md rounded-lg p-2.5 inline-flex items-center gap-1 shadow-inner">
+                <span>Level: <span className="font-bold text-white">{student?.current_level}</span></span>
+                <span className="mx-1 text-white/30">&bull;</span>
+                <span>Session: <span className="font-bold text-white">{student?.session}</span></span>
+              </div>
             </CardContent>
           </Card>
 
-          <Card className="shadow-md border-primary/10 flex flex-col justify-center items-center text-center p-6 space-y-2">
-            <div className="bg-blue-100 p-3 rounded-full mb-2">
-              <BookOpen className="w-6 h-6 text-blue-600" />
+          <Card className="hidden md:flex shadow-md border-[#6b21a8]/10 bg-[#6b21a8]/5 flex-col justify-center items-center text-center p-6 space-y-2 hover:scale-[1.01] transition-transform duration-200">
+            <div className="bg-[#6b21a8]/10 p-3 rounded-2xl mb-1 text-[#6b21a8]">
+              <BookOpen className="w-6 h-6" />
             </div>
-            <p className="text-sm font-medium text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#6b21a8]/70">
               Current Level
             </p>
-            <p className="text-xl font-bold">{student?.current_level}</p>
+            <p className="text-2xl font-bold text-[#6b21a8]">{student?.current_level}</p>
           </Card>
 
-          <Card className="shadow-md border-primary/10 flex flex-col justify-center items-center text-center p-6 space-y-2">
-            <div className="bg-green-100 p-3 rounded-full mb-2">
-              <Calendar className="w-6 h-6 text-green-600" />
+          <Card className="hidden md:flex shadow-md border-[#881337]/10 bg-[#881337]/5 flex-col justify-center items-center text-center p-6 space-y-2 hover:scale-[1.01] transition-transform duration-200">
+            <div className="bg-[#881337]/10 p-3 rounded-2xl mb-1 text-[#881337]">
+              <Calendar className="w-6 h-6" />
             </div>
-            <p className="text-sm font-medium text-muted-foreground">Session</p>
-            <p className="text-xl font-bold">{student?.session}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#881337]/70">
+              Session
+            </p>
+            <p className="text-2xl font-bold text-[#881337]">{student?.session}</p>
           </Card>
         </div>
 
         {/* Action Widgets */}
-        <div className={`grid md:grid-cols-2 ${!isAdmitted ? "lg:grid-cols-3" : ""} gap-8`}>
-          {/* Course Registration Widget — full students only */}
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Course Registration Widget */}
           {!isAdmitted && (
-            <Card className="shadow-lg border-2 border-primary/5 hover:border-primary/20 transition-all group overflow-hidden">
-              <div className="h-2 bg-primary w-full shadow-sm" />
+            <Card className="shadow-lg border border-[#6b21a8]/10 hover:border-[#6b21a8]/25 transition-all duration-300 group overflow-hidden bg-[#6b21a8]/[0.01]">
+              <div className="h-2 bg-gradient-to-r from-[#6b21a8] to-[#6b21a8]/80 w-full shadow-sm" />
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="bg-primary/10 p-2 rounded-lg group-hover:bg-primary/20 transition-colors">
-                    <BookOpen className="w-6 h-6 text-primary" />
+                  <div className="bg-[#6b21a8]/10 p-2 rounded-xl group-hover:bg-[#6b21a8]/20 transition-colors duration-300 text-[#6b21a8]">
+                    <BookOpen className="w-6 h-6" />
                   </div>
-                  <CardTitle className="text-lg">Course Registration</CardTitle>
+                  <CardTitle className="text-lg font-bold text-slate-800">Course Registration</CardTitle>
                 </div>
-                <CardDescription>
+                <CardDescription className="text-slate-500 mt-1">
                   Register your courses for the current semester. Ensure you
                   select all compulsory and core courses.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Button
-                  variant={regStatus === "submitted" ? "outline" : "default"}
-                  className="w-full gap-2 font-bold py-6 text-lg hover:scale-[1.02] transition-transform shadow-lg"
-                  onClick={() => router.push("/student/registration")}
-                >
-                  {regStatus === "submitted"
-                    ? "View Registration"
-                    : "Go to Registration"}
-                  {regStatus === "submitted" ? (
-                    <CheckCircle2 className="w-5 h-5 text-green-500" />
-                  ) : (
+                {regStatus === "submitted" ? (
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 font-bold py-6 text-base border-emerald-600 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50 hover:text-emerald-800 transition-all duration-200 shadow-sm"
+                    onClick={() => router.push("/student/registration")}
+                  >
+                    View Registration
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full gap-2 font-bold py-6 text-base bg-[#6b21a8] hover:bg-[#581c87] text-white shadow-lg shadow-purple-500/15 hover:shadow-purple-500/25 transition-all duration-200 hover:scale-[1.01]"
+                    onClick={() => router.push("/student/registration")}
+                  >
+                    Go to Registration
                     <BookOpen className="w-5 h-5" />
-                  )}
-                </Button>
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -505,22 +525,24 @@ export default function StudentDashboard() {
           {/* Pay School Fees Widget */}
           <Card
             id="school-fees"
-            className="shadow-lg border-2 border-amber-400/30 hover:border-amber-400/60 transition-all group overflow-hidden"
+            className="shadow-lg border border-amber-500/10 hover:border-amber-500/25 transition-all duration-300 group overflow-hidden bg-amber-500/[0.01]"
           >
-            <div className="h-2 bg-amber-400 w-full shadow-sm" />
+            <div className="h-2 bg-gradient-to-r from-amber-500 to-amber-500/80 w-full shadow-sm" />
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="bg-amber-50 p-2 rounded-lg group-hover:bg-amber-100 transition-colors"></div>
-                <CardTitle className="text-lg">Pay School Fees</CardTitle>
+                <div className="bg-amber-500/10 p-2 rounded-xl group-hover:bg-amber-500/20 transition-colors duration-300 text-amber-600">
+                  <CreditCard className="w-6 h-6" />
+                </div>
+                <CardTitle className="text-lg font-bold text-slate-800">Pay School Fees</CardTitle>
               </div>
-              <CardDescription>
+              <CardDescription className="text-slate-500 mt-1">
                 {isAdmitted
                   ? "Complete your school fees payment to unlock full student portal access, including course registration."
                   : "Pay your school fees for the current session or complete installment payments."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 bg-white">
                 <Clock className="w-5 h-5 text-amber-600 shrink-0" />
                 <p className="text-sm text-amber-700 font-medium">
                   {isAdmitted
@@ -530,22 +552,22 @@ export default function StudentDashboard() {
               </div>
 
               {tuitionPayError && (
-                <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
                   <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                   <p className="text-sm text-red-700">{tuitionPayError}</p>
                 </div>
               )}
 
               {tuitionPaySuccess ? (
-                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                  <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
-                  <p className="text-sm text-green-700 font-bold">
+                <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <p className="text-sm text-emerald-700 font-bold">
                     Payment confirmed! {isAdmitted ? "Upgrading your account..." : ""}
                   </p>
                 </div>
               ) : (
                 <Button
-                  className="w-full gap-2 font-bold py-6 text-lg bg-amber-500 hover:bg-amber-600 text-white hover:scale-[1.02] transition-transform shadow-lg disabled:opacity-70 disabled:scale-100"
+                  className="w-full gap-2 font-bold py-6 text-base bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/15 hover:shadow-amber-500/25 transition-all duration-200 hover:scale-[1.01]"
                   onClick={handlePayTuition}
                   disabled={isPayingTuition || !scriptReady}
                 >
@@ -563,62 +585,234 @@ export default function StudentDashboard() {
           </Card>
 
           {/* Profile & Settings Widget */}
-          <Card className="shadow-lg border-2 border-primary/5 hover:border-primary/20 transition-all group overflow-hidden">
-            <div className="h-2 bg-secondary w-full shadow-sm" />
+          <Card className="shadow-lg border border-[#881337]/10 hover:border-[#881337]/25 transition-all duration-300 group overflow-hidden bg-[#881337]/[0.01]">
+            <div className="h-2 bg-gradient-to-r from-[#881337] to-[#881337]/80 w-full shadow-sm" />
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="bg-secondary/10 p-2 rounded-lg group-hover:bg-secondary/20 transition-colors">
-                  <User className="w-6 h-6 text-secondary-foreground" />
+                <div className="bg-[#881337]/10 p-2 rounded-xl group-hover:bg-[#881337]/20 transition-colors duration-300 text-[#881337]">
+                  <User className="w-6 h-6" />
                 </div>
-                <CardTitle className="text-lg">Profile Information</CardTitle>
+                <CardTitle className="text-lg font-bold text-slate-800">Profile Information</CardTitle>
               </div>
-              <CardDescription>
-                View and update your student profile details and account
-                settings.
+              <CardDescription className="text-slate-500 mt-1">
+                View your student profile details and account status.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors border-b">
-                  <span className="text-sm font-medium text-muted-foreground">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
+                  <span className="text-sm font-semibold text-slate-500">
                     Full Name
                   </span>
-                  <span className="text-sm font-bold">{user?.name}</span>
+                  <span className="text-sm font-bold text-slate-800">{user?.name}</span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors border-b">
-                  <span className="text-sm font-medium text-muted-foreground">
+                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
+                  <span className="text-sm font-semibold text-slate-500">
                     Portal Username
                   </span>
-                  <span className="text-sm font-bold font-mono bg-muted p-1 px-2 rounded">
+                  <span className="text-sm font-bold font-mono text-[#6b21a8] bg-[#6b21a8]/5 p-1 px-3 rounded-lg border border-[#6b21a8]/10">
                     {user?.username || "N/A"}
                   </span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                  <span className="text-sm font-medium text-muted-foreground">
+                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
+                  <span className="text-sm font-semibold text-slate-500">
                     Email Address
                   </span>
-                  <span className="text-sm font-bold">{user?.email}</span>
+                  <span className="text-sm font-bold text-slate-800">{user?.email}</span>
                 </div>
-                <Button variant="outline" className="w-full mt-4" disabled>
-                  Edit Profile (Disabled)
-                </Button>
               </div>
             </CardContent>
           </Card>
         </div>
 
+        {/* Mobile-Only Collapsible Dropdowns */}
+        <div className="block md:hidden space-y-4 mt-8">
+          {/* 1. Official Admission Documents Collapsible */}
+          <div className="border border-[#6b21a8]/10 rounded-2xl overflow-hidden bg-white shadow-md">
+            <button
+              onClick={() => setIsDocumentsOpen(!isDocumentsOpen)}
+              className="w-full flex items-center justify-between p-5 bg-[#6b21a8]/5 text-left transition-colors hover:bg-[#6b21a8]/10 duration-200"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-[#6b21a8]/10 p-2 rounded-lg text-[#6b21a8]">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Official Admission Documents</h3>
+                  <p className="text-[10px] text-slate-500 font-medium">Admission Letter, Medical Form, & Notices</p>
+                </div>
+              </div>
+              <ChevronDown className={`w-5 h-5 text-slate-600 transition-transform duration-300 ${isDocumentsOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {isDocumentsOpen && (
+              <div className="p-4 border-t border-slate-50 bg-slate-50/30 space-y-4">
+                {/* Admission Letter */}
+                <div className="bg-white border border-[#6b21a8]/10 rounded-xl p-4 shadow-sm">
+                  <h4 className="font-bold text-sm text-slate-800 mb-1">
+                    Provisional Admission Letter
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                    Your official letter of admission for your program.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setShowLetter(!showLetter)}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-3.5 h-auto"
+                      disabled={!admissionLetter}
+                    >
+                      {showLetter ? "Hide Letter" : "Preview Letter"}
+                    </Button>
+                    <Button
+                      onClick={handlePrintPDF}
+                      size="sm"
+                      className="flex-1 gap-1.5 bg-[#6b21a8] hover:bg-[#581c87] text-white text-xs font-semibold py-3.5 h-auto"
+                      disabled={printLoading || !admissionLetter}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {printLoading ? "..." : "Download PDF"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Medical Form */}
+                <div className="bg-white border border-[#881337]/10 rounded-xl p-4 shadow-sm">
+                  <h4 className="font-bold text-sm text-slate-800 mb-1">
+                    Medical Examination Form
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                    Print and take to a certified hospital for examination.
+                  </p>
+                  <Button
+                    onClick={handleDownloadMedicalForm}
+                    disabled={
+                      downloading === "medical_form" ||
+                      !applicantStatus?.has_paid_tuition
+                    }
+                    className="w-full gap-1.5 bg-[#881337] hover:bg-[#70112c] text-white text-xs font-semibold py-3.5 h-auto"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {downloading === "medical_form"
+                      ? "Downloading..."
+                      : "Download PDF"}
+                  </Button>
+                </div>
+
+                {/* Additional Forms */}
+                <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm">
+                  <h4 className="font-bold text-sm text-slate-800 mb-1">Resumption Notice & Affidavit</h4>
+                  <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                    Official resumption notice and good conduct affidavit.
+                  </p>
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleDownloadNotice}
+                      variant="outline"
+                      size="sm"
+                      disabled={downloading === "admission_notice"}
+                      className="w-full gap-1.5 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-3 h-auto justify-center"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {downloading === "admission_notice" ? "..." : "Admission Notice"}
+                    </Button>
+                    <Button
+                      onClick={handleDownloadAffidavit}
+                      variant="outline"
+                      size="sm"
+                      disabled={downloading === "affidavit"}
+                      className="w-full gap-1.5 border-[#881337]/25 text-[#881337] hover:bg-[#881337]/5 text-xs font-semibold py-3 h-auto justify-center"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Admission Letter Live Preview container inside Mobile dropdown */}
+                {showLetter && (
+                  <div className="border border-slate-100 rounded-xl overflow-hidden shadow-inner bg-slate-50 p-3 mt-4">
+                    <div className="bg-white p-4 shadow-lg mx-auto max-w-[850px] overflow-x-auto text-[10px]">
+                      {admissionLetter ? (
+                        <FsmsAdmissionLetter {...admissionLetter} />
+                      ) : (
+                        <div className="text-center py-6">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#6b21a8] mx-auto mb-2" />
+                          <p className="text-slate-500 text-xs">Loading letter details...</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 2. Payment Transactions Collapsible */}
+          <div className="border border-[#881337]/10 rounded-2xl overflow-hidden bg-white shadow-md">
+            <button
+              onClick={() => setIsPaymentsOpen(!isPaymentsOpen)}
+              className="w-full flex items-center justify-between p-5 bg-[#881337]/5 text-left transition-colors hover:bg-[#881337]/10 duration-200"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-[#881337]/10 p-2 rounded-lg text-[#881337]">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Payment Transactions</h3>
+                  <p className="text-[10px] text-slate-500 font-medium">Download payment receipts</p>
+                </div>
+              </div>
+              <ChevronDown className={`w-5 h-5 text-slate-600 transition-transform duration-300 ${isPaymentsOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {isPaymentsOpen && (
+              <div className="p-4 border-t border-slate-50 bg-slate-50/30 space-y-2">
+                {paymentHistory.filter(pt => pt.is_successful).map((pt) => (
+                  <div
+                    key={pt.transaction_id}
+                    className="flex items-center justify-between p-3 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 text-xs transition-colors duration-200"
+                  >
+                    <span className="capitalize font-bold text-slate-700">
+                      {pt.payment_type.replace("_", " ")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
+                      onClick={() =>
+                        handleDownloadReceipt(pt.receipt_no, pt.payment_type)
+                      }
+                      disabled={downloading === `receipt_${pt.receipt_no}`}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      PDF
+                    </Button>
+                  </div>
+                ))}
+                {paymentHistory.filter(pt => pt.is_successful).length === 0 && (
+                  <p className="text-xs text-center text-slate-400 py-4 italic bg-white rounded-xl border border-dashed">
+                    No payment records found.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Admission Letter - From Applicant flow into Student dashboard */}
         <Card
           id="admission-documents"
-          className="mb-8 overflow-hidden border-2 border-primary/20 shadow-xl mt-8"
+          className="hidden md:block mb-8 overflow-hidden border border-slate-100 shadow-xl mt-8 bg-white"
         >
-          <div className="bg-primary/5 p-6 border-b border-primary/10">
+          <div className="bg-gradient-to-r from-[#6b21a8]/5 via-[#881337]/5 to-transparent p-6 border-b border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-2xl text-primary">
+                <CardTitle className="text-xl font-bold text-slate-800">
                   Official Admission Documents
                 </CardTitle>
-                <CardDescription className="text-base mt-2">
+                <CardDescription className="text-sm mt-1 text-slate-500">
                   Access and download your official enrollment documents
                   anytime.
                 </CardDescription>
@@ -629,58 +823,62 @@ export default function StudentDashboard() {
           <CardContent className="p-6">
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Admission Letter Download */}
-              <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
-                <div className="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <FileText className="text-blue-600 h-6 w-6" />
+              <div className="bg-gradient-to-br from-[#6b21a8]/[0.02] to-transparent border border-[#6b21a8]/10 hover:border-[#6b21a8]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+                <div>
+                  <div className="bg-[#6b21a8]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                    <FileText className="h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">
+                    Provisional Admission Letter
+                  </h4>
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    Your official letter of admission for your program.
+                  </p>
                 </div>
-                <h4 className="font-bold text-lg mb-2">
-                  Provisional Admission Letter
-                </h4>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Your official letter of admission for your program.
-                </p>
                 <div className="flex gap-2">
                   <Button
                     onClick={() => setShowLetter(!showLetter)}
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4"
                     disabled={!admissionLetter}
                   >
-                    {showLetter ? "Close Preview" : "Preview"}
+                    {showLetter ? "Hide" : "Preview"}
                   </Button>
                   <Button
                     onClick={handlePrintPDF}
                     size="sm"
-                    className="flex-1 gap-2"
+                    className="flex-1 gap-2 bg-[#6b21a8] hover:bg-[#581c87] text-white shadow-md shadow-purple-500/10 text-xs font-semibold py-4"
                     disabled={printLoading || !admissionLetter}
                   >
-                    <Download className="h-4 w-4" />
+                    <Download className="h-3.5 w-3.5" />
                     {printLoading ? "..." : "PDF"}
                   </Button>
                 </div>
               </div>
 
               {/* Medical Form Download */}
-              <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
-                <div className="bg-green-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <FileText className="text-green-600 h-6 w-6" />
+              <div className="bg-gradient-to-br from-[#881337]/[0.02] to-transparent border border-[#881337]/10 hover:border-[#881337]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+                <div>
+                  <div className="bg-[#881337]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#881337]">
+                    <FileText className="h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">
+                    Medical Examination Form
+                  </h4>
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    Print and take to a certified hospital for examination.
+                  </p>
                 </div>
-                <h4 className="font-bold text-lg mb-2">
-                  Medical Examination Form
-                </h4>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Print and take to a certified hospital for examination.
-                </p>
                 <Button
                   onClick={handleDownloadMedicalForm}
                   disabled={
                     downloading === "medical_form" ||
                     !applicantStatus?.has_paid_tuition
                   }
-                  className="w-full gap-2"
+                  className="w-full gap-2 bg-[#881337] hover:bg-[#70112c] text-white shadow-md shadow-rose-900/10 text-xs font-semibold py-4"
                 >
-                  <Download className="h-4 w-4" />
+                  <Download className="h-3.5 w-3.5" />
                   {downloading === "medical_form"
                     ? "Downloading..."
                     : "Download PDF"}
@@ -688,23 +886,25 @@ export default function StudentDashboard() {
               </div>
 
               {/* Additional Forms Download */}
-              <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
-                <div className="bg-orange-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Settings className="text-orange-600 h-6 w-6" />
+              <div className="bg-gradient-to-br from-[#6b21a8]/[0.01] to-[#881337]/[0.01] border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+                <div>
+                  <div className="bg-purple-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                    <Settings className="h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">Notice & Affidavit</h4>
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    Official resumption notice and good conduct affidavit.
+                  </p>
                 </div>
-                <h4 className="font-bold text-lg mb-2">Notice & Affidavit</h4>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Official resumption notice and good conduct affidavit.
-                </p>
                 <div className="space-y-2">
                   <Button
                     onClick={handleDownloadNotice}
                     variant="outline"
                     size="sm"
                     disabled={downloading === "admission_notice"}
-                    className="w-full gap-2 justify-start"
+                    className="w-full gap-2 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4 justify-center"
                   >
-                    <Download className="h-4 w-4 text-orange-600" />
+                    <Download className="h-3.5 w-3.5" />
                     {downloading === "admission_notice"
                       ? "..."
                       : "Admission Notice"}
@@ -714,46 +914,50 @@ export default function StudentDashboard() {
                     variant="outline"
                     size="sm"
                     disabled={downloading === "affidavit"}
-                    className="w-full gap-2 justify-start"
+                    className="w-full gap-2 border-[#881337]/25 text-[#881337] hover:bg-[#881337]/5 text-xs font-semibold py-4 justify-center"
                   >
-                    <Download className="h-4 w-4 text-orange-600" />
+                    <Download className="h-3.5 w-3.5" />
                     {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
                   </Button>
                 </div>
               </div>
 
               {/* Receipts Section */}
-              <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
-                <div className="bg-purple-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"></div>
-                <h4 className="font-bold text-lg mb-2">Payment Receipts</h4>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Download official receipts for your completed payments.
-                </p>
+              <div className="bg-gradient-to-br from-slate-50/50 to-transparent border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+                <div>
+                  <div className="bg-rose-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#881337]">
+                    <DollarSign className="h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">Payment Receipts</h4>
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    Download official receipts for your completed payments.
+                  </p>
+                </div>
                 <div className="space-y-2">
-                  {paymentHistory.map((pt) => (
+                  {paymentHistory.filter(pt => pt.is_successful).map((pt) => (
                     <div
                       key={pt.transaction_id}
-                      className="flex items-center justify-between p-2 bg-muted/30 rounded-lg border text-sm"
+                      className="flex items-center justify-between p-2 bg-white hover:bg-slate-50 rounded-lg border border-slate-100 text-xs transition-colors duration-200"
                     >
-                      <span className="capitalize">
+                      <span className="capitalize font-semibold text-slate-600">
                         {pt.payment_type.replace("_", " ")}
                       </span>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 text-primary hover:text-primary hover:bg-primary/10"
+                        className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
                         onClick={() =>
                           handleDownloadReceipt(pt.receipt_no, pt.payment_type)
                         }
                         disabled={downloading === `receipt_${pt.receipt_no}`}
                       >
-                        <Download className="h-4 w-4 mr-1" />
-                        Receipt
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        PDF
                       </Button>
                     </div>
                   ))}
-                  {paymentHistory.length === 0 && (
-                    <p className="text-xs text-center text-muted-foreground py-2 italic">
+                  {paymentHistory.filter(pt => pt.is_successful).length === 0 && (
+                    <p className="text-xs text-center text-slate-400 py-2 italic bg-slate-50 rounded-lg border border-dashed">
                       No payment records found.
                     </p>
                   )}
@@ -762,14 +966,14 @@ export default function StudentDashboard() {
             </div>
 
             {showLetter && (
-              <div className="mt-8 border rounded-xl overflow-hidden shadow-inner bg-slate-50 p-8">
+              <div className="mt-8 border border-slate-100 rounded-xl overflow-hidden shadow-inner bg-slate-50 p-8">
                 <div className="bg-white p-12 shadow-2xl mx-auto max-w-[850px]">
                   {admissionLetter ? (
                     <FsmsAdmissionLetter {...admissionLetter} />
                   ) : (
                     <div className="text-center py-12">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-                      <p className="text-muted-foreground mt-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#6b21a8] mx-auto mb-4" />
+                      <p className="text-slate-500 text-sm mt-4">
                         Loading admission letter details...
                       </p>
                     </div>
@@ -891,6 +1095,16 @@ export default function StudentDashboard() {
                       </div>
                     ))}
 
+                    {/* Processing fee row */}
+                    <div className="flex justify-between items-center py-3 border-b border-slate-100">
+                      <span className="text-sm font-semibold text-slate-500">
+                        Processing Fee
+                      </span>
+                      <span className="text-sm font-bold text-slate-700 tabular-nums">
+                        ₦{processingFee.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
                     {/* Total row */}
                     <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-amber-300">
                       <span className="text-base font-black text-slate-800 uppercase tracking-tight">
@@ -898,7 +1112,7 @@ export default function StudentDashboard() {
                       </span>
                       <span className="text-xl font-black text-amber-600 tabular-nums">
                         ₦
-                        {feeTotal.toLocaleString("en-NG", {
+                        {(feeTotal + processingFee).toLocaleString("en-NG", {
                           minimumFractionDigits: 2,
                         })}
                       </span>
@@ -909,11 +1123,11 @@ export default function StudentDashboard() {
                       installmentAmount !== null && (
                         <div className="flex justify-between items-center pt-3">
                           <span className="text-sm font-semibold text-slate-700">
-                            Amount to pay now
+                            Amount to pay now (incl. processing fee)
                           </span>
                           <span className="text-lg font-black text-amber-600 tabular-nums">
                             ₦
-                            {installmentAmount.toLocaleString("en-NG", {
+                            {(installmentAmount + processingFee).toLocaleString("en-NG", {
                               minimumFractionDigits: 2,
                             })}
                           </span>

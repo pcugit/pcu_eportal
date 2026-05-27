@@ -14,12 +14,21 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
   const toggle = () => setIsOpen((prev) => !prev);
 
-  // Apply CSS variable for body margin/padding
+  // Initialize state based on screen size in client side
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--sidebar-width",
-      isOpen ? "280px" : "80px"
-    );
+    if (typeof window !== "undefined") {
+      const isDesktop = window.innerWidth >= 1024;
+      setIsOpen(isDesktop);
+    }
+  }, []);
+
+  // Apply CSS variables and classes for layout spacing
+  useEffect(() => {
+    if (isOpen) {
+      document.documentElement.classList.add("sidebar-open");
+    } else {
+      document.documentElement.classList.remove("sidebar-open");
+    }
   }, [isOpen]);
 
   return (

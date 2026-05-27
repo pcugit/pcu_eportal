@@ -106,6 +106,8 @@ const ICT_NAV_ITEMS = [
   { label: "Change Password", href: "/applicant/change-password", icon: Lock },
 ];
 
+
+
 export function GlobalNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -154,11 +156,8 @@ export function GlobalNav() {
     // While verifying the token, always show public nav to avoid sidebar flash
     if (isLoading) return LANDING_NAV_ITEMS;
     if (!isAuthenticated) return LANDING_NAV_ITEMS;
-
-    // For users with access to multiple portals (like 'admitted' users),
-    // use the current route to determine the appropriate sidebar.
-    if (pathname.startsWith("/applicant")) return APPLICANT_NAV_ITEMS;
-    if (pathname.startsWith("/student")) {
+    if (pathname?.startsWith("/applicant")) return APPLICANT_NAV_ITEMS;
+    if (pathname?.startsWith("/student")) {
       if (user?.role === "admitted") return ADMITTED_NAV_ITEMS;
       if (user?.role === "student") return STUDENT_NAV_ITEMS;
     }
@@ -192,7 +191,7 @@ export function GlobalNav() {
         style={{ left: "var(--sidebar-width)" }}
       >
         {/* Left Spacer - keeps balance */}
-        <div className="flex-1" />
+        <div className="flex-grow flex-1" />
 
         {/* Center Navigation - New Items with Dropdowns */}
         <div
@@ -228,11 +227,23 @@ export function GlobalNav() {
         </div>
       </header>
 
+      {/* Mobile Backdrop Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[95] lg:hidden animate-in fade-in duration-300"
+          onClick={toggle}
+        />
+      )}
+
       {/* Sidebar */}
       <aside
         className={cn(
           "fixed left-0 top-0 h-full bg-slate-100 border-r border-slate-200 z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col justify-between",
-          isOpen ? "w-[280px]" : "w-[80px]",
+          "w-[280px] lg:w-auto",
+          isOpen 
+            ? "translate-x-0" 
+            : "-translate-x-full lg:translate-x-0",
+          isOpen ? "lg:w-[280px]" : "lg:w-[80px]"
         )}
       >
         <div>
@@ -260,7 +271,7 @@ export function GlobalNav() {
               onClick={toggle}
               className={cn(
                 "absolute top-1/2 -translate-y-1/2 bg-white border border-slate-100 shadow-lg rounded-xl p-1.5 text-slate-500 hover:text-purple-600 hover:border-purple-100 transition-all z-[110]",
-                isOpen ? "right-4" : "-right-4",
+                isOpen ? "right-4" : "-right-4 hidden lg:block",
               )}
             >
               {isOpen ? <X size={16} /> : <Menu size={16} />}

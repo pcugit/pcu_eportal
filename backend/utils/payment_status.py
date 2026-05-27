@@ -1,13 +1,3 @@
-"""
-utils/payment_status.py — Shared helpers for Interswitch payment status logic.
-
-Rules enforced here (single source of truth):
-  '00'              → successful
-  'Z0', 'T0', ''   → pending  (never fail immediately)
-  any other code   → failed ONLY after requery_count >= FAIL_AFTER_REQUERIES
-                     otherwise stays 'pending' to allow network delays
-"""
-
 from database import Database
 import json
 import secrets
@@ -147,7 +137,7 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
 
 # ── Downstream business effects ───────────────────────────────────────────────
 
-def apply_downstream_success(user_id: int, payment_type: str, reference_no: str = None):
+def apply_downstream_success(user_id: int, payment_type: str, reference_no: str | None = None) -> None:
     """
     Apply business-logic side-effects of a confirmed successful payment.
     Centralised here so verify_payment, payment_webhook, and the background
@@ -164,7 +154,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
     """
     if payment_type == 'application_fee':
         # ── Create the application row (form_no) only on confirmed success ────
-        if reference_no:
+        if reference_no is not None:
             _create_application_row_on_success(user_id, reference_no)
 
         Database.execute_update(
@@ -305,7 +295,7 @@ def build_update_sql_params(
     response_desc: str,
     isw_resp: dict,
     amount_kobo: int,
-    receipt_no: str = None,
+    receipt_no: str | None = None,
 ) -> tuple:
     """
     Build the (sql, params) tuple that updates a payment_transactions row.

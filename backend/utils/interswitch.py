@@ -8,17 +8,6 @@ from config import Config
 
 
 class InterswitchClient:
-    """
-    Interswitch payment client — inline checkout edition.
-
-    Responsibilities:
-    - Resolve pay_item_id per payment type (_pay_item_id)
-    - Verify transactions server-side via requery API (requery_transaction)
-
-    The redirect/Webpay URL builder has been removed; the inline checkout
-    SDK (loaded client-side) handles the payment modal entirely.
-    """
-
     # ── OAuth token cache ─────────────────────────────────────────────────────
     _token: str | None = None
     _token_expires_at: float = 0.0
@@ -55,9 +44,12 @@ class InterswitchClient:
         resp.raise_for_status()
         body = resp.json()
 
-        cls._token            = body["access_token"]
+        token                 = body["access_token"]
+   
+   
+        cls._token            = token
         cls._token_expires_at = now + int(body.get("expires_in", 3600))
-        return cls._token
+        return token
 
     @classmethod
     def _sign(cls, nonce: str, timestamp: str) -> str:

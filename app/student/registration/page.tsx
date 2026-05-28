@@ -50,6 +50,9 @@ export default function CourseRegistration() {
   const [error, setError] = useState<string | null>(null);
   const [paymentRequired, setPaymentRequired] = useState(false);
 
+  const [firstAvailablePage, setFirstAvailablePage] = useState(1);
+  const [secondAvailablePage, setSecondAvailablePage] = useState(1);
+
   const loadCourses = async () => {
     try {
       setLoading(true);
@@ -342,6 +345,89 @@ export default function CourseRegistration() {
     );
   };
 
+  // Pagination Calculations
+  const ITEMS_PER_PAGE = 10;
+
+  // First semester available courses (unselected)
+  const firstAvailableList = Array.from(
+    new Map(
+      [
+        ...firstCourses.filter((c) => !firstSelectedIds.includes(c.id)),
+        ...availableCourses.filter(
+          (c) =>
+            (c.semester ?? "").toLowerCase().startsWith("first") &&
+            !firstSelectedIds.includes(c.id)
+        ),
+      ].map((c) => [c.id, c])
+    ).values()
+  );
+
+  // Second semester available courses (unselected)
+  const secondAvailableList = Array.from(
+    new Map(
+      [
+        ...secondCourses.filter((c) => !secondSelectedIds.includes(c.id)),
+        ...availableCourses.filter(
+          (c) =>
+            (c.semester ?? "").toLowerCase().startsWith("second") &&
+            !secondSelectedIds.includes(c.id)
+        ),
+      ].map((c) => [c.id, c])
+    ).values()
+  );
+
+  const firstAvailableTotalPages = Math.max(1, Math.ceil(firstAvailableList.length / ITEMS_PER_PAGE));
+  const secondAvailableTotalPages = Math.max(1, Math.ceil(secondAvailableList.length / ITEMS_PER_PAGE));
+
+  const activeFirstAvailablePage = firstAvailablePage > firstAvailableTotalPages ? 1 : firstAvailablePage;
+  const activeSecondAvailablePage = secondAvailablePage > secondAvailableTotalPages ? 1 : secondAvailablePage;
+
+  const paginatedFirstAvailable = firstAvailableList.slice(
+    (activeFirstAvailablePage - 1) * ITEMS_PER_PAGE,
+    activeFirstAvailablePage * ITEMS_PER_PAGE
+  );
+  const paginatedSecondAvailable = secondAvailableList.slice(
+    (activeSecondAvailablePage - 1) * ITEMS_PER_PAGE,
+    activeSecondAvailablePage * ITEMS_PER_PAGE
+  );
+
+  const PaginationControls = ({
+    currentPage,
+    totalPages,
+    onPageChange,
+  }: {
+    currentPage: number;
+    totalPages: number;
+    onPageChange: (p: number) => void;
+  }) => {
+    if (totalPages <= 1) return null;
+    return (
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/40 text-[10px] font-bold text-muted-foreground uppercase tracking-tight">
+        <span>Page {currentPage} of {totalPages}</span>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[10px] font-bold rounded-lg border-primary/10 hover:bg-primary/5"
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
+            Prev
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[10px] font-bold rounded-lg border-primary/10 hover:bg-primary/5"
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background pb-20">
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
@@ -571,95 +657,65 @@ export default function CourseRegistration() {
                 </div>
                 <div className="grid md:grid-cols-2 gap-6 border-t pt-3">
                   {/* 1st Sem Available */}
-                  <div>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                      First Semester
-                    </p>
-                    {[
-                      ...firstCourses.filter(
-                        (c) => !firstSelectedIds.includes(c.id),
-                      ),
-                      ...availableCourses.filter(
-                        (c) =>
-                          (c.semester ?? "")
-                            .toLowerCase()
-                            .startsWith("first") &&
-                          !firstSelectedIds.includes(c.id),
-                      ),
-                    ].length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">
-                        No available courses.
+                  <div className="flex flex-col justify-between h-full">
+                    <div>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                        First Semester
                       </p>
-                    ) : (
-                      <div>
-                        {[
-                          ...firstCourses.filter(
-                            (c) => !firstSelectedIds.includes(c.id),
-                          ),
-                          ...availableCourses.filter(
-                            (c) =>
-                              (c.semester ?? "")
-                                .toLowerCase()
-                                .startsWith("first") &&
-                              !firstSelectedIds.includes(c.id),
-                          ),
-                        ].map((course) => (
-                          <CourseRow
-                            key={course.id}
-                            course={course}
-                            isSelected={false}
-                            toggleCourse={toggleFirstCourse}
-                            isLocked={isFirstLocked}
-                          />
-                        ))}
-                      </div>
-                    )}
+                      {firstAvailableList.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          No available courses.
+                        </p>
+                      ) : (
+                        <div>
+                          {paginatedFirstAvailable.map((course) => (
+                            <CourseRow
+                              key={course.id}
+                              course={course}
+                              isSelected={false}
+                              toggleCourse={toggleFirstCourse}
+                              isLocked={isFirstLocked}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <PaginationControls
+                      currentPage={activeFirstAvailablePage}
+                      totalPages={firstAvailableTotalPages}
+                      onPageChange={setFirstAvailablePage}
+                    />
                   </div>
 
                   {/* 2nd Sem Available */}
-                  <div>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                      Second Semester
-                    </p>
-                    {[
-                      ...secondCourses.filter(
-                        (c) => !secondSelectedIds.includes(c.id),
-                      ),
-                      ...availableCourses.filter(
-                        (c) =>
-                          (c.semester ?? "")
-                            .toLowerCase()
-                            .startsWith("second") &&
-                          !secondSelectedIds.includes(c.id),
-                      ),
-                    ].length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">
-                        No available courses.
+                  <div className="flex flex-col justify-between h-full">
+                    <div>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                        Second Semester
                       </p>
-                    ) : (
-                      <div>
-                        {[
-                          ...secondCourses.filter(
-                            (c) => !secondSelectedIds.includes(c.id),
-                          ),
-                          ...availableCourses.filter(
-                            (c) =>
-                              (c.semester ?? "")
-                                .toLowerCase()
-                                .startsWith("second") &&
-                              !secondSelectedIds.includes(c.id),
-                          ),
-                        ].map((course) => (
-                          <CourseRow
-                            key={course.id}
-                            course={course}
-                            isSelected={false}
-                            toggleCourse={toggleSecondCourse}
-                            isLocked={isSecondLocked}
-                          />
-                        ))}
-                      </div>
-                    )}
+                      {secondAvailableList.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          No available courses.
+                        </p>
+                      ) : (
+                        <div>
+                          {paginatedSecondAvailable.map((course) => (
+                            <CourseRow
+                              key={course.id}
+                              course={course}
+                              isSelected={false}
+                              toggleCourse={toggleSecondCourse}
+                              isLocked={isSecondLocked}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <PaginationControls
+                      currentPage={activeSecondAvailablePage}
+                      totalPages={secondAvailableTotalPages}
+                      onPageChange={setSecondAvailablePage}
+                    />
                   </div>
                 </div>
               </div>

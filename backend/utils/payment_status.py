@@ -191,7 +191,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
         # ── Fetch user + application + biodata ───────────────────────────────
         user_data = Database.execute_query(
             '''SELECT u.surname, u.firstname, u.email, u.phone_number,
-                      a.degree_id, a.degree_program_id,
+                      a.degree_id, a.prog_type, a.department_id,
                       b.middle_name, b.address, b.gender, b.date_of_birth,
                       b.marital_status, b.nationality, b.state, b.lga
                FROM users u
@@ -217,36 +217,29 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                 first_name = ud['firstname'] if ud['firstname'] else 'Unknown'
                 email      = ud['email']     if ud['email']     else f'user{user_id}@example.com'
 
-                # ── Resolve entry level from degree_program → program_types ──
-                # degree_program_id links to the specific program type (UTME, DE, etc.)
-                # program_types.level_id holds the entry level for that type (100, 200, etc.)
+                # ── Resolve entry level from program_types.level_id via prog_type ──
+                # prog_type on applications stores the program_types id.
+                # program_types.level_id holds the entry level for that type.
                 entry_level_id = None
-                degree_program_id = ud.get('degree_program_id')
-                if degree_program_id:
+                prog_type = ud.get('prog_type')
+                if prog_type:
                     level_res = Database.execute_query(
-                        '''SELECT pt.level_id
-                           FROM degree_program dp
-                           JOIN program_types pt ON pt.id = dp.program_type_id
-                           WHERE dp.id = %s
-                           LIMIT 1''',
-                        (degree_program_id,)
+                        'SELECT level_id FROM program_types WHERE id = %s',
+                        (prog_type,)
                     )
                     if level_res:
                         entry_level_id = level_res[0]['level_id']
 
-                # Fallback: resolve via application directly if degree_program_id was null
-                if not entry_level_id:
-                    fallback_res = Database.execute_query(
-                        '''SELECT pt.level_id
-                           FROM applications a
-                           JOIN degree_program dp ON dp.id = a.degree_program_id
-                           JOIN program_types pt ON pt.id = dp.program_type_id
-                           WHERE a.user_id = %s AND a.applicant_stage = 'enrolled'
-                           ORDER BY a.updated_at DESC LIMIT 1''',
-                        (user_id,)
+                # ── Resolve department name from departments via department_id ──
+                department_name = None
+                dept_id = ud.get('department_id')
+                if dept_id:
+                    dept_res = Database.execute_query(
+                        'SELECT name FROM departments WHERE id = %s',
+                        (dept_id,)
                     )
-                    if fallback_res:
-                        entry_level_id = fallback_res[0]['level_id']
+                    if dept_res:
+                        department_name = dept_res[0]['name']
 
                 # ── Generate a unique MatricNo: PCU/YYYY/XXXXXX ───────────────
                 while True:
@@ -263,14 +256,14 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                            "LastName", "FirstName", "OtherName", "Email", "MobileNumber",
                            "Address", "Gender", "DOB", "MaritalStatus", "Nationality",
                            "State", "LGA", "MatricNo",
-                           "UserId", "CurrentUserId", "DegreeId", "YearOfEntry", "IsGraduate",
+                           "UserId", "CurrentUserId", "DegreeId", department, "YearOfEntry", "IsGraduate",
                            current_level_id,
                            "CreatedDate", "UpdatedDate"
                        ) VALUES (
                            %s, %s, %s, %s, %s,
                            %s, %s, %s, %s, %s,
                            %s, %s, %s,
-                           %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s,
                            %s,
                            NOW(), NOW()
                        )''',
@@ -278,7 +271,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                         last_name, first_name, ud['middle_name'], email, ud['phone_number'],
                         ud['address'], ud['gender'], ud['date_of_birth'], ud['marital_status'], ud['nationality'],
                         ud['state'], ud['lga'], matric_no,
-                        user_id, user_id, ud['degree_id'], year_of_entry, False,
+                        user_id, user_id, ud['degree_id'], department_name, year_of_entry, False,
                         entry_level_id,
                     )
                 )

@@ -118,15 +118,15 @@ def get_profile(payload):
                   u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name,
                   s."Email" as email, s."MobileNumber" as phone_number,
                   ps.name as program_name, pt.name as program_type,
-                  d.name as department, f.name as faculty
+                  s.department as department, f.name as faculty
            FROM students s
            JOIN users u ON s."UserId" = u.id
-           JOIN applications a ON a.user_id = u.id
-           LEFT JOIN level l ON a.level_id = l.id
+           LEFT JOIN applications a ON a.user_id = u.id
+           LEFT JOIN level l ON s.current_level_id = l.id
            LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
-           LEFT JOIN program_setup ps ON a.degree_id = ps.degree_id
+           LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
            LEFT JOIN program_types pt ON ps.program_type_id = pt.id
-           LEFT JOIN departments d ON ps.department_id = d.id
+           LEFT JOIN departments d ON LOWER(s.department) = LOWER(d.name)
            LEFT JOIN faculties f ON d.faculty_id = f.id
            WHERE s."UserId" = %s
            ORDER BY a.updated_at DESC LIMIT 1''',
@@ -156,16 +156,18 @@ def get_courses(payload):
 
         with conn.cursor() as cur:
             # 1) Resolve student's program context
+            # Use LEFT JOINs on level and program_setup so NULL level_id or an
+            # unmatched finalised_course does not silently drop the entire row.
             cur.execute(
-                '''SELECT a.degree_id, l.name AS current_level, acs.name AS session,
-                          d.name AS department_name,
+                '''SELECT a.degree_id,
+                          COALESCE(l.name, '100') AS current_level,
+                          acs.name AS session,
+                          s.department AS department_name,
                           COALESCE(s."Id", 0) AS student_id
                    FROM applications a
-                   JOIN level l ON l.id = a.level_id
                    JOIN academic_sessions acs ON acs.id = a.academic_session_id
-                   JOIN program_setup ps ON LOWER(ps.name) = LOWER(a.finalised_course)
-                   JOIN departments d ON d.id = ps.department_id
                    LEFT JOIN students s ON s."UserId" = a.user_id
+                   LEFT JOIN level l ON l.id = s.current_level_id
                    WHERE a.user_id = %s
                    AND a.applicant_stage IN ('accepted', 'enrolled')
                    ORDER BY a.updated_at DESC LIMIT 1''',
@@ -173,7 +175,7 @@ def get_courses(payload):
                 )
             student = cur.fetchone()
             if not student:
-                return jsonify({'message': 'Student record not found. Please ensure you have completed your tuition payment to be officially enrolled.'}), 404
+                return jsonify({'message': 'Student record not found. Please contact the admissions office.', 'payment_required': False}), 404
 
             # ── Tuition payment guard ─────────────────────────────────────────
             active_sem = _get_active_semester()
@@ -194,14 +196,11 @@ def get_courses(payload):
                         'session':  active_sem['session_name'],
                     }), 402
 
-            current_level   = student['current_level']    # e.g. "100 Level"
+            current_level   = student['current_level'] 
             db_session      = student['session']
             student_id      = student['student_id']
             department_name = student['department_name']
 
-            # 2) Pull ALL courses for this department + level (both semesters)
-            #    level.name already returns the numeric string e.g. "100"
-            #    semester filter is optional.
             sem_filter = ''
             sem_params = [department_name, current_level]
             if semester:
@@ -261,7 +260,14 @@ def get_courses(payload):
                 bucket = 'compulsory' if remark in COMPULSORY_REMARKS else 'core'
                 if sem not in semesters_data:
                     semesters_data[sem] = {'compulsory': [], 'core': []}
-                semesters_data[sem][bucket].append(row)
+                
+                # Limit selected (compulsory/core) courses to a maximum of 10 per semester.
+                # Any excess courses will fall under available courses instead.
+                current_selected_count = len(semesters_data[sem]['compulsory']) + len(semesters_data[sem]['core'])
+                if current_selected_count < 10:
+                    semesters_data[sem][bucket].append(row)
+                else:
+                    available.append(row)
             else:
                 # elective, required, unknown → available for manual selection
                 available.append(row)
@@ -304,21 +310,23 @@ def register_courses(payload):
          return jsonify({'message': 'course_ids must be a list'}), 400
 
     student = Database.execute_query(
-        '''SELECT a.degree_id, l.name as current_level, acs.name as session,
-                  d.name as department_name, s."Id" as student_id
+        '''SELECT a.degree_id,
+                  COALESCE(l.name, '100') AS current_level,
+                  acs.name as session,
+                  s.department AS department_name,
+                  COALESCE(s."Id", 0) AS student_id
            FROM applications a
-           JOIN level l ON a.level_id = l.id
-           JOIN academic_sessions acs ON a.academic_session_id = acs.id
-           JOIN program_setup ps ON ps.name = a.finalised_course
-           JOIN departments d ON d.id = ps.department_id
-           JOIN students s ON s."UserId" = a.user_id
+           JOIN academic_sessions acs ON acs.id = a.academic_session_id
+           LEFT JOIN students s ON s."UserId" = a.user_id
+           LEFT JOIN level l ON l.id = s.current_level_id
            WHERE a.user_id = %s
+           AND a.applicant_stage IN ('accepted', 'enrolled')
            ORDER BY a.updated_at DESC LIMIT 1''',
         (user_id,)
     )
 
     if not student:
-        return jsonify({'message': 'Student record not found'}), 404
+        return jsonify({'message': 'Student record not found. Please contact the admissions office.', 'payment_required': False}), 404
 
     # ── Independent tuition payment check per session + semester ─────────────
     active_sem = _get_active_semester()
@@ -470,7 +478,6 @@ def admin_update_student(payload):
         
     student_id = data['id']
     
-    # Simple update for now (matric number, level, session)
     try:
         Database.execute_update(
             'UPDATE students SET matric_number = %s, current_level = %s, session = %s WHERE id = %s',

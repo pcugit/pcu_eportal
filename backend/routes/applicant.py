@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, Response, send_file
+from flask import Blueprint, request, jsonify, Response, send_file, redirect
 from database import Database
 from utils.auth import AuthHandler
 from utils.document_handler import DocumentHandler
@@ -973,7 +973,7 @@ def initiate_payment(payload):
 
     pay_item_id   = InterswitchClient._pay_item_id(payment_type)
     merchant_code = Config.INTERSWITCH_MERCHANT_CODE
-    site_redirect_url = f"{Config.FRONTEND_BASE_URL.rstrip('/')}/e-portal/applicant/payment/callback"
+    site_redirect_url = f"{request.host_url.rstrip('/')}/e-portal/api/applicant/payment/callback"
     redirect_url = InterswitchClient.build_redirect_url(
         pay_item_id,
         reference_no,
@@ -1000,6 +1000,19 @@ def initiate_payment(payload):
 # ─────────────────────────────────────────────────────────────────────────────
 # Payment — verify (callback)
 # ─────────────────────────────────────────────────────────────────────────────
+
+@applicant_bp.route('/payment/callback', methods=['GET', 'POST'])
+def payment_callback():
+    """
+    Handles the redirect callback from Interswitch Webpay (usually a POST request
+    with form fields) and redirects the user back to Next.js frontend with the
+    txnref query parameter.
+    """
+    txnref = request.form.get('txnref') or request.args.get('txnref') or \
+             request.form.get('txnRef') or request.args.get('txnRef') or ''
+    
+    frontend_url = f"{Config.FRONTEND_BASE_URL.rstrip('/')}/e-portal/applicant/payment/callback?txnref={txnref}"
+    return redirect(frontend_url)
 
 @applicant_bp.route('/verify-payment', methods=['POST'])
 @AuthHandler.token_required

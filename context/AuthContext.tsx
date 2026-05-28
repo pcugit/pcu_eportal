@@ -306,8 +306,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshStatus = useCallback(async () => {
     try {
       if (user?.role === 'applicant' || user?.role === 'admitted') {
-        const status = await ApiClient.getApplicantStatus();
-        setApplicant(status.applicant);
+        const response = await ApiClient.verifyToken() as { token?: string; user: User; student?: StudentData; applicant?: ApplicantData };
+        if (response.token) {
+          ApiClient.setToken(response.token);
+        }
+        saveUserAndRole(response.user);
+        if (response.student) {
+          setStudent(response.student);
+          setApplicant(null);
+        } else {
+          const status = await ApiClient.getApplicantStatus();
+          setApplicant(status.applicant);
+        }
       } else if (user?.role === 'student') {
         const response = await ApiClient.verifyToken() as { user: User; student?: StudentData };
         if (response.student) setStudent(response.student);

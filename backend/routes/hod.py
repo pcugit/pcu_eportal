@@ -22,11 +22,9 @@ def dashboard(payload):
     if not dept_id:
         return jsonify({'message': 'HOD department not configured'}), 403
 
-    # Total students in dept
     students = Database.execute_query(
         '''SELECT COUNT(*) AS total FROM students s
-           JOIN programs p ON s.program_id = p.id
-           WHERE p.department_id = %s''', (dept_id,))
+           WHERE LOWER(s.department) = (SELECT LOWER(name) FROM departments WHERE id = %s)''', (dept_id,))
 
     # Pending score submissions
     pending = Database.execute_query(
@@ -65,20 +63,23 @@ def get_dept_results(payload):
     level    = request.args.get('level', '')
 
     query = '''
-        SELECT ss.id, ss.student_id, st.matric_number,
-               u.name AS student_name, st.current_level,
+        SELECT ss.id, ss.student_id, st."MatricNo" as matric_number,
+               u.firstname || ' ' || u.surname AS student_name, l.name as current_level,
                c.course_code, c.course_title,
                ss.ca_score, ss.exam_score, ss.total_score,
                ss.grade, ss.grade_point, ss.status,
                ss.session, ss.semester,
-               entered.name AS entered_by, entered.role AS entered_role,
+               entered.firstname || ' ' || entered.surname AS entered_by,
+               r.name as entered_role,
                ss.submitted_at, ss.approved_at
         FROM student_scores ss
-        JOIN students st ON ss.student_id = st.id
-        JOIN users u ON st.user_id = u.id
-        JOIN programs p ON st.program_id = p.id
+        JOIN students st ON ss.student_id = st."Id"
+        JOIN users u ON st."UserId" = u.id
+        LEFT JOIN level l ON st.current_level_id = l.id
         JOIN courses c ON ss.course_id = c.id
         LEFT JOIN users entered ON ss.entered_by = entered.id
+        LEFT JOIN user_types ut ON entered.user_type_id = ut.id
+        LEFT JOIN roles r ON ut.role_id = r.id
         WHERE c.department_id = %s
     '''
     params = [dept_id]
@@ -89,8 +90,10 @@ def get_dept_results(payload):
     if status:
         query += ' AND ss.status = %s'; params.append(status)
     if level:
-        query += ' AND st.current_level = %s'; params.append(level)
-    query += ' ORDER BY st.matric_number, c.course_code'
+        level_digits = ''.join(c for c in level if c.isdigit())
+        if level_digits:
+            query += ' AND l.name = %s'; params.append(level_digits)
+    query += ' ORDER BY st."MatricNo", c.course_code'
 
     results = Database.execute_query(query, tuple(params))
     return jsonify({'results': [dict(r) for r in (results or [])]}), 200

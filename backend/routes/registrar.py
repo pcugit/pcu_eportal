@@ -34,24 +34,36 @@ def get_all_students(payload):
     level       = request.args.get('level', '')
 
     query = '''
-        SELECT st.id, st.matric_number, u.name, u.email,
-               p.name AS program, st.current_level, st.session
+        SELECT DISTINCT ON (st."Id") 
+               st."Id" as id, 
+               st."MatricNo" as matric_number, 
+               u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name, 
+               st."Email" as email,
+               ps.name AS program, 
+               l.name as current_level, 
+               acs.name as session
         FROM students st
-        JOIN users u ON st.user_id = u.id
-        JOIN programs p ON st.program_id = p.id
+        JOIN users u ON st."UserId" = u.id
+        LEFT JOIN applications a ON a.user_id = u.id
+        LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+        LEFT JOIN level l ON st.current_level_id = l.id
+        LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
         WHERE 1=1
     '''
     params = []
     if search:
-        query += ' AND (u.name ILIKE %s OR st.matric_number ILIKE %s)'
-        params += [f'%{search}%', f'%{search}%']
+        query += ' AND (u.firstname ILIKE %s OR u.surname ILIKE %s OR st."MatricNo" ILIKE %s)'
+        params += [f'%{search}%', f'%{search}%', f'%{search}%']
     if program_id:
-        query += ' AND st.program_id = %s'; params.append(program_id)
+        query += ' AND a.program_setup_id = %s'; params.append(program_id)
     if level:
-        query += ' AND st.current_level = %s'; params.append(level)
-    query += ' ORDER BY st.matric_number'
+        level_digits = ''.join(c for c in level if c.isdigit())
+        if level_digits:
+            query += ' AND l.name = %s'; params.append(level_digits)
+            
+    final_query = f'''SELECT * FROM ({query}) subq ORDER BY matric_number'''
 
-    students = Database.execute_query(query, tuple(params) if params else None)
+    students = Database.execute_query(final_query, tuple(params) if params else None)
     return jsonify({'students': [dict(s) for s in (students or [])]}), 200
 
 
@@ -65,20 +77,29 @@ def get_transcript(payload, student_id):
 
     if role == 'student':
         me = Database.execute_query(
-            'SELECT id FROM students WHERE user_id = %s', (user_id,))
+            'SELECT "Id" as id FROM students WHERE "UserId" = %s', (user_id,))
         if not me or me[0]['id'] != student_id:
             return jsonify({'message': 'Access denied'}), 403
 
     student = Database.execute_query(
-        '''SELECT st.matric_number, u.name, u.email,
-                  p.name AS program, st.current_level, st.session,
-                  d.name AS department, f.name AS faculty
+        '''SELECT st."MatricNo" as matric_number, 
+                  u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name, 
+                  u.email,
+                  ps.name AS program, 
+                  l.name as current_level, 
+                  acs.name as session,
+                  st.department, 
+                  f.name AS faculty
            FROM students st
-           JOIN users u ON st.user_id = u.id
-           JOIN programs p ON st.program_id = p.id
-           JOIN departments d ON p.department_id = d.id
-           JOIN faculties f ON d.faculty_id = f.id
-           WHERE st.id = %s''',
+           JOIN users u ON st."UserId" = u.id
+           LEFT JOIN applications a ON a.user_id = u.id
+           LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+           LEFT JOIN level l ON st.current_level_id = l.id
+           LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+           LEFT JOIN departments d ON LOWER(st.department) = LOWER(d.name)
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           WHERE st."Id" = %s
+           ORDER BY a.updated_at DESC LIMIT 1''',
         (student_id,))
 
     if not student:
@@ -126,12 +147,13 @@ def get_transcript(payload, student_id):
 def list_transcripts(payload):
     status = request.args.get('status', '')
     query = '''
-        SELECT tl.id, tl.student_id, st.matric_number, u.name AS student_name,
+        SELECT tl.id, tl.student_id, st."MatricNo" as matric_number, 
+               u.firstname || ' ' || u.surname AS student_name,
                tl.status, tl.created_at, tl.signed_at,
-               signer.name AS signed_by
+               signer.firstname || ' ' || signer.surname AS signed_by
         FROM transcript_logs tl
-        JOIN students st ON tl.student_id = st.id
-        JOIN users u ON st.user_id = u.id
+        JOIN students st ON tl.student_id = st."Id"
+        JOIN users u ON st."UserId" = u.id
         LEFT JOIN users signer ON tl.signed_by = signer.id
         WHERE 1=1
     '''

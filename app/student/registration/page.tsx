@@ -36,6 +36,7 @@ export default function CourseRegistration() {
 
   const [firstSelectedIds, setFirstSelectedIds] = useState<number[]>([]);
   const [secondSelectedIds, setSecondSelectedIds] = useState<number[]>([]);
+  const [initialRegisteredIds, setInitialRegisteredIds] = useState<number[]>([]);
 
   const [firstStatus, setFirstStatus] = useState<string | null>(null);
   const [secondStatus, setSecondStatus] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export default function CourseRegistration() {
       setAvailableCourses(((data as any).available_courses ?? []).map(norm));
 
       const registeredIds: number[] = (data as any).registered_course_ids ?? [];
+      setInitialRegisteredIds(registeredIds);
       const regStatusBySem: Record<string, string> =
         (data as any).reg_status_by_semester ?? {};
 
@@ -99,15 +101,29 @@ export default function CourseRegistration() {
       // otherwise restore the previously registered selection
       const MANDATORY = new Set(["compulsory", "compulsary", "core"]);
 
+      const parsedAvailable = ((data as any).available_courses ?? []).map(norm);
+      const allFirstPossible = [
+        ...newFirstCourses,
+        ...parsedAvailable.filter((c: any) =>
+          (c.semester ?? "").toLowerCase().startsWith("first")
+        )
+      ];
+      const allSecondPossible = [
+        ...newSecondCourses,
+        ...parsedAvailable.filter((c: any) =>
+          (c.semester ?? "").toLowerCase().startsWith("second")
+        )
+      ];
+
       const firstInitialSelected =
         regStatusBySem["First"] === "submitted"
           ? registeredIds.filter((id) =>
-              newFirstCourses.some((c) => c.id === id),
+              allFirstPossible.some((c) => c.id === id),
             )
           : Array.from(
               new Set([
                 ...registeredIds.filter((id) =>
-                  newFirstCourses.some((c) => c.id === id),
+                  allFirstPossible.some((c) => c.id === id),
                 ),
                 ...newFirstCourses
                   .filter((c) =>
@@ -121,12 +137,12 @@ export default function CourseRegistration() {
       const secondInitialSelected =
         regStatusBySem["Second"] === "submitted"
           ? registeredIds.filter((id) =>
-              newSecondCourses.some((c) => c.id === id),
+              allSecondPossible.some((c) => c.id === id),
             )
           : Array.from(
               new Set([
                 ...registeredIds.filter((id) =>
-                  newSecondCourses.some((c) => c.id === id),
+                  allSecondPossible.some((c) => c.id === id),
                 ),
                 ...newSecondCourses
                   .filter((c) =>
@@ -238,35 +254,67 @@ export default function CourseRegistration() {
   };
 
   const calculateFirstCredits = () => {
-    return firstCourses
+    const allFirst = [
+      ...firstCourses,
+      ...availableCourses.filter((c) => (c.semester ?? "").toLowerCase().startsWith("first"))
+    ];
+    const uniqueFirst = Array.from(new Map(allFirst.map((c) => [c.id, c])).values());
+    return uniqueFirst
       .filter((c) => firstSelectedIds.includes(c.id))
-      .reduce((sum, c) => sum + (c.credit_units || 0), 0);
+      .reduce((sum, c) => sum + Number(c.credit_units || 0), 0);
   };
 
   const calculateSecondCredits = () => {
-    return secondCourses
+    const allSecond = [
+      ...secondCourses,
+      ...availableCourses.filter((c) => (c.semester ?? "").toLowerCase().startsWith("second"))
+    ];
+    const uniqueSecond = Array.from(new Map(allSecond.map((c) => [c.id, c])).values());
+    return uniqueSecond
       .filter((c) => secondSelectedIds.includes(c.id))
-      .reduce((sum, c) => sum + (c.credit_units || 0), 0);
+      .reduce((sum, c) => sum + Number(c.credit_units || 0), 0);
   };
 
   const calculateTotalCredits = () =>
     calculateFirstCredits() + calculateSecondCredits();
 
-  const handleRegister = async () => {
+  const hasChanges =
+    initialRegisteredIds.length !== firstSelectedIds.length + secondSelectedIds.length ||
+    !initialRegisteredIds.every((id) => [...firstSelectedIds, ...secondSelectedIds].includes(id));
+
+  const isDraft = firstStatus === "draft" || secondStatus === "draft";
+
+  const isSaveDisabled =
+    submitting ||
+    isGlobalLocked ||
+    (firstSelectedIds.length === 0 && secondSelectedIds.length === 0) ||
+    !hasChanges;
+
+  const isSubmitDisabled =
+    submitting ||
+    isGlobalLocked ||
+    (firstSelectedIds.length === 0 && secondSelectedIds.length === 0) ||
+    (!hasChanges && !isDraft);
+
+  const handleRegister = async (status: "draft" | "submitted" = "submitted") => {
     setSubmitting(true);
     setError(null);
     try {
       if (!isFirstLocked && firstSelectedIds.length > 0) {
-        await ApiClient.registerCourses(firstSelectedIds, "First");
+        await ApiClient.registerCourses(firstSelectedIds, "First", status);
       }
       if (!isSecondLocked && secondSelectedIds.length > 0) {
-        await ApiClient.registerCourses(secondSelectedIds, "Second");
+        await ApiClient.registerCourses(secondSelectedIds, "Second", status);
       }
       await loadCourses();
-      alert("Course registration submitted successfully!");
+      alert(
+        status === "draft"
+          ? "Course registration draft saved successfully!"
+          : "Course registration submitted successfully!"
+      );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to submit registration",
+        err instanceof Error ? err.message : `Failed to save registration as ${status}`,
       );
     } finally {
       setSubmitting(false);
@@ -764,15 +812,23 @@ export default function CourseRegistration() {
                     </div>
                   </div>
 
-                  <div className="pt-6">
+                  <div className="pt-6 space-y-3">
                     <Button
-                      onClick={handleRegister}
-                      disabled={
-                        submitting ||
-                        isGlobalLocked ||
-                        (firstSelectedIds.length === 0 &&
-                          secondSelectedIds.length === 0)
-                      }
+                      onClick={() => handleRegister("draft")}
+                      disabled={isSaveDisabled}
+                      variant="outline"
+                      className="w-full font-black py-6 text-base rounded-xl shadow-sm hover:scale-[1.02] transition-transform border-primary/20 hover:bg-primary/5 hover:text-primary"
+                    >
+                      {submitting ? (
+                        <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                      ) : (
+                        <>Save Draft</>
+                      )}
+                    </Button>
+
+                    <Button
+                      onClick={() => handleRegister("submitted")}
+                      disabled={isSubmitDisabled}
                       className="w-full font-black py-6 text-base rounded-xl shadow-xl hover:scale-[1.02] transition-transform text-white"
                       style={{
                         background:
@@ -785,7 +841,7 @@ export default function CourseRegistration() {
                           <span className="relative inline-flex rounded-full h-4 w-4 bg-foreground"></span>
                         </span>
                       ) : (
-                        <>Save Selection</>
+                        <>Submit Registration</>
                       )}
                     </Button>
                     <p className="text-[10px] text-center text-muted-foreground font-bold mt-4 px-2 uppercase tracking-tight leading-tight">

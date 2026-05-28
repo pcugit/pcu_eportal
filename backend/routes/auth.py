@@ -153,10 +153,19 @@ def login():
             
     elif role == 'student':
         students = Database.execute_query(
-            '''SELECT s.id, s.matric_number, s.program_id, s.current_level, s.session, s.is_first_login, p.name as program_name 
+            '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                      COALESCE(a.program_setup_id, 0) as program_id,
+                      l.name as current_level, acs.name as session, 
+                      FALSE as is_first_login,
+                      ps.name as program_name 
                FROM students s 
-               LEFT JOIN programs p ON s.program_id = p.id 
-               WHERE s.user_id = %s''',
+               JOIN users u ON s."UserId" = u.id
+               LEFT JOIN applications a ON a.user_id = u.id
+               LEFT JOIN level l ON s.current_level_id = l.id
+               LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+               LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+               WHERE s."UserId" = %s
+               ORDER BY a.updated_at DESC LIMIT 1''',
             (user['id'],)
         )
         if students:
@@ -233,10 +242,19 @@ def verify_token(payload):
             
     elif role == 'student':
         students = Database.execute_query(
-            '''SELECT s.id, s.matric_number, s.program_id, s.current_level, s.session, s.is_first_login, p.name as program_name 
+            '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                      COALESCE(a.program_setup_id, 0) as program_id,
+                      l.name as current_level, acs.name as session, 
+                      FALSE as is_first_login,
+                      ps.name as program_name 
                FROM students s 
-               LEFT JOIN programs p ON s.program_id = p.id 
-               WHERE s.user_id = %s''',
+               JOIN users u ON s."UserId" = u.id
+               LEFT JOIN applications a ON a.user_id = u.id
+               LEFT JOIN level l ON s.current_level_id = l.id
+               LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+               LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+               WHERE s."UserId" = %s
+               ORDER BY a.updated_at DESC LIMIT 1''',
             (user_id,)
         )
         if students:

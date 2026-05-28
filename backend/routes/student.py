@@ -97,10 +97,6 @@ def change_password(payload):
             'UPDATE users SET password_hash = %s WHERE id = %s',
             (hashed_pw, user_id)
         )
-        Database.execute_update(
-            'UPDATE students SET is_first_login = FALSE WHERE user_id = %s',
-            (user_id,)
-        )
         return jsonify({'message': 'Password updated successfully'}), 200
     except Exception as e:
         return jsonify({'message': f'Error updating password: {e}'}), 500
@@ -163,6 +159,7 @@ def get_courses(payload):
                           COALESCE(l.name, '100') AS current_level,
                           acs.name AS session,
                           s.department AS department_name,
+                          a.finalised_course,
                           COALESCE(s."Id", 0) AS student_id
                    FROM applications a
                    JOIN academic_sessions acs ON acs.id = a.academic_session_id
@@ -199,7 +196,8 @@ def get_courses(payload):
             current_level   = student['current_level'] 
             db_session      = student['session']
             student_id      = student['student_id']
-            department_name = student['department_name']
+            finalised_course = student['finalised_course']
+            department_name = finalised_course if finalised_course else student['department_name']
 
             sem_filter = ''
             sem_params = [department_name, current_level]
@@ -212,14 +210,42 @@ def get_courses(payload):
                           c.unit AS credit_units, c.semester,
                           LOWER(TRIM(c.remark)) AS remark
                    FROM course c
-                   WHERE UPPER(c.department) = UPPER(%s)
+                    WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s))
                      AND c.level::text = %s
-                     AND c.status = \'active\'
+                     AND c.status = 'active'
                      {sem_filter}
                    ORDER BY c.semester, c.remark, c.course_code''',
                 sem_params
             )
             all_courses = cur.fetchall()
+
+            # If no courses are found and we used finalised_course, fallback to query using students.department
+            if not all_courses and finalised_course and student['department_name'] and student['department_name'].strip() != finalised_course:
+                fallback_dept = student['department_name'].strip()
+                sem_params[0] = fallback_dept
+                cur.execute(
+                    f'''SELECT c.id, c.course_code, c.course_title,
+                              c.unit AS credit_units, c.semester,
+                              LOWER(TRIM(c.remark)) AS remark
+                       FROM course c
+                        WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s))
+                         AND c.level::text = %s
+                         AND c.status = 'active'
+                         {sem_filter}
+                       ORDER BY c.semester, c.remark, c.course_code''',
+                    sem_params
+                )
+                all_courses = cur.fetchall()
+                
+                # Deduplicate by course_code (case and space insensitive) in fallback case
+                seen_codes = set()
+                dedup = []
+                for row in all_courses:
+                    code_key = (row['course_code'] or '').strip().upper().replace(' ', '')
+                    if code_key not in seen_codes:
+                        seen_codes.add(code_key)
+                        dedup.append(row)
+                all_courses = dedup
 
             # 3) Registered course ids for this student + session
             #    Fetch across ALL semesters so the UI knows what's already saved.
@@ -305,6 +331,9 @@ def register_courses(payload):
         
     course_ids = data['course_ids']
     semester = data['semester']
+    status = data.get('status', 'submitted')
+    if status not in ('draft', 'submitted'):
+        status = 'submitted'
     
     if not isinstance(course_ids, list):
          return jsonify({'message': 'course_ids must be a list'}), 400
@@ -314,6 +343,7 @@ def register_courses(payload):
                   COALESCE(l.name, '100') AS current_level,
                   acs.name as session,
                   s.department AS department_name,
+                  a.finalised_course,
                   COALESCE(s."Id", 0) AS student_id
            FROM applications a
            JOIN academic_sessions acs ON acs.id = a.academic_session_id
@@ -350,7 +380,8 @@ def register_courses(payload):
     s_data = student[0]
     student_id = s_data['student_id']
     current_session = s_data['session']
-    department_name = s_data['department_name']
+    finalised_course = s_data['finalised_course']
+    department_name = finalised_course if finalised_course else s_data['department_name']
     current_level = s_data['current_level']
     
     # Check for existing registration record (no longer locks if submitted)
@@ -361,13 +392,30 @@ def register_courses(payload):
     
     db_semester = f"{semester} semester"
 
-    # Validate courses against program curriculum
     valid_courses = Database.execute_query(
          '''SELECT c.id, c.unit as credit_units, c.remark as category 
             FROM course c
-            WHERE c.department = %s AND c.level = %s AND c.semester ILIKE %s''',
+            WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s)) AND c.level = %s AND c.semester ILIKE %s''',
          (department_name, current_level, db_semester)
     )
+    if not valid_courses and finalised_course and s_data['department_name'] and s_data['department_name'].strip() != finalised_course:
+        fallback_dept = s_data['department_name'].strip()
+        valid_courses = Database.execute_query(
+             '''SELECT c.id, c.unit as credit_units, c.remark as category, c.course_code 
+                FROM course c
+                WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s)) AND c.level = %s AND c.semester ILIKE %s''',
+             (fallback_dept, current_level, db_semester)
+        )
+        
+        # Deduplicate by course_code (case and space insensitive) in fallback case
+        seen_codes = set()
+        dedup = []
+        for row in (valid_courses or []):
+            code_key = (row.get('course_code') or '').strip().upper().replace(' ', '')
+            if code_key not in seen_codes:
+                seen_codes.add(code_key)
+                dedup.append(row)
+        valid_courses = dedup
     valid_map = {c['id']: c for c in (valid_courses or [])}
     
     # Calculate totals
@@ -398,14 +446,14 @@ def register_courses(payload):
             reg_id = reg[0]['id']
             Database.execute_update(
                 'UPDATE course_registrations SET total_credits = %s, status = %s, submitted_at = NOW() WHERE id = %s',
-                (total_credits, 'submitted', reg_id)
+                (total_credits, status, reg_id)
             )
             Database.execute_update('DELETE FROM registered_courses WHERE registration_id = %s', (reg_id,))
         else:
             reg_id = Database.execute_update(
                 '''INSERT INTO course_registrations (student_id, session, semester, status, total_credits, submitted_at)
                    VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id''',
-                (student_id, current_session, semester, 'submitted', total_credits),
+                (student_id, current_session, semester, status, total_credits),
                 return_id=True
             )
             
@@ -452,15 +500,27 @@ def admin_get_students(payload):
     """List all students for ICT Director management"""
     search = request.args.get('q', '')
     
-    query = '''SELECT s.id, s.matric_number, s.current_level, s.session,
-                      u.name, u.email, u.phone_number,
-                      p.name as program_name, d.name as department
-               FROM students s
-               JOIN users u ON s.user_id = u.id
-               JOIN programs p ON s.program_id = p.id
-               JOIN departments d ON p.department_id = d.id
-               WHERE u.name ILIKE %s OR u.email ILIKE %s OR s.matric_number ILIKE %s
-               ORDER BY s.matric_number DESC'''
+    query = '''SELECT * FROM (
+                   SELECT DISTINCT ON (s."Id") 
+                          s."Id" as id, 
+                          s."MatricNo" as matric_number, 
+                          l.name as current_level, 
+                          acs.name as session,
+                          u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name,
+                          s."Email" as email, 
+                          s."MobileNumber" as phone_number,
+                          ps.name as program_name, 
+                          s.department as department
+                   FROM students s
+                   JOIN users u ON s."UserId" = u.id
+                   LEFT JOIN applications a ON a.user_id = u.id
+                   LEFT JOIN level l ON s.current_level_id = l.id
+                   LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+                   LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+                   WHERE u.firstname ILIKE %s OR u.surname ILIKE %s OR s."MatricNo" ILIKE %s
+                   ORDER BY s."Id", a.updated_at DESC
+               ) subquery
+               ORDER BY matric_number DESC'''
     
     term = f"%{search}%"
     students = Database.execute_query(query, (term, term, term))
@@ -477,12 +537,57 @@ def admin_update_student(payload):
         return jsonify({'message': 'Student ID required'}), 400
         
     student_id = data['id']
+    matric_no = data.get('matric_number')
+    level_str = data.get('current_level')
+    session_str = data.get('session')
     
     try:
+        # Resolve level_id
+        level_id = None
+        if level_str:
+            level_digits = ''.join(c for c in level_str if c.isdigit())
+            if level_digits:
+                level_res = Database.execute_query(
+                    'SELECT id FROM level WHERE name = %s',
+                    (level_digits,)
+                )
+                if level_res:
+                    level_id = level_res[0]['id']
+
+        # Resolve session_id
+        session_id = None
+        if session_str:
+            session_res = Database.execute_query(
+                'SELECT id FROM academic_sessions WHERE name = %s',
+                (session_str,)
+            )
+            if session_res:
+                session_id = session_res[0]['id']
+
+        # Update students table
         Database.execute_update(
-            'UPDATE students SET matric_number = %s, current_level = %s, session = %s WHERE id = %s',
-            (data.get('matric_number'), data.get('current_level'), data.get('session'), student_id)
+            '''UPDATE students 
+               SET "MatricNo" = COALESCE(%s, "MatricNo"),
+                   current_level_id = COALESCE(%s, current_level_id),
+                   "UpdatedDate" = NOW()
+               WHERE "Id" = %s''',
+            (matric_no, level_id, student_id)
         )
+
+        # Update applications table academic_session_id
+        if session_id:
+            Database.execute_update(
+                '''UPDATE applications 
+                   SET academic_session_id = %s 
+                   WHERE id = (
+                       SELECT id FROM applications 
+                       WHERE user_id = (SELECT "UserId" FROM students WHERE "Id" = %s)
+                       ORDER BY updated_at DESC LIMIT 1
+                   )''',
+                (session_id, student_id)
+            )
+
         return jsonify({'message': 'Student updated successfully'}), 200
     except Exception as e:
-        return jsonify({'message': f'Error updating student: {e}'}), 500
+         print(f"Error updating student: {e}")
+         return jsonify({'message': f'Error updating student: {e}'}), 500

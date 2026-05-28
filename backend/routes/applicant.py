@@ -106,12 +106,19 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
         if not Database.execute_query('SELECT id FROM applications WHERE form_no = %s', (form_no,)):
             break
 
+    level_id = None
+    pt_res = Database.execute_query(
+        'SELECT level_id FROM program_types WHERE id = %s', (program_type_id,)
+    )
+    if pt_res:
+        level_id = pt_res[0]['level_id']
+
     Database.execute_update(
         '''INSERT INTO applications
                (user_id, form_no, prog_type, academic_session_id,
-                applicant_stage, application_payment_reference)
-           VALUES (%s, %s, %s, %s, %s, %s)''',
-        (user_id, form_no, program_type_id, current_session_id, 'started', reference_no)
+                applicant_stage, application_payment_reference, level_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+        (user_id, form_no, program_type_id, current_session_id, 'started', reference_no, level_id)
     )
     res = Database.execute_query(
         'SELECT id FROM applications WHERE form_no = %s', (form_no,)
@@ -123,18 +130,30 @@ def _get_applicant_fee_context(user_id):
     app_res = Database.execute_query(
         '''SELECT app.prog_type,
                   pt.level_id,
-                  app.finalised_course
+                  app.finalised_course,
+                  app.approved_course,
+                  app.program_setup_id
            FROM applications app
            JOIN program_types pt ON app.prog_type = pt.id
-           WHERE app.user_id = %s
+           WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
            ORDER BY app.created_at DESC LIMIT 1''',
         (user_id,)
     )
     if not app_res:
-        raise ValueError('No application found for this user')
+        raise ValueError('No admitted or accepted application found for this user')
 
     app_row = app_res[0]
     finalised_course = (app_row.get('finalised_course') or '').strip()
+    if not finalised_course:
+        finalised_course = (app_row.get('approved_course') or '').strip()
+    if not finalised_course and app_row.get('program_setup_id'):
+        ps_res = Database.execute_query(
+            'SELECT name FROM program_setup WHERE id = %s',
+            (app_row['program_setup_id'],)
+        )
+        if ps_res:
+            finalised_course = ps_res[0]['name']
+
     if not finalised_course:
         raise ValueError('finalised_course is required to resolve faculty and fees')
 
@@ -775,6 +794,13 @@ def delete_document(payload, document_id):
         return jsonify({'message': 'Document not found'}), 404
 
     file_path = doc[0]['file_path']
+    if not os.path.exists(file_path):
+        parts = file_path.replace('\\', '/').split('/uploads/')
+        if len(parts) > 1:
+            local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', parts[1].replace('/', os.sep))
+            if os.path.exists(local_path):
+                file_path = local_path
+
     if os.path.exists(file_path):
         os.remove(file_path)
     Database.execute_update('DELETE FROM documents WHERE id = %s', (document_id,))
@@ -796,6 +822,13 @@ def download_document(payload, document_id):
     if not doc:
         return jsonify({'message': 'Document not found or access denied'}), 404
     file_path = doc[0]['file_path']
+    if not os.path.exists(file_path):
+        parts = file_path.replace('\\', '/').split('/uploads/')
+        if len(parts) > 1:
+            local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', parts[1].replace('/', os.sep))
+            if os.path.exists(local_path):
+                file_path = local_path
+
     if not os.path.exists(file_path):
         return jsonify({'message': 'File not found on server'}), 404
     return send_file(file_path, mimetype=doc[0]['mime_type'])
@@ -1462,7 +1495,7 @@ def get_admission_letter(payload):
     pd_res = Database.execute_query(
         '''SELECT f.name AS faculty, d.name AS department
         FROM applications a
-        JOIN program_setup ps ON ps.name = a.finalised_course
+        JOIN program_setup ps ON LOWER(TRIM(ps.name)) = LOWER(TRIM(a.finalised_course))
         JOIN departments d ON d.id = ps.department_id
         JOIN faculties f ON f.id = ps.faculty_id
         WHERE a.user_id = %s

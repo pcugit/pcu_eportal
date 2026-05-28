@@ -236,6 +236,7 @@ export class ApiClient {
 
   private static token: string | null = null;
   private static cache = new Map<string, { data: any; timestamp: number }>();
+  private static inFlight = new Map<string, Promise<{ data: any; status: number }>>();
   private static CACHE_TTL = 10 * 60 * 1000; // 10 minutes — form data rarely changes mid-session
 
   static clearCache() {
@@ -277,39 +278,56 @@ export class ApiClient {
       this.cache.delete(cacheKey); // Expired
     }
 
-    const token = this.getToken();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(options.headers as Record<string, string>),
-    };
-
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+    // Return in-flight promise if the exact same GET request is already active
+    if (isGet && this.inFlight.has(cacheKey)) {
+      return this.inFlight.get(cacheKey) as Promise<{ data: T; status: number }>;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    const promise = (async () => {
+      const token = this.getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(options.headers as Record<string, string>),
+      };
 
-    const data = await response.json();
-    const status = response.status;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
 
-    // Clear cache on mutations to ensure fresh data, even if the request failed
-    if (!isGet) {
-      this.clearCache();
-    }
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
 
-    if (!response.ok) {
-      throw new Error(data.message || "API request failed");
-    }
+      const data = await response.json();
+      const status = response.status;
 
-    // Cache successful GET results
+      // Clear cache on mutations to ensure fresh data, even if the request failed
+      if (!isGet) {
+        this.clearCache();
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || "API request failed");
+      }
+
+      // Cache successful GET results
+      if (isGet) {
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      }
+
+      return { data: data as T, status };
+    })();
+
     if (isGet) {
-      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      this.inFlight.set(cacheKey, promise);
+      // Clean up from inFlight map once resolved or failed
+      promise.finally(() => {
+        this.inFlight.delete(cacheKey);
+      });
     }
 
-    return { data: data as T, status };
+    return promise;
   }
 
   // Auth endpoints
@@ -1020,12 +1038,13 @@ export class ApiClient {
   static async registerCourses(
     course_ids: number[],
     semester: string,
+    status: string = "submitted",
   ): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>(
       "/student/register-courses",
       {
         method: "POST",
-        body: JSON.stringify({ course_ids, semester }),
+        body: JSON.stringify({ course_ids, semester, status }),
       },
     );
     return data;

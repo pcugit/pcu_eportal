@@ -82,22 +82,25 @@ def get_course_students(payload, course_id):
     semester = request.args.get('semester', '')
 
     students = Database.execute_query(
-        '''SELECT st.id AS student_id, st.matric_number, u.name AS student_name,
-                  p.name AS program_name, st.current_level,
+        '''SELECT st."Id" AS student_id, st."MatricNo" as matric_number, 
+                  u.firstname || ' ' || u.surname AS student_name,
+                  ps.name AS program_name, l.name as current_level,
                   ss.id AS score_id, ss.ca_score, ss.exam_score,
                   ss.total_score, ss.grade, ss.status AS score_status
            FROM registered_courses rc
            JOIN course_registrations cr ON rc.registration_id = cr.id
-           JOIN students st ON cr.student_id = st.id
-           JOIN users u ON st.user_id = u.id
-           JOIN programs p ON st.program_id = p.id
+           JOIN students st ON cr.student_id = st."Id"
+           JOIN users u ON st."UserId" = u.id
+           LEFT JOIN applications a ON a.user_id = u.id
+           LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+           LEFT JOIN level l ON st.current_level_id = l.id
            LEFT JOIN student_scores ss
-             ON ss.student_id = st.id AND ss.course_id = %s
+             ON ss.student_id = st."Id" AND ss.course_id = %s
             AND ss.session = cr.session AND ss.semester = cr.semester
            WHERE rc.course_id = %s
              AND (%s = '' OR cr.session = %s)
              AND (%s = '' OR cr.semester = %s)
-           ORDER BY st.matric_number''',
+           ORDER BY st."MatricNo"''',
         (course_id, course_id, session, session, semester, semester))
 
     return jsonify({'students': [dict(s) for s in (students or [])]}), 200

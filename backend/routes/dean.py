@@ -29,8 +29,7 @@ def dashboard(payload):
     for dept in (depts or []):
         s = Database.execute_query(
             '''SELECT COUNT(*) AS students FROM students st
-               JOIN programs p ON st.program_id = p.id
-               WHERE p.department_id = %s''', (dept['id'],))
+               WHERE LOWER(st.department) = (SELECT LOWER(name) FROM departments WHERE id = %s)''', (dept['id'],))
         pending = Database.execute_query(
             '''SELECT COUNT(*) AS cnt FROM student_scores ss
                JOIN courses c ON ss.course_id = c.id
@@ -66,18 +65,18 @@ def get_faculty_results(payload):
     status      = request.args.get('status', 'approved')
 
     query = '''
-        SELECT ss.id, st.matric_number, u.name AS student_name,
-               st.current_level, d.name AS department,
+        SELECT ss.id, st."MatricNo" as matric_number, u.firstname || ' ' || u.surname AS student_name,
+               l.name as current_level, d.name AS department,
                c.course_code, c.course_title,
                ss.ca_score, ss.exam_score, ss.total_score,
                ss.grade, ss.grade_point, ss.status,
                ss.session, ss.semester
         FROM student_scores ss
-        JOIN students st ON ss.student_id = st.id
-        JOIN users u ON st.user_id = u.id
-        JOIN programs p ON st.program_id = p.id
-        JOIN departments d ON p.department_id = d.id
+        JOIN students st ON ss.student_id = st."Id"
+        JOIN users u ON st."UserId" = u.id
+        LEFT JOIN level l ON st.current_level_id = l.id
         JOIN courses c ON ss.course_id = c.id
+        JOIN departments d ON c.department_id = d.id
         WHERE d.faculty_id = %s
     '''
     params = [faculty_id]
@@ -89,7 +88,7 @@ def get_faculty_results(payload):
         query += ' AND d.id = %s'; params.append(dept_filter)
     if status:
         query += ' AND ss.status = %s'; params.append(status)
-    query += ' ORDER BY d.name, st.matric_number, c.course_code'
+    query += ' ORDER BY d.name, st."MatricNo", c.course_code'
 
     results = Database.execute_query(query, tuple(params))
     return jsonify({'results': [dict(r) for r in (results or [])]}), 200

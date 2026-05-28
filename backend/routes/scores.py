@@ -156,16 +156,16 @@ def get_course_scores(payload, course_id):
     semester = request.args.get('semester')
 
     query = '''
-        SELECT ss.id, ss.student_id, st.matric_number,
-               u.name AS student_name,
+        SELECT ss.id, ss.student_id, st."MatricNo" as matric_number,
+               u.firstname || ' ' || u.surname AS student_name,
                ss.ca_score, ss.exam_score, ss.total_score,
                ss.grade, ss.grade_point, ss.status,
                ss.session, ss.semester,
-               entered.name AS entered_by_name,
-               approved.name AS approved_by_name
+               entered.firstname || ' ' || entered.surname AS entered_by_name,
+               approved.firstname || ' ' || approved.surname AS approved_by_name
         FROM student_scores ss
-        JOIN students st ON ss.student_id = st.id
-        JOIN users u ON st.user_id = u.id
+        JOIN students st ON ss.student_id = st."Id"
+        JOIN users u ON st."UserId" = u.id
         LEFT JOIN users entered ON ss.entered_by = entered.id
         LEFT JOIN users approved ON ss.approved_by = approved.id
         WHERE ss.course_id = %s
@@ -175,7 +175,7 @@ def get_course_scores(payload, course_id):
         query += ' AND ss.session = %s'; params.append(session)
     if semester:
         query += ' AND ss.semester = %s'; params.append(semester)
-    query += ' ORDER BY st.matric_number'
+    query += ' ORDER BY st."MatricNo"'
 
     scores = Database.execute_query(query, tuple(params))
     return jsonify({'scores': [dict(s) for s in (scores or [])]}), 200
@@ -193,7 +193,7 @@ def get_student_scores(payload, student_id):
     # Students may only view their own results
     if role == 'student':
         me = Database.execute_query(
-            'SELECT id FROM students WHERE user_id = %s', (user_id,))
+            'SELECT "Id" as id FROM students WHERE "UserId" = %s', (user_id,))
         if not me or me[0]['id'] != student_id:
             return jsonify({'message': 'Access denied'}), 403
 

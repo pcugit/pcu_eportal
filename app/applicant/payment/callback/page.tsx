@@ -27,7 +27,7 @@ type VerifyState = "verifying" | "success" | "failed" | "error";
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { refreshStatus } = useAuth();
+  const { user, refreshStatus } = useAuth();
 
   const txnref =
     searchParams.get("txnref") || searchParams.get("txnRef") || "";
@@ -63,12 +63,12 @@ function CallbackContent() {
         if (res.is_successful) {
           setState("success");
           setResult({
-            receipt_no:   res.receipt_no,
-            amount:       res.amount,
+            receipt_no: res.receipt_no,
+            amount: res.amount,
             payment_type: res.payment_type,
           });
           ApiClient.clearCache();
-          try { await refreshStatus?.(); } catch (_) {}
+          try { await refreshStatus?.(); } catch (_) { }
           return; // done
         }
 
@@ -113,13 +113,13 @@ function CallbackContent() {
 
   const paymentLabel =
     result?.payment_type === "acceptance_fee" ? "Acceptance Fee" :
-    result?.payment_type === "tuition"        ? "Tuition Fee"    :
-    "Payment";
+      result?.payment_type === "tuition" ? "Tuition Fee" :
+        "Payment";
 
   const accentBar =
-    state === "success"               ? "bg-gradient-to-r from-green-400 to-emerald-500" :
-    state === "failed" || state === "error" ? "bg-gradient-to-r from-red-400 to-rose-500" :
-    "bg-gradient-to-r from-[#433878] to-[#6b357d]";
+    state === "success" ? "bg-gradient-to-r from-green-400 to-emerald-500" :
+      state === "failed" || state === "error" ? "bg-gradient-to-r from-red-400 to-rose-500" :
+        "bg-gradient-to-r from-[#433878] to-[#6b357d]";
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
@@ -154,9 +154,9 @@ function CallbackContent() {
 
           <CardTitle className="text-2xl font-black tracking-tight">
             {state === "verifying" && "Verifying Payment…"}
-            {state === "success"   && "Payment Confirmed!"}
-            {state === "failed"    && "Payment Not Successful"}
-            {state === "error"     && "Verification Error"}
+            {state === "success" && "Payment Confirmed!"}
+            {state === "failed" && "Payment Not Successful"}
+            {state === "error" && "Verification Error"}
           </CardTitle>
           <CardDescription className="font-medium mt-1">
             {state === "verifying" && (
@@ -164,9 +164,9 @@ function CallbackContent() {
                 ? `Checking payment status... (Attempt ${pollCount}/${MAX_POLLS})`
                 : "Please wait while we confirm your transaction."
             )}
-            {state === "success"   && `Your ${paymentLabel} has been confirmed and recorded.`}
-            {state === "failed"    && (result?.response_desc || "The payment was not completed.")}
-            {state === "error"     && errorMsg}
+            {state === "success" && `Your ${paymentLabel} has been confirmed and recorded.`}
+            {state === "failed" && (result?.response_desc || "The payment was not completed.")}
+            {state === "error" && errorMsg}
           </CardDescription>
         </CardHeader>
 
@@ -240,7 +240,13 @@ function CallbackContent() {
               )}
               <Button
                 className="w-full h-12 font-bold bg-green-600 hover:bg-green-700"
-                onClick={() => router.push("/applicant/dashboard")}
+                onClick={() => {
+                  if (result?.payment_type === "tuition" || user?.role === "student" || user?.role === "admitted") {
+                    router.push("/student/dashboard");
+                  } else {
+                    router.push("/applicant/dashboard");
+                  }
+                }}
               >
                 Go to Dashboard
               </Button>

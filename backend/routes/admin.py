@@ -259,7 +259,6 @@ def review_application(payload):
     stage_map  = {'accept': 'admitted', 'reject': 'rejected', 'recommend': 'screening'}
     new_status = stage_map[decision]
 
-    # Resolve program_setup_id, department_id, degree_id from the approved course name
     ps_id = None
     department_id = None
     degree_id = None
@@ -284,12 +283,11 @@ def review_application(payload):
                approved_course         = %s,
                finalised_course        = %s,
                program_setup_id        = COALESCE(%s, program_setup_id),
-               department_id           = COALESCE(%s, department_id),
                degree_id               = COALESCE(%s, degree_id),
                decision_maker_user_id  = %s,
                updated_at              = NOW()
            WHERE id = %s''',
-        (new_status, decision, approved_course, approved_course, ps_id, department_id, degree_id, officer_user_id, applicant_id)
+        (new_status, decision, approved_course, approved_course, ps_id, degree_id, officer_user_id, applicant_id)
     )
 
     if not success:

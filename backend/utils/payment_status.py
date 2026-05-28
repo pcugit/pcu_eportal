@@ -191,7 +191,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
         # ── Fetch user + application + biodata ───────────────────────────────
         user_data = Database.execute_query(
             '''SELECT u.surname, u.firstname, u.email, u.phone_number,
-                      a.degree_id, a.prog_type, a.department_id,
+                      a.degree_id, a.prog_type, a.program_setup_id, a.level_id,
                       b.middle_name, b.address, b.gender, b.date_of_birth,
                       b.marital_status, b.nationality, b.state, b.lga
                FROM users u
@@ -217,26 +217,27 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                 first_name = ud['firstname'] if ud['firstname'] else 'Unknown'
                 email      = ud['email']     if ud['email']     else f'user{user_id}@example.com'
 
-                # ── Resolve entry level from program_types.level_id via prog_type ──
-                # prog_type on applications stores the program_types id.
-                # program_types.level_id holds the entry level for that type.
-                entry_level_id = None
-                prog_type = ud.get('prog_type')
-                if prog_type:
-                    level_res = Database.execute_query(
-                        'SELECT level_id FROM program_types WHERE id = %s',
-                        (prog_type,)
-                    )
-                    if level_res:
-                        entry_level_id = level_res[0]['level_id']
+                # ── Resolve entry level from applications.level_id (with fallback to program_types.level_id) ──
+                entry_level_id = ud.get('level_id')
+                if not entry_level_id:
+                    prog_type = ud.get('prog_type')
+                    if prog_type:
+                        level_res = Database.execute_query(
+                            'SELECT level_id FROM program_types WHERE id = %s',
+                            (prog_type,)
+                        )
+                        if level_res:
+                            entry_level_id = level_res[0]['level_id']
 
-                # ── Resolve department name from departments via department_id ──
+                # ── Resolve department name via program_setup → departments ──
                 department_name = None
-                dept_id = ud.get('department_id')
-                if dept_id:
+                ps_id = ud.get('program_setup_id')
+                if ps_id:
                     dept_res = Database.execute_query(
-                        'SELECT name FROM departments WHERE id = %s',
-                        (dept_id,)
+                        '''SELECT d.name FROM program_setup ps
+                           JOIN departments d ON d.id = ps.department_id
+                           WHERE ps.id = %s''',
+                        (ps_id,)
                     )
                     if dept_res:
                         department_name = dept_res[0]['name']

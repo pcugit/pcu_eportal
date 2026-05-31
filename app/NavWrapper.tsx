@@ -12,6 +12,8 @@ const PUBLIC_PATHS = [
   "/",
   "/auth/login",
   "/auth/signup",
+  "/student/login",
+  "/staff/login",
   "/about",
   "/academics",
   "/admissions",

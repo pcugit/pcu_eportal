@@ -99,6 +99,26 @@ def roles_required(*roles):
     return decorator
 
 
+def require_password_change(f):
+    @wraps(f)
+    def decorated(payload, *args, **kwargs):
+        if payload.get('role') == 'student':
+            # Use the student auth record to determine whether the user still
+            # needs to perform a first-login password change.
+            from database import Database
+            auth_row = Database.execute_query(
+                'SELECT is_first_login FROM student_auth WHERE userid = %s',
+                (payload['user_id'],)
+            )
+            if auth_row and auth_row[0].get('is_first_login'):
+                return jsonify({
+                    'message': 'Password change required before accessing student resources.',
+                    'require_password_change': True,
+                }), 403
+        return f(payload, *args, **kwargs)
+    return decorated
+
+
 class AuthHandler:
     hash_password   = staticmethod(hash_password)
     verify_password = staticmethod(verify_password)
@@ -107,3 +127,4 @@ class AuthHandler:
     admin_required  = staticmethod(admin_required)
     admissions_officer_required = staticmethod(admissions_officer_required)
     roles_required  = staticmethod(roles_required)
+    require_password_change = staticmethod(require_password_change)

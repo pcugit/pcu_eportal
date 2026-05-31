@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -15,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { AlertCircle, X, GraduationCap, ArrowLeft } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 
 export default function StudentLoginPage() {
   const router = useRouter();
@@ -32,7 +31,7 @@ export default function StudentLoginPage() {
     }
   }, [error]);
 
-  // clear any lingering errors on mount
+  // Clear any lingering errors on mount
   useEffect(() => {
     setShowError(false);
     setLocalError("");
@@ -55,7 +54,6 @@ export default function StudentLoginPage() {
     if (user.role === "student") {
       router.replace("/student/dashboard");
     } else if (user.role === "admitted") {
-      // Admitted users (paid acceptance fee) access the limited student portal
       router.replace("/student/dashboard");
     } else if (user.role === "admin") {
       router.replace("/ict/dashboard");
@@ -76,7 +74,7 @@ export default function StudentLoginPage() {
     setShowError(false);
 
     if (!formData.email) {
-      setLocalError("Email is required");
+      setLocalError("Email or matric number is required");
       setShowError(true);
       return;
     }
@@ -88,152 +86,159 @@ export default function StudentLoginPage() {
 
     try {
       await login(formData.email, formData.password);
-    } catch (err) {
-      // Error is handled in the auth context
+    } catch (err: any) {
+      const msg =
+        err instanceof Error ? err.message : "Login failed. Please try again.";
+      const responseData = err?.response;
+      if (responseData?.locked_until) {
+        const unlockTime = new Date(
+          responseData.locked_until,
+        ).toLocaleString();
+        setLocalError(
+          `Account locked due to too many failed attempts. Try again after ${unlockTime}.`,
+        );
+      } else {
+        setLocalError(msg);
+      }
+      setShowError(true);
     }
   };
 
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
       {/* Toast Error Notification */}
       {showError && displayError && (
-        <div className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50">
-          <div className="bg-destructive/95 text-destructive-foreground rounded-lg shadow-lg overflow-hidden border border-destructive/20">
+        <div
+          className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50"
+          style={{
+            animation: "slideInDown 0.4s ease-out forwards",
+          }}
+        >
+          <style>{`
+            @keyframes slideInDown {
+              from {
+                opacity: 0;
+                transform: translateY(-20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+          `}</style>
+          <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg overflow-hidden">
             <div className="flex items-start gap-3 p-4">
               <div className="flex-shrink-0 mt-0.5">
-                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-foreground/10">
+                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-red-400">
                   <AlertCircle className="h-4 w-4" />
                 </div>
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-sm">Authentication Error</p>
+                <p className="font-semibold text-sm">Error</p>
                 <p className="text-sm mt-1 opacity-95">{displayError}</p>
               </div>
               <button
                 onClick={() => setShowError(false)}
-                className="flex-shrink-0 text-destructive-foreground/75 hover:text-destructive-foreground transition-colors"
+                className="flex-shrink-0 text-red-200 hover:text-white transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div
-              className="h-1 bg-destructive-foreground/30"
+              className="h-1 bg-red-400 opacity-50"
               style={{
-                animation: "shrink 5s linear forwards",
+                animation: "shrinkBar 5s linear forwards",
                 transformOrigin: "left",
               }}
             />
-            <style jsx>{`
-              @keyframes shrink {
-                from {
-                  transform: scaleX(1);
-                }
-                to {
-                  transform: scaleX(0);
-                }
-              }
-            `}</style>
           </div>
+          <style>{`
+            @keyframes shrinkBar {
+              from {
+                transform: scaleX(1);
+              }
+              to {
+                transform: scaleX(0);
+              }
+            }
+          `}</style>
         </div>
       )}
 
-      <div className="w-full max-w-md space-y-8">
-        <div className="flex flex-col items-center">
-          <Link href="/" className="mb-8 hover:opacity-80 transition-opacity">
+      <Card className="w-full max-w-md relative overflow-hidden">
+        <CardHeader className="space-y-4 text-center pb-1">
+          <div className="flex justify-center">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"
-              width={100}
-              height={100}
+              width={120}
+              height={120}
               className="object-contain"
             />
-          </Link>
-
-          <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Student Portal
-            </h1>
-            <p className="text-muted-foreground italic">
-              Precious Cornerstone University
-            </p>
           </div>
-        </div>
-
-        <Card className="border-none shadow-2xl bg-card/80 backdrop-blur-sm overflow-hidden">
-          <div className="h-2 w-full bg-gradient-to-r from-primary/80 via-secondary/75 to-accent/80" />
-          <CardHeader className="space-y-1">
-            <div className="flex items-center gap-2 mb-2"></div>
-            <CardTitle className="text-xl">Welcome back</CardTitle>
+          <div className="space-y-1">
+            <CardTitle className="text-2xl">Welcome Back</CardTitle>
             <CardDescription>
-              Enter your email and password to access your dashboard
+              Log in to your student portal account. Use your email or matric
+              number.
             </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-semibold">
-                  Email Address
-                </Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="Your registered email address"
-                  className="h-11 border-border focus:border-primary focus:ring-primary/20 transition-all font-medium"
-                  value={formData.email}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
+          </div>
+        </CardHeader>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-sm font-semibold">
-                    Password
-                  </Label>
-                  {/*
-                  <Link 
-                    href="/auth/forgot-password" 
-                    className="text-xs text-foreground hover:underline font-medium"
-                  >
-                    Forgot password?
-                  </Link>
-                  */}
-                </div>
-                <Input
-                  id="password"
-                  name="password"
-                  type="password"
-                  placeholder="First time? Try your Surname (in lowercase)"
-                  className="h-11 border-border focus:border-primary focus:ring-primary/20 transition-all font-medium"
-                  value={formData.password}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 hover:shadow-xl transition-all active:scale-[0.98] bg-gradient-to-r from-primary/80 via-secondary/75 to-accent/80 text-primary-foreground"
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email or Matric Number</Label>
+              <Input
+                id="email"
+                name="email"
+                type="text"
+                placeholder="Enter your registered email or matric number"
+                value={formData.email}
+                onChange={handleChange}
                 disabled={isLoading}
-              >
-                {isLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Signing in...</span>
-                  </div>
-                ) : (
-                  "Sign In"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {/*
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-xs text-foreground hover:underline font-medium"
+                >
+                  Forgot password?
+                </Link>
+                */}
+              </div>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                placeholder="Enter your password"
+                value={formData.password}
+                onChange={handleChange}
+                disabled={isLoading}
+              />
+            </div>
+
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isLoading}
+              style={{
+                background:
+                  "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)",
+              }}
+            >
+              {isLoading ? "Logging in..." : "Log In"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

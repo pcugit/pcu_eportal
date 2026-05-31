@@ -236,7 +236,10 @@ export class ApiClient {
 
   private static token: string | null = null;
   private static cache = new Map<string, { data: any; timestamp: number }>();
-  private static inFlight = new Map<string, Promise<{ data: any; status: number }>>();
+  private static inFlight = new Map<
+    string,
+    Promise<{ data: any; status: number }>
+  >();
   private static CACHE_TTL = 10 * 60 * 1000; // 10 minutes — form data rarely changes mid-session
 
   static clearCache() {
@@ -280,7 +283,10 @@ export class ApiClient {
 
     // Return in-flight promise if the exact same GET request is already active
     if (isGet && this.inFlight.has(cacheKey)) {
-      return this.inFlight.get(cacheKey) as Promise<{ data: T; status: number }>;
+      return this.inFlight.get(cacheKey) as Promise<{
+        data: T;
+        status: number;
+      }>;
     }
 
     const promise = (async () => {
@@ -308,7 +314,9 @@ export class ApiClient {
       }
 
       if (!response.ok) {
-        throw new Error(data.message || "API request failed");
+        const error: any = new Error(data.message || "API request failed");
+        error.response = data;
+        throw error;
       }
 
       // Cache successful GET results

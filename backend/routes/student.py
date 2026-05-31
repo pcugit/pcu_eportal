@@ -97,12 +97,22 @@ def change_password(payload):
             'UPDATE users SET password_hash = %s WHERE id = %s',
             (hashed_pw, user_id)
         )
+        if payload.get('role') == 'student':
+            Database.execute_update(
+                '''UPDATE student_auth
+                   SET is_first_login = FALSE,
+                       password_changed_at = NOW(),
+                       updateddate = NOW()
+                   WHERE userid = %s''',
+                (user_id,)
+            )
         return jsonify({'message': 'Password updated successfully'}), 200
     except Exception as e:
         return jsonify({'message': f'Error updating password: {e}'}), 500
 
 @student_bp.route('/profile', methods=['GET'])
 @AuthHandler.token_required
+@AuthHandler.require_password_change
 def get_profile(payload):
     """Get student profile with faculty/department info"""
     user_id = payload['user_id']
@@ -110,13 +120,14 @@ def get_profile(payload):
     student = Database.execute_query(
         '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
                   l.name as current_level, acs.name as session, 
-                  FALSE as is_first_login,
+                  COALESCE(sa.is_first_login, FALSE) as is_first_login,
                   u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name,
                   s."Email" as email, s."MobileNumber" as phone_number,
                   ps.name as program_name, pt.name as program_type,
                   s.department as department, f.name as faculty
            FROM students s
            JOIN users u ON s."UserId" = u.id
+           LEFT JOIN student_auth sa ON sa.userid = u.id
            LEFT JOIN applications a ON a.user_id = u.id
            LEFT JOIN level l ON s.current_level_id = l.id
            LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
@@ -137,6 +148,7 @@ def get_profile(payload):
 
 @student_bp.route('/courses', methods=['GET'])
 @AuthHandler.token_required
+@AuthHandler.require_password_change
 def get_courses(payload):
     user_id  = payload['user_id']
     semester = request.args.get('semester')  # optional filter; None = all semesters
@@ -472,6 +484,7 @@ def register_courses(payload):
 
 @student_bp.route('/courses/search', methods=['GET'])
 @AuthHandler.token_required
+@AuthHandler.require_password_change
 def search_courses(payload):
     """Search for courses across the whole database"""
     query = request.args.get('q', '').strip()
@@ -495,6 +508,7 @@ def search_courses(payload):
          return jsonify({'message': 'An unexpected error occurred while searching for courses.'}), 500
 @student_bp.route('/admin/list', methods=['GET'])
 @AuthHandler.token_required
+@AuthHandler.require_password_change
 @AuthHandler.admin_required
 def admin_get_students(payload):
     """List all students for ICT Director management"""
@@ -529,6 +543,7 @@ def admin_get_students(payload):
 
 @student_bp.route('/admin/update', methods=['PUT'])
 @AuthHandler.token_required
+@AuthHandler.require_password_change
 @AuthHandler.admin_required
 def admin_update_student(payload):
     """Update student profile details as admin"""

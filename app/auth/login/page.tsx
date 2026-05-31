@@ -173,66 +173,53 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       {/* Toast Error Notification */}
-      {showError && displayError && (
-        <div
-          className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50"
-          style={{
-            animation: showError
-              ? "slideInDown 0.4s ease-out forwards"
-              : "slideOutUp 0.4s ease-out forwards",
-          }}
-        >
-          <style>{`
-            @keyframes slideInDown {
-              from {
-                opacity: 0;
-                transform: translateY(-20px);
-              }
-              to {
-                opacity: 1;
-                transform: translateY(0);
-              }
-            }
-            @keyframes slideOutUp {
-              from {
-                opacity: 1;
-                transform: translateY(0);
-              }
-              to {
-                opacity: 0;
-                transform: translateY(-20px);
-              }
-            }
-          `}</style>
-          <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg overflow-hidden">
-            <div className="flex items-start gap-3 p-4">
-              <div className="flex-shrink-0 mt-0.5">
-                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-red-400">
-                  <AlertCircle className="h-4 w-4" />
-                </div>
+      <div
+        className={`fixed top-6 right-6 max-w-sm z-50 transition-all duration-500 ease-in-out transform ${
+          showError && displayError
+            ? "translate-y-0 opacity-100 scale-100"
+            : "-translate-y-12 opacity-0 scale-95 pointer-events-none"
+        }`}
+      >
+        <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg overflow-hidden">
+          <div className="flex items-start gap-3 p-4">
+            <div className="flex-shrink-0 mt-0.5">
+              <div className="flex items-center justify-center h-6 w-6 rounded-full bg-red-400">
+                <AlertCircle className="h-4 w-4" />
               </div>
-              <div className="flex-1">
-                <p className="font-semibold text-sm">Error</p>
-                <p className="text-sm mt-1 opacity-95">{displayError}</p>
-              </div>
-              <button
-                onClick={() => setShowError(false)}
-                className="flex-shrink-0 text-red-200 hover:text-white transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
             </div>
-            {/* Animated progress bar */}
+            <div className="flex-1">
+              <p className="font-semibold text-sm">Error</p>
+              <p className="text-sm mt-1 opacity-95">{displayError}</p>
+            </div>
+            <button
+              onClick={() => setShowError(false)}
+              className="flex-shrink-0 text-red-200 hover:text-white transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          {/* Animated progress bar */}
+          {showError && (
             <div
               className="h-1 bg-red-400 opacity-50"
               style={{
-                animation: "slideOutLeft 5s linear forwards",
+                animation: "shrink 5s linear forwards",
                 transformOrigin: "left",
               }}
             />
-          </div>
+          )}
         </div>
-      )}
+        <style>{`
+          @keyframes shrink {
+            from {
+              transform: scaleX(1);
+            }
+            to {
+              transform: scaleX(0);
+            }
+          }
+        `}</style>
+      </div>
 
       <Card className="w-full max-w-md relative overflow-hidden">
         {loadingConfig ? (

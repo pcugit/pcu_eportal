@@ -1,4 +1,5 @@
 from database import Database
+from utils.auth import AuthHandler
 import json
 import secrets
 import string
@@ -252,6 +253,13 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                     if not clash:
                         break
 
+                default_password = (last_name or '').strip().lower() or matric_no.lower()
+                hashed_password = AuthHandler.hash_password(default_password)
+                Database.execute_update(
+                    'UPDATE users SET matric_no = %s, password_hash = %s, updated_at = NOW() WHERE id = %s',
+                    (matric_no, hashed_password, user_id)
+                )
+
                 Database.execute_update(
                     '''INSERT INTO students (
                            "LastName", "FirstName", "OtherName", "Email", "MobileNumber",
@@ -276,6 +284,18 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                         entry_level_id,
                     )
                 )
+                student_row = Database.execute_query(
+                    'SELECT "Id" as id FROM students WHERE "UserId" = %s ORDER BY "CreatedDate" DESC LIMIT 1',
+                    (user_id,)
+                )
+                if student_row:
+                    student_id = student_row[0]['id']
+                    Database.execute_update(
+                        '''INSERT INTO student_auth (userid, studentid, is_first_login, last_login, failed_attempts, locked_until, createddate, updateddate)
+                           VALUES (%s, %s, TRUE, NULL, 0, NULL, NOW(), NOW())
+                           ON CONFLICT (userid) DO NOTHING''',
+                        (user_id, student_id)
+                    )
 
 
 # ── Shared DB update helper ───────────────────────────────────────────────────

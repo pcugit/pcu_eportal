@@ -16,7 +16,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 
-export default function FirstLoginPasswordChange({ onComplete }: { onComplete: () => void }) {
+export default function FirstLoginPasswordChange({
+  onComplete,
+}: {
+  onComplete: () => void;
+}) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,14 +43,16 @@ export default function FirstLoginPasswordChange({ onComplete }: { onComplete: (
     setLoading(true);
     setError(null);
     try {
-      await ApiClient.changePassword(newPassword);
+      await ApiClient.changePassword("", newPassword);
       await refreshStatus();
       setSuccess(true);
       setTimeout(() => {
         onComplete();
       }, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to change password");
+      setError(
+        err instanceof Error ? err.message : "Failed to change password",
+      );
     } finally {
       setLoading(false);
     }
@@ -55,9 +61,12 @@ export default function FirstLoginPasswordChange({ onComplete }: { onComplete: (
   return (
     <Card className="w-full max-w-md mx-auto border-primary/20 shadow-xl">
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl font-bold">Secure Your Account</CardTitle>
+        <CardTitle className="text-2xl font-bold">
+          Secure Your Account
+        </CardTitle>
         <CardDescription>
-          This is your first login. Please change your default password (your surname) to a secure one.
+          This is your first login. Please change your default password (your
+          surname) to a secure one.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
@@ -100,7 +109,11 @@ export default function FirstLoginPasswordChange({ onComplete }: { onComplete: (
           </div>
         </CardContent>
         <CardFooter>
-          <Button type="submit" className="w-full" disabled={loading || success}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading || success}
+          >
             {loading ? "Updating..." : "Update Password & Continue"}
           </Button>
         </CardFooter>

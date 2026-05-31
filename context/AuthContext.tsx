@@ -1,9 +1,25 @@
-'use client';
+"use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { ApiClient, StudentData } from '@/lib/api';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+import { ApiClient, StudentData } from "@/lib/api";
 
-type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissionofficer' | 'ictdirector' | 'admin' | 'freshapplicant';
+type StaffRole =
+  | "lecturer"
+  | "deo"
+  | "hod"
+  | "dean"
+  | "registrar"
+  | "admissionofficer"
+  | "ictdirector"
+  | "admin"
+  | "freshapplicant";
 
 interface User {
   id: number;
@@ -13,10 +29,20 @@ interface User {
   email: string;
   phone_number?: string;
   username?: string;
-  role: 'applicant' | 'admitted' | 'admin' | 'student' | StaffRole;
+  role: "applicant" | "admitted" | "admin" | "student" | StaffRole;
 }
 
-export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'freshapplicant', 'admissionofficer', 'ictdirector', 'admin'];
+export const STAFF_ROLES: string[] = [
+  "lecturer",
+  "deo",
+  "hod",
+  "dean",
+  "registrar",
+  "freshapplicant",
+  "admissionofficer",
+  "ictdirector",
+  "admin",
+];
 
 export interface ApplicantData {
   id: number;
@@ -43,7 +69,13 @@ interface AuthContextType {
   student: StudentData | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  signup: (first_name: string, last_name: string, email: string, password: string, phone_number: string) => Promise<void>;
+  signup: (
+    first_name: string,
+    last_name: string,
+    email: string,
+    password: string,
+    phone_number: string,
+  ) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: (redirectUrl?: string) => Promise<void>;
   refreshStatus: () => Promise<void>;
@@ -54,33 +86,39 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   // Initialize from localStorage for instant UI responsiveness
   const getStoredUser = () => {
-    if (typeof window === 'undefined') return null;
-    const stored = localStorage.getItem('auth_user');
-    try { return stored ? JSON.parse(stored) : null; } catch { return null; }
+    if (typeof window === "undefined") return null;
+    const stored = localStorage.getItem("auth_user");
+    try {
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
   };
 
   const storedUser = getStoredUser();
   const [user, setUser] = useState<User | null>(storedUser);
   const [applicant, setApplicant] = useState<ApplicantData | null>(null);
   const [student, setStudent] = useState<StudentData | null>(null);
-  
+
   // Initialize as loading to ensure verifyToken completes before auto-redirects
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [portalStatus, setPortalStatus] = useState<PortalStatus | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(true);
 
   const saveUserAndRole = (u: User | null) => {
     setUser(u);
     if (u) {
-      localStorage.setItem('auth_user', JSON.stringify(u));
+      localStorage.setItem("auth_user", JSON.stringify(u));
     } else {
-      localStorage.removeItem('auth_user');
-      localStorage.removeItem('last_active');
+      localStorage.removeItem("auth_user");
+      localStorage.removeItem("last_active");
     }
   };
 
@@ -90,39 +128,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
-    localStorage.setItem('last_active', Date.now().toString());
+    localStorage.setItem("last_active", Date.now().toString());
     inactivityTimer.current = setTimeout(() => {
-      window.alert('Your session has expired due to 15 minutes of inactivity. Please sign in again.');
-      
+      window.alert(
+        "Your session has expired due to 15 minutes of inactivity. Please sign in again.",
+      );
+
       // Auto-logout on inactivity
       ApiClient.setToken(null);
-      localStorage.removeItem('auth_user');
-      localStorage.removeItem('last_active');
-      
+      localStorage.removeItem("auth_user");
+      localStorage.removeItem("last_active");
+
       let finalUrl = "/";
-      if (user?.role === 'student' || user?.role === 'admitted') {
+      if (user?.role === "student" || user?.role === "admitted") {
         finalUrl = "/student/login";
-      } else if (user?.role === 'applicant' || user?.role === 'freshapplicant') {
+      } else if (
+        user?.role === "applicant" ||
+        user?.role === "freshapplicant"
+      ) {
         finalUrl = "/auth/login";
       }
 
       let redirectPath = finalUrl;
       // Handle Next.js basePath configuration for hard reloads
-      if (window.location.pathname.startsWith('/e-portal')) {
-        redirectPath = `/e-portal${finalUrl === '/' ? '' : finalUrl}`;
+      if (window.location.pathname.startsWith("/e-portal")) {
+        redirectPath = `/e-portal${finalUrl === "/" ? "" : finalUrl}`;
       }
-      
-      window.location.href = redirectPath || '/';
+
+      window.location.href = redirectPath || "/";
     }, INACTIVITY_LIMIT);
   }, [user?.role]);
 
   // Attach activity listeners when user is authenticated
   useEffect(() => {
-    const activityEvents = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    const activityEvents = [
+      "mousemove",
+      "keydown",
+      "click",
+      "touchstart",
+      "scroll",
+    ];
     const handler = () => resetInactivityTimer();
 
     if (user) {
-      activityEvents.forEach(e => window.addEventListener(e, handler, { passive: true }));
+      activityEvents.forEach((e) =>
+        window.addEventListener(e, handler, { passive: true }),
+      );
       resetInactivityTimer(); // start the timer immediately on login / page load
     } else {
       // Clear timer when not authenticated
@@ -130,7 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     return () => {
-      activityEvents.forEach(e => window.removeEventListener(e, handler));
+      activityEvents.forEach((e) => window.removeEventListener(e, handler));
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
     };
   }, [user, resetInactivityTimer]);
@@ -139,19 +190,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const token = ApiClient.getToken();
     if (token) {
       // Check if the session was already stale before loading the page
-      const lastActive = localStorage.getItem('last_active');
-      if (lastActive && Date.now() - parseInt(lastActive, 10) > INACTIVITY_LIMIT) {
+      const lastActive = localStorage.getItem("last_active");
+      if (
+        lastActive &&
+        Date.now() - parseInt(lastActive, 10) > INACTIVITY_LIMIT
+      ) {
         // Session expired while browser was closed — clear everything and don't verify
         ApiClient.setToken(null);
-        localStorage.removeItem('auth_user');
-        localStorage.removeItem('last_active');
+        localStorage.removeItem("auth_user");
+        localStorage.removeItem("last_active");
         setIsLoading(false);
       } else {
         verifyToken();
       }
     } else {
       setIsLoading(false);
-      localStorage.removeItem('auth_user');
+      localStorage.removeItem("auth_user");
     }
     fetchPortalStatus();
   }, []);
@@ -159,13 +213,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchPortalStatus = async () => {
     try {
       const { data } = await ApiClient.fetch<any>("/applicant/programs");
-      const programsLocked = data.programs?.filter((p: any) => p.is_locked)?.length || 0;
+      const programsLocked =
+        data.programs?.filter((p: any) => p.is_locked)?.length || 0;
       setPortalStatus({
         locked: data.global_admission_locked,
-        programsLocked: programsLocked
+        programsLocked: programsLocked,
       });
     } catch (err) {
-      console.error('Failed to fetch portal status:', err);
+      console.error("Failed to fetch portal status:", err);
     } finally {
       setIsPortalLoading(false);
     }
@@ -173,13 +228,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyToken = useCallback(async () => {
     try {
-      const response = await ApiClient.verifyToken() as { token?: string; user: User; student?: StudentData; applicant?: ApplicantData };
+      const response = (await ApiClient.verifyToken()) as {
+        token?: string;
+        user: User;
+        student?: StudentData;
+        applicant?: ApplicantData;
+      };
       // Save fresh token if backend returned one (role may have changed e.g. freshapplicant→applicant)
       if (response.token) {
         ApiClient.setToken(response.token);
       }
       saveUserAndRole(response.user);
-      
+
       if (response.applicant) {
         setApplicant(response.applicant);
         setStudent(null);
@@ -201,32 +261,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signup = useCallback(
-    async (first_name: string, last_name: string, email: string, password: string, phone_number: string) => {
+    async (
+      first_name: string,
+      last_name: string,
+      email: string,
+      password: string,
+      phone_number: string,
+    ) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await ApiClient.signup(first_name, last_name, email, password, phone_number) as ApiResponse;
+        const response = (await ApiClient.signup(
+          first_name,
+          last_name,
+          email,
+          password,
+          phone_number,
+        )) as ApiResponse;
         ApiClient.setToken(response.token);
         saveUserAndRole(response.user);
         if (response.applicant) {
           setApplicant(response.applicant);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Signup failed';
+        const message = err instanceof Error ? err.message : "Signup failed";
         setError(message);
         throw err;
       } finally {
         setIsLoading(false);
       }
     },
-    []
+    [],
   );
 
   const login = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await ApiClient.login(email, password) as ApiResponse;
+      const response = (await ApiClient.login(email, password)) as ApiResponse;
       ApiClient.setToken(response.token);
       saveUserAndRole(response.user);
       if (response.applicant) {
@@ -240,7 +312,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // after login so the ApiClient cache is hot before the dashboard mounts.
       // Only runs for applicants who have paid — freshapplicants have no forms.
       const role = response.user?.role;
-      if (role === 'applicant') {
+      if (role === "applicant") {
         Promise.resolve().then(async () => {
           try {
             // 1. Get the list of applications (also warms the status cache)
@@ -253,9 +325,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 apps.map((app: any) =>
                   Promise.all([
                     ApiClient.getForm(app.id).catch(() => null),
-                    ApiClient.getFormTemplate(app.program_type_id).catch(() => null),
-                  ])
-                )
+                    ApiClient.getFormTemplate(app.program_type_id).catch(
+                      () => null,
+                    ),
+                  ]),
+                ),
               );
             }
           } catch {
@@ -263,8 +337,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         });
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
+    } catch (err: any) {
+      let message = "Login failed";
+      if (err instanceof Error) {
+        message = err.message;
+      }
+      // Check for locked_until in the error response data
+      const responseData = err?.response;
+      if (responseData?.locked_until) {
+        const unlockTime = new Date(responseData.locked_until).toLocaleString();
+        message = `Account temporarily locked due to too many failed login attempts. Try again after ${unlockTime}.`;
+      }
       setError(message);
       throw err;
     } finally {
@@ -272,41 +355,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const logout = useCallback(async (redirectUrl?: string) => {
-    let finalUrl = redirectUrl;
-    if (!finalUrl) {
-      if (user?.role === 'student' || user?.role === 'admitted') {
-        finalUrl = "/student/login";
-      } else if (user?.role === 'applicant' || user?.role === 'freshapplicant') {
-        finalUrl = "/auth/login";
-      } else {
-        finalUrl = "/";
+  const logout = useCallback(
+    async (redirectUrl?: string) => {
+      let finalUrl = redirectUrl;
+      if (!finalUrl) {
+        if (user?.role === "student" || user?.role === "admitted") {
+          finalUrl = "/student/login";
+        } else if (
+          user?.role === "applicant" ||
+          user?.role === "freshapplicant"
+        ) {
+          finalUrl = "/auth/login";
+        } else {
+          finalUrl = "/";
+        }
       }
-    }
 
-    try {
-      await ApiClient.logout();
-    } catch (err) {
-      console.error('Logout error:', err);
-    } finally {
-      ApiClient.setToken(null);
-      localStorage.removeItem('auth_user');
-      localStorage.removeItem('last_active');
-      
-      let redirectPath = finalUrl;
-      // Handle Next.js basePath configuration for hard reloads
-      if (window.location.pathname.startsWith('/e-portal')) {
-        redirectPath = `/e-portal${finalUrl === '/' ? '' : finalUrl}`;
+      try {
+        await ApiClient.logout();
+      } catch (err) {
+        console.error("Logout error:", err);
+      } finally {
+        ApiClient.setToken(null);
+        localStorage.removeItem("auth_user");
+        localStorage.removeItem("last_active");
+
+        let redirectPath = finalUrl;
+        // Handle Next.js basePath configuration for hard reloads
+        if (window.location.pathname.startsWith("/e-portal")) {
+          redirectPath = `/e-portal${finalUrl === "/" ? "" : finalUrl}`;
+        }
+
+        window.location.href = redirectPath || "/";
       }
-      
-      window.location.href = redirectPath || '/';
-    }
-  }, [user?.role]);
+    },
+    [user?.role],
+  );
 
   const refreshStatus = useCallback(async () => {
     try {
-      if (user?.role === 'applicant' || user?.role === 'admitted') {
-        const response = await ApiClient.verifyToken() as { token?: string; user: User; student?: StudentData; applicant?: ApplicantData };
+      if (user?.role === "applicant" || user?.role === "admitted") {
+        const response = (await ApiClient.verifyToken()) as {
+          token?: string;
+          user: User;
+          student?: StudentData;
+          applicant?: ApplicantData;
+        };
         if (response.token) {
           ApiClient.setToken(response.token);
         }
@@ -318,12 +412,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const status = await ApiClient.getApplicantStatus();
           setApplicant(status.applicant);
         }
-      } else if (user?.role === 'student') {
-        const response = await ApiClient.verifyToken() as { user: User; student?: StudentData };
+      } else if (user?.role === "student") {
+        const response = (await ApiClient.verifyToken()) as {
+          user: User;
+          student?: StudentData;
+        };
         if (response.student) setStudent(response.student);
       }
     } catch (err) {
-      console.error('Error refreshing status:', err);
+      console.error("Error refreshing status:", err);
     }
   }, [user]);
 
@@ -339,7 +436,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshStatus,
     error,
     portalStatus,
-    isPortalLoading
+    isPortalLoading,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -348,7 +445,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };

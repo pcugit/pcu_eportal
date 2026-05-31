@@ -195,6 +195,15 @@ function CallbackContent() {
                 <span className="text-slate-500 font-medium">Status</span>
                 <span className="font-bold text-green-600">Successful</span>
               </div>
+              {result.payment_type === 'tuition' && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                  <p className="font-semibold text-slate-900">Tuition payment completed.</p>
+                  <p className="mt-2">
+                    Your student matric number has been issued and will be required for future logins.
+                    Use your matric number and your surname in lowercase to sign in after you log out.
+                  </p>
+                </div>
+              )}
             </div>
           )}
           {state === "failed" && (

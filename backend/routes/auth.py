@@ -1,9 +1,64 @@
 from flask import Blueprint, request, jsonify
 from database import Database
 from utils.auth import AuthHandler
+from datetime import datetime, timedelta
 import re
 
 auth_bp = Blueprint('auth', __name__)
+
+def get_student_auth(user_id):
+    auth_rows = Database.execute_query(
+        'SELECT id, userid, studentid, is_first_login, failed_attempts, locked_until '
+        'FROM student_auth WHERE userid = %s',
+        (user_id,)
+    )
+    return auth_rows[0] if auth_rows else None
+
+def create_student_auth(user_id, is_first_login=False):
+    student_row = Database.execute_query(
+        'SELECT "Id" as id FROM students WHERE "UserId" = %s LIMIT 1',
+        (user_id,)
+    )
+    student_id = student_row[0]['id'] if student_row else None
+    Database.execute_update(
+        'INSERT INTO student_auth (userid, studentid, is_first_login, last_login, failed_attempts, locked_until, createddate, updateddate) '
+        'VALUES (%s, %s, %s, NULL, 0, NULL, NOW(), NOW()) '
+        'ON CONFLICT (userid) DO NOTHING',
+        (user_id, student_id, is_first_login)
+    )
+    return get_student_auth(user_id)
+
+def update_student_auth_on_success(user_id):
+    if not get_student_auth(user_id):
+        create_student_auth(user_id)
+    Database.execute_update(
+        'UPDATE student_auth '
+        'SET last_login = NOW(), failed_attempts = 0, locked_until = NULL, updateddate = NOW() '
+        'WHERE userid = %s',
+        (user_id,)
+    )
+
+def is_student_locked(student_auth):
+    return bool(
+        student_auth
+        and student_auth.get('locked_until')
+        and student_auth['locked_until'] > datetime.utcnow()
+    )
+
+def is_student_password_change_required(user_id):
+    auth = get_student_auth(user_id)
+    return bool(auth and auth.get('is_first_login'))
+
+def require_password_change(f):
+    @wraps(f)
+    def decorated(payload, *args, **kwargs):
+        if payload.get('role') == 'student' and is_student_password_change_required(payload['user_id']):
+            return jsonify({
+                'message': 'Password change required before accessing student resources.',
+                'require_password_change': True,
+            }), 403
+        return f(payload, *args, **kwargs)
+    return decorated
 
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
@@ -94,16 +149,20 @@ def login():
     
     if not data or not all(k in data for k in ['email', 'password']):
         return jsonify({'message': 'Missing email or password'}), 400
-    
-    # Query user by email or username, joining user_types and roles to get the role string
+
+    identifier = data['email'].strip()
+    if not identifier:
+        return jsonify({'message': 'Missing email or password'}), 400
+
+    # Query user by email or matric number, joining user_types and roles to get the role string
     users = Database.execute_query(
         '''SELECT u.id, u.firstname, u.surname, u.middlename, u.email, u.username, 
                   u.password_hash, u.user_type_id, u.phone_number, r.name AS role 
            FROM users u
            LEFT JOIN user_types ut ON ut.id = u.user_type_id
            LEFT JOIN roles r ON r.id = ut.role_id
-           WHERE u.email = %s OR u.username = %s''',
-        (data['email'], data['email'])
+           WHERE u.email = %s OR u.matric_no = %s''',
+        (identifier, identifier)
     )
     
     if not users:
@@ -111,11 +170,6 @@ def login():
     
     user = users[0]
     
-    if not AuthHandler.verify_password(data['password'], user['password_hash']):
-        return jsonify({'message': 'Invalid credentials'}), 401
-    
-    # Extract role directly from the query result
-    # Fallback to 'freshapplicant' if role is not set or the join failed
     raw_role = user.get('role')
     if raw_role:
         role = raw_role.lower()  # Normalize to lower case for token and logic ('freshapplicant', 'applicant', 'student')
@@ -128,7 +182,47 @@ def login():
         else:
             role = 'applicant' # fallback
 
+    if role == 'student' and '@' in identifier:
+        return jsonify({
+            'message': 'Student accounts must sign in with your matric number, not your email.'
+        }), 401
+
+    student_auth: dict | None = None
+    if role == 'student':
+        student_auth = get_student_auth(user['id'])
+        if is_student_locked(student_auth):
+            return jsonify({
+                'message': 'Account temporarily locked due to too many failed login attempts. Please try again later.',
+                'locked_until': student_auth['locked_until'].isoformat() if student_auth and student_auth.get('locked_until') else None,
+            }), 403
+
+    if not AuthHandler.verify_password(data['password'], user['password_hash']):
+        if role == 'student':
+            student_auth = student_auth or create_student_auth(user['id'])
+            failed_attempts = ((student_auth['failed_attempts'] if student_auth and 'failed_attempts' in student_auth else 0) or 0) + 1
+            locked_until = None
+            if failed_attempts >= 5:
+                locked_until = datetime.utcnow() + timedelta(minutes=5)
+
+            Database.execute_update(
+                'UPDATE student_auth '
+                'SET failed_attempts = %s, locked_until = %s, updateddate = NOW() '
+                'WHERE userid = %s',
+                (failed_attempts, locked_until, user['id'])
+            )
+
+            if locked_until:
+                return jsonify({
+                    'message': 'Account temporarily locked due to too many failed login attempts. Please try again later.',
+                    'locked_until': locked_until.isoformat(),
+                }), 403
+
+        return jsonify({'message': 'Invalid credentials'}), 401
+
     token = AuthHandler.generate_token(user['id'], role)
+
+    if role == 'student':
+        update_student_auth_on_success(user['id'])
     
     first_name = user.get('firstname', '')
     last_name = user.get('surname', '')
@@ -156,10 +250,11 @@ def login():
             '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
                       COALESCE(a.program_setup_id, 0) as program_id,
                       l.name as current_level, acs.name as session, 
-                      FALSE as is_first_login,
+                      COALESCE(sa.is_first_login, FALSE) as is_first_login,
                       ps.name as program_name 
                FROM students s 
                JOIN users u ON s."UserId" = u.id
+               LEFT JOIN student_auth sa ON sa.userid = u.id
                LEFT JOIN applications a ON a.user_id = u.id
                LEFT JOIN level l ON s.current_level_id = l.id
                LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
@@ -208,6 +303,7 @@ def verify_token(payload):
         
     user_data = user[0]
     
+    current_token_role = payload.get('role')
     raw_role = user_data.get('role')
     if raw_role:
         role = raw_role.lower()
@@ -219,6 +315,10 @@ def verify_token(payload):
             role = 'applicant'
         else:
             role = 'applicant'
+
+    # Preserve access for an already authenticated admitted student session until logout.
+    if current_token_role == 'admitted' and role == 'student':
+        role = 'admitted'
 
     first_name = user_data.get('firstname', '')
     last_name = user_data.get('surname', '')
@@ -245,10 +345,11 @@ def verify_token(payload):
             '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
                       COALESCE(a.program_setup_id, 0) as program_id,
                       l.name as current_level, acs.name as session, 
-                      FALSE as is_first_login,
+                      COALESCE(sa.is_first_login, FALSE) as is_first_login,
                       ps.name as program_name 
                FROM students s 
                JOIN users u ON s."UserId" = u.id
+               LEFT JOIN student_auth sa ON sa.userid = u.id
                LEFT JOIN applications a ON a.user_id = u.id
                LEFT JOIN level l ON s.current_level_id = l.id
                LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
@@ -308,10 +409,25 @@ def change_password(payload):
     
     if not success:
         return jsonify({'message': 'Failed to update password'}), 500
+
+    if payload.get('role') == 'student':
+        student_row = Database.execute_query(
+            'SELECT "Id" as id FROM students WHERE "UserId" = %s LIMIT 1',
+            (user_id,)
+        )
+        student_id = student_row[0]['id'] if student_row else None
+        Database.execute_update(
+            '''INSERT INTO student_auth (userid, studentid, is_first_login, password_changed_at, updateddate)
+               VALUES (%s, %s, FALSE, NOW(), NOW())
+               ON CONFLICT (userid) DO UPDATE SET
+                   is_first_login = FALSE,
+                   password_changed_at = NOW(),
+                   updateddate = NOW()''',
+            (user_id, student_id)
+        )
         
     return jsonify({'message': 'Password changed successfully'}), 200
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
-    """Logout endpoint (token is invalidated on client side)"""
     return jsonify({'message': 'Logged out successfully'}), 200

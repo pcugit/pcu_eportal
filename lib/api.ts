@@ -13,7 +13,10 @@ export interface ApplicantStatus {
   program_id: number;
   program_type_id: number;
   program_name: string;
+  degree_code?: string | null;
+  approved_course?: string | null;
   form_no: string | null;
+  matric_no: string | null;
   application_status: string;
   admission_status: string;
   has_paid_application_fee: boolean;
@@ -359,10 +362,10 @@ export class ApiClient {
     return data;
   }
 
-  static async login(email: string, password: string) {
+  static async login(email: string, password: string, portal?: string) {
     const { data } = await this.fetch("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, portal }),
     });
     return data;
   }
@@ -507,12 +510,14 @@ export class ApiClient {
     processing_fee: number;
     fee_name: string;
     found: boolean;
+    message?: string;
   }> {
     const { data } = await this.fetch<{
       acceptance_fee: number;
       processing_fee: number;
       fee_name: string;
       found: boolean;
+      message?: string;
     }>("/applicant/acceptance-fee");
     return data;
   }
@@ -522,12 +527,14 @@ export class ApiClient {
     total: number;
     processing_fee: number;
     found: boolean;
+    message?: string;
   }> {
     const { data } = await this.fetch<{
       components: { name: string; amount: number }[];
       total: number;
       processing_fee: number;
       found: boolean;
+      message?: string;
     }>("/applicant/tuition-fee-breakdown");
     return data;
   }
@@ -1350,21 +1357,35 @@ export class ApiClient {
   }
 
   static async getGlobalSettings(): Promise<any> {
-    const { data } = await this.fetch<any>("/admission_officer/settings");
-    return data;
+    const { data } = await this.fetch<{ settings: Array<{ key: string; value: string }> }>("/settings/all");
+    const settings = data?.settings || [];
+    // Transform array of {key, value} into a key→value map for backward compatibility
+    return settings.reduce((acc: Record<string, string>, s) => {
+      acc[s.key] = s.value;
+      return acc;
+    }, {});
   }
 
   static async updateGlobalSettings(
     settings: Record<string, string>,
   ): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>(
-      "/admission_officer/settings",
-      {
-        method: "POST",
-        body: JSON.stringify(settings),
-      },
-    );
-    return data;
+    // Send each setting individually so the sync logic in settings.py fires
+    // (e.g. current_academic_session syncs academic_sessions table,
+    //  current_semester syncs semesters table)
+    let lastResult: { message: string } = { message: '' };
+    for (const [key, value] of Object.entries(settings)) {
+      // Skip entries with no value (avoids 400 from backend)
+      if (value === undefined || value === null || value === '') continue;
+      const { data } = await this.fetch<{ message: string }>(
+        "/settings/update",
+        {
+          method: "POST",
+          body: JSON.stringify({ key, value }),
+        },
+      );
+      lastResult = data;
+    }
+    return lastResult;
   }
 
   static async createLecturer(

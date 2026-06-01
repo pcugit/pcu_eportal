@@ -142,11 +142,18 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         Database.execute_update(sql, params)
 
         if tran_status == 'successful':
-            apply_downstream_success(user_id, payment_type, reference_no=ref)
-            logger.info(
-                f'[requery_worker] SUCCESS: {ref} | type={payment_type} | user={user_id}'
-            )
-            summary['resolved_success'] += 1
+            # ✅ ATOMIC SETTLEMENT: Prevent race condition with callback handler
+            # Only apply downstream if we successfully acquire the lock
+            from utils.payment_status import atomic_settle_payment
+            if atomic_settle_payment(ref, user_id, payment_type):
+                logger.info(
+                    f'[requery_worker] SUCCESS: {ref} | type={payment_type} | user={user_id}'
+                )
+                summary['resolved_success'] += 1
+            else:
+                # Another process already settled it, that's fine
+                logger.info(f'[requery_worker] Already settled by another handler: {ref}')
+                summary['resolved_success'] += 1
 
         elif tran_status == 'failed':
             logger.warning(

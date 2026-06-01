@@ -182,7 +182,8 @@ def login():
         else:
             role = 'applicant' # fallback
 
-    if role == 'student' and '@' in identifier:
+    portal = data.get('portal', '')
+    if role == 'student' and portal == 'student' and '@' in identifier:
         return jsonify({
             'message': 'Student accounts must sign in with your matric number, not your email.'
         }), 401

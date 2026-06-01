@@ -30,7 +30,7 @@ class Config:
     INTERSWITCH_PAY_ITEM_ID_APP   = os.getenv('INTERSWITCH_PAY_ITEM_ID_APP', '')   # Application fee
     INTERSWITCH_PAY_ITEM_ID_ACC   = os.getenv('INTERSWITCH_PAY_ITEM_ID_ACC', '')   # Acceptance fee
     INTERSWITCH_PAY_ITEM_ID_TUI   = os.getenv('INTERSWITCH_PAY_ITEM_ID_TUI', '')   # Tuition fee
-    FRONTEND_BASE_URL             = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
+    FRONTEND_BASE_URL             = os.getenv('FRONTEND_BASE_URL') or os.getenv('NEXT_PUBLIC_APP_URL') or 'http://localhost:3000'
 
 
 class DevelopmentConfig(Config):

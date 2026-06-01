@@ -1517,25 +1517,6 @@ def get_courses_list(payload):
     return jsonify({'courses': courses or []}), 200
 
 
-@admin_bp.route('/settings', methods=['GET'])
-@AuthHandler.token_required
-@AuthHandler.admin_required
-def get_global_settings(payload):
-    settings = Database.execute_query('SELECT key, value, description FROM system_settings')
-    return jsonify({s['key']: s['value'] for s in (settings or [])}), 200
-
-
-@admin_bp.route('/settings', methods=['POST'])
-@AuthHandler.token_required
-@AuthHandler.admin_required
-def bulk_update_settings(payload):
-    data = request.get_json()
-    for key, value in data.items():
-        if isinstance(value, bool):
-            value = str(value).lower()
-        Database.execute_update('UPDATE system_settings SET value = %s WHERE key = %s', (value, key))
-    return jsonify({'message': 'Settings updated successfully'}), 200
-
 
 @admin_bp.route('/staff/lecturer', methods=['POST'])
 @AuthHandler.token_required

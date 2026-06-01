@@ -268,6 +268,10 @@ function AcademicSessionManager() {
   const loadSettings = async () => {
     try {
       const data = await ApiClient.getGlobalSettings();
+      // Ensure current_semester has a default so the form always submits a value
+      if (!data.current_semester) {
+        data.current_semester = "First Semester";
+      }
       setSettings(data);
     } catch (err) {
       console.error("Failed to load settings:", err);

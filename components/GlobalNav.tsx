@@ -25,6 +25,7 @@ import {
   Lock,
   CreditCard,
   ChevronDown,
+  DollarSign,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -61,12 +62,13 @@ const STUDENT_NAV_ITEMS = [
   { label: "Change Password", href: "/student/change-password", icon: Lock },
 ];
 
-// Admitted role: paid acceptance fee, limited student portal
-// (documents, payments, downloads only — no course registration)
+// Admitted role: paid acceptance fee, stays on applicant portal
+// (tuition payment, documents, downloads — no course registration)
 const ADMITTED_NAV_ITEMS = [
-  { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
-  { label: "Transactions", href: "/student/transactions", icon: CreditCard },
-  { label: "Change Password", href: "/student/change-password", icon: Lock },
+  { label: "Dashboard", href: "/applicant/dashboard", icon: LayoutDashboard },
+  { label: "Pay Fees", href: "/applicant/payment?type=tuition", icon: DollarSign },
+  { label: "Transactions", href: "/applicant/transactions", icon: CreditCard },
+  { label: "Change Password", href: "/applicant/change-password", icon: Lock },
 ];
 
 const ADMIN_NAV_ITEMS = [
@@ -114,13 +116,20 @@ export function GlobalNav() {
   const [pendingCount, setPendingCount] = React.useState(0);
 
   const handleLogout = async () => {
+    const currentPath = pathname || "";
     await logout();
-    router.replace("/");
+    if (currentPath.startsWith("/student")) {
+      router.replace("/student/login");
+    } else if (currentPath.startsWith("/applicant")) {
+      router.replace("/auth/login");
+    } else {
+      router.replace("/staff/login");
+    }
   };
 
   const isApplicantPortal =
     isAuthenticated &&
-    (user?.role === "applicant" || user?.role === "freshapplicant");
+    (user?.role === "applicant" || user?.role === "freshapplicant" || user?.role === "admitted");
   const isStudentPortal = isAuthenticated && user?.role === "student";
   const isAdmittedPortal = isAuthenticated && user?.role === "admitted";
   const isAdminPortal = isAuthenticated && user?.role === "admissionofficer";
@@ -161,14 +170,18 @@ export function GlobalNav() {
     // While verifying the token, always show public nav to avoid sidebar flash
     if (isLoading) return LANDING_NAV_ITEMS;
     if (!isAuthenticated) return LANDING_NAV_ITEMS;
-    if (pathname?.startsWith("/applicant")) return APPLICANT_NAV_ITEMS;
-    if (pathname?.startsWith("/student")) {
+    if (pathname?.startsWith("/applicant")) {
       if (user?.role === "admitted") return ADMITTED_NAV_ITEMS;
+      return APPLICANT_NAV_ITEMS;
+    }
+    if (pathname?.startsWith("/student")) {
       if (user?.role === "student") return STUDENT_NAV_ITEMS;
     }
 
-    if (isApplicantPortal) return APPLICANT_NAV_ITEMS;
-    if (isAdmittedPortal) return ADMITTED_NAV_ITEMS; // limited student portal
+    if (isApplicantPortal) {
+      if (user?.role === "admitted") return ADMITTED_NAV_ITEMS;
+      return APPLICANT_NAV_ITEMS;
+    }
     if (isStudentPortal) return STUDENT_NAV_ITEMS;
     if (isAdminPortal) return ADMIN_NAV_ITEMS;
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;

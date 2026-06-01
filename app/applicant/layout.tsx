@@ -16,6 +16,13 @@ export default function ApplicantLayout({ children }: { children: React.ReactNod
       return;
     }
 
+    // Only applicant, freshapplicant, admitted, and student roles belong here
+    const role = user?.role;
+    if (role && !['applicant', 'freshapplicant', 'admitted', 'student'].includes(role)) {
+      router.replace('/');
+      return;
+    }
+
     const currentPath = window.location.pathname;
     const isDashboard = currentPath === '/applicant/dashboard';
 

@@ -38,6 +38,8 @@ import {
   ChevronRight,
   Loader2,
   GraduationCap,
+  Copy,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import RecommendationCard from "@/components/RecommendationCard";
@@ -98,9 +100,31 @@ function ApplicantDashboardInner() {
     useState<AdmissionLetterData | null>(null);
   const [showLetter, setShowLetter] = useState(false);
   const [showAdmissionModal, setShowAdmissionModal] = useState(false);
-  const [showStudentPortalModal, setShowStudentPortalModal] = useState(false);
+
+  // Admitted student states — tuition payment & document downloads
+  const isAdmitted = user?.role === "admitted" || user?.role === "student";
+  const [copiedMatric, setCopiedMatric] = useState(false);
+  const [isPayingTuition, setIsPayingTuition] = useState(false);
+  const [tuitionPayError, setTuitionPayError] = useState<string | null>(null);
+  const [tuitionPaySuccess, setTuitionPaySuccess] = useState(false);
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
+  type FeeComponent = { name: string; amount: number };
+  const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([]);
+  const [feeTotal, setFeeTotal] = useState(0);
+  const [tuitionProcessingFee, setTuitionProcessingFee] = useState(300);
+  const [paymentMode, setPaymentMode] = useState<"full" | "installment">("full");
+  const [installmentPlans, setInstallmentPlans] = useState<any[]>([]);
+  const [selectedInstallmentPlanId, setSelectedInstallmentPlanId] = useState<number | null>(null);
+  const [installmentAmount, setInstallmentAmount] = useState<number | null>(null);
+  const [remainingPercentage, setRemainingPercentage] = useState<number>(100);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+  const [breakdownError, setBreakdownError] = useState<string | null>(null);
+  const [printLoading, setPrintLoading] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
 
   const [applicants, setApplicants] = useState<ApplicantStatus[]>([]);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
   const [programTypes, setProgramTypes] = useState<DynamicProgramForm[]>([]);
   const [formTemplate, setFormTemplate] = useState<any>(null);
   const [viewingFormId, setViewingFormId] = useState<number | null>(null);
@@ -142,9 +166,6 @@ function ApplicantDashboardInner() {
       if (response.applicant?.admission_status === "admitted") {
         if (!response.applicant.has_paid_acceptance_fee) {
           setShowAdmissionModal(true);
-        } else {
-          // Acceptance fee paid — prompt them to go to student portal (show once per mount)
-          setShowStudentPortalModal(true);
         }
         try {
           const letterResponse = await ApiClient.getAdmissionLetter();
@@ -154,13 +175,25 @@ function ApplicantDashboardInner() {
         }
       }
 
+      // For admitted users, also fetch payment history
+      if (isAdmitted) {
+        try {
+          const pHistory = await ApiClient.getPaymentHistory();
+          setPaymentHistory(pHistory.payment_history || []);
+        } catch {}
+        try {
+          const plansRes = await ApiClient.getInstallmentPlans();
+          setInstallmentPlans(plansRes.installment_plans || []);
+        } catch {}
+      }
+
       // Auto-open profile when redirected from acceptance_fee payment success
       if (searchParams.get("view") === "profile") {
         // Find the admitted/accepted application
         const admittedApp = apps.find(
           (a: ApplicantStatus) =>
             a.has_paid_application_fee &&
-            ["admitted", "accepted", "submitted", "screening"].includes(
+            ["admitted", "accepted", "submitted", "screening", "enrolled"].includes(
               a.application_status,
             ),
         );
@@ -196,7 +229,7 @@ function ApplicantDashboardInner() {
             try {
               const feeData = await ApiClient.getAcceptanceFee();
               setAcceptanceFeeData({
-                amount: feeData.acceptance_fee,
+                amount: feeData.acceptance_fee + feeData.processing_fee,
                 feeName: feeData.fee_name,
                 paid: admittedApp.has_paid_acceptance_fee,
               });
@@ -295,7 +328,360 @@ function ApplicantDashboardInner() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/auth/login");
+  };
+
+  // ── Admitted student handlers ──────────────────────────────────────────────
+  const handlePrintPDF = async () => {
+    try {
+      setPrintLoading(true);
+      const pdfBlob = await ApiClient.printAdmissionLetterPDF();
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `admission_letter_${admissionLetter?.reference || "letter"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      alert("Failed to generate PDF. Please try again.");
+    } finally {
+      setPrintLoading(false);
+    }
+  };
+
+  const handleDownloadMedicalForm = async () => {
+    try {
+      setDownloading("medical_form");
+      const blob = await ApiClient.downloadMedicalForm();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `medical_examination_form.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading medical form:", err);
+      alert(err instanceof Error ? err.message : "Failed to download medical form");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadNotice = async () => {
+    try {
+      setDownloading("admission_notice");
+      const blob = await ApiClient.downloadAdmissionNotice();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pcu_admission_notice_2025.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading notice:", err);
+      alert("Failed to download admission notice");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadAffidavit = async () => {
+    try {
+      setDownloading("affidavit");
+      const blob = await ApiClient.downloadAffidavitForm();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pcu_affidavit_for_good_conduct.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading affidavit:", err);
+      alert("Failed to download affidavit form");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadReceipt = async (receipt_no: string, type: string) => {
+    try {
+      setDownloading(`receipt_${receipt_no}`);
+      const blob = await ApiClient.downloadPaymentReceipt(receipt_no);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `receipt_${type}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading receipt:", err);
+      alert("Failed to download receipt");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handlePayTuition = async () => {
+    setTuitionPayError(null);
+    setBreakdownError(null);
+    setShowBreakdownModal(true);
+    setLoadingBreakdown(true);
+    try {
+      const [breakdown, plansRes] = await Promise.all([
+        ApiClient.getTuitionBreakdown(),
+        ApiClient.getInstallmentPlans(),
+      ]);
+      setFeeComponents(breakdown.components);
+      setFeeTotal(breakdown.total);
+      setTuitionProcessingFee(
+        typeof breakdown.processing_fee === "number" ? breakdown.processing_fee : 300,
+      );
+      const plans = plansRes.installment_plans || [];
+      setInstallmentPlans(plans);
+
+      const paidPlanIds = new Set<number>();
+      (paymentHistory || []).forEach((p: any) => {
+        if (p.payment_type === "tuition" && p.is_successful && p.installment_plan_id) {
+          paidPlanIds.add(p.installment_plan_id);
+        }
+      });
+      const unpaidPlans = plans.filter((pl: any) => !paidPlanIds.has(pl.id));
+      const remPct = unpaidPlans.length > 0 ? unpaidPlans.reduce((sum: number, pl: any) => sum + parseFloat(pl.percentage || 0), 0) : 100;
+      setRemainingPercentage(remPct);
+
+      if (plans.length > 0) {
+        const next = plans.find((pl: any) => !paidPlanIds.has(pl.id)) || plans[0];
+        if (next) {
+          setSelectedInstallmentPlanId(next.id);
+          setInstallmentAmount(
+            parseFloat((breakdown.total * (next.percentage / 100) || 0).toFixed(2)),
+          );
+        } else {
+          setSelectedInstallmentPlanId(null);
+          setInstallmentAmount(null);
+        }
+      } else {
+        setSelectedInstallmentPlanId(null);
+        setInstallmentAmount(null);
+      }
+    } catch (err: any) {
+      setBreakdownError(err.message || "Failed to load fee breakdown.");
+    } finally {
+      setLoadingBreakdown(false);
+    }
+  };
+
+  const confirmAndPayTuition = async () => {
+    if (isPayingTuition) return;
+    setIsPayingTuition(true);
+    setTuitionPayError(null);
+    try {
+      const init = await ApiClient.initiatePayment(
+        "tuition",
+        undefined,
+        undefined,
+        paymentMode === "installment" ? (selectedInstallmentPlanId ?? undefined) : undefined,
+      );
+      setShowBreakdownModal(false);
+      const url = new URL(init.redirect_url);
+      const params = Object.fromEntries(url.searchParams.entries());
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = `${url.origin}/collections/w/pay`;
+      Object.entries(params).forEach(([key, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
+      });
+      if (!params["pay_item_name"]) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "pay_item_name";
+        input.value = "School Fees";
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit();
+    } catch (err: any) {
+      setTuitionPayError(err.message || "Failed to start payment. Please try again.");
+      setIsPayingTuition(false);
+    }
+  };
+
+  // Admitted student documents section rendered both on dashboard and profile page
+  const renderOfficialDocuments = () => {
+    return (
+      <Card className="overflow-hidden border border-slate-100 shadow-xl bg-white animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="bg-gradient-to-r from-[#6b21a8]/5 via-[#881337]/5 to-transparent p-6 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-xl font-bold text-slate-800">
+                Official Admission Documents
+              </CardTitle>
+              <CardDescription className="text-sm mt-1 text-slate-500">
+                Access and download your official enrollment documents anytime.
+              </CardDescription>
+            </div>
+          </div>
+        </div>
+
+        <CardContent className="p-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Admission Letter */}
+            <div className="bg-gradient-to-br from-[#6b21a8]/[0.02] to-transparent border border-[#6b21a8]/10 hover:border-[#6b21a8]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+              <div>
+                <div className="bg-[#6b21a8]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                  <FileText className="h-6 w-6" />
+                </div>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Provisional Admission Letter</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Your official letter of admission for your program.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowLetter(!showLetter)}
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4"
+                  disabled={!admissionLetter}
+                >
+                  {showLetter ? "Hide" : "Preview"}
+                </Button>
+                <Button
+                  onClick={handlePrintPDF}
+                  size="sm"
+                  className="flex-1 gap-2 bg-[#6b21a8] hover:bg-[#581c87] text-white shadow-md shadow-purple-500/10 text-xs font-semibold py-4"
+                  disabled={printLoading || !admissionLetter}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {printLoading ? "..." : "PDF"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Medical Form */}
+            <div className="bg-gradient-to-br from-[#881337]/[0.02] to-transparent border border-[#881337]/10 hover:border-[#881337]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+              <div>
+                <div className="bg-[#881337]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#881337]">
+                  <FileText className="h-6 w-6" />
+                </div>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Medical Examination Form</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Print and take to a certified hospital for examination.</p>
+              </div>
+              <Button
+                onClick={handleDownloadMedicalForm}
+                disabled={downloading === "medical_form"}
+                className="w-full gap-2 bg-[#881337] hover:bg-[#70112c] text-white shadow-md shadow-rose-900/10 text-xs font-semibold py-4"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {downloading === "medical_form" ? "Downloading..." : "Download PDF"}
+              </Button>
+            </div>
+
+            {/* Notice & Affidavit */}
+            <div className="bg-gradient-to-br from-[#6b21a8]/[0.01] to-[#881337]/[0.01] border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+              <div>
+                <div className="bg-purple-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                  <Settings className="h-6 w-6" />
+                </div>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Notice & Affidavit</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Official resumption notice and good conduct affidavit.</p>
+              </div>
+              <div className="space-y-2">
+                <Button
+                  onClick={handleDownloadNotice}
+                  variant="outline"
+                  size="sm"
+                  disabled={downloading === "admission_notice"}
+                  className="w-full gap-2 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4 justify-center"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {downloading === "admission_notice" ? "..." : "Admission Notice"}
+                </Button>
+                <Button
+                  onClick={handleDownloadAffidavit}
+                  variant="outline"
+                  size="sm"
+                  disabled={downloading === "affidavit"}
+                  className="w-full gap-2 border-[#881337]/25 text-[#881337] hover:bg-[#881337]/5 text-xs font-semibold py-4 justify-center"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Payment Receipts */}
+            <div className="bg-gradient-to-br from-slate-50/50 to-transparent border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+              <div>
+                <div className="bg-rose-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#881337]">
+                  <DollarSign className="h-6 w-6" />
+                </div>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Payment Receipts</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Download official receipts for your completed payments.</p>
+              </div>
+              <div className="space-y-2">
+                {paymentHistory
+                  .filter((pt) => pt.is_successful)
+                  .map((pt) => (
+                    <div
+                      key={pt.transaction_id}
+                      className="flex items-center justify-between p-2 bg-white hover:bg-slate-50 rounded-lg border border-slate-100 text-xs transition-colors duration-200"
+                    >
+                      <span className="capitalize font-semibold text-slate-600">
+                        {pt.payment_type.replace("_", " ")}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
+                        onClick={() => handleDownloadReceipt(pt.receipt_no, pt.payment_type)}
+                        disabled={downloading === `receipt_${pt.receipt_no}`}
+                      >
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        PDF
+                      </Button>
+                    </div>
+                  ))}
+                {paymentHistory.filter((pt) => pt.is_successful).length === 0 && (
+                  <p className="text-xs text-center text-slate-400 py-2 italic bg-slate-50 rounded-lg border border-dashed">
+                    No payment records found.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Admission Letter Preview */}
+          {showLetter && (
+            <div className="mt-8 border border-slate-100 rounded-xl overflow-hidden shadow-inner bg-slate-50 p-8">
+              <div className="bg-white p-12 shadow-2xl mx-auto max-w-[850px]">
+                {admissionLetter ? (
+                  <FsmsAdmissionLetter {...admissionLetter} />
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#6b21a8] mx-auto mb-4" />
+                    <p className="text-slate-500 text-sm mt-4">Loading admission letter details...</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
   };
 
   if (loading) {
@@ -367,6 +753,7 @@ function ApplicantDashboardInner() {
                       "admitted",
                       "accepted",
                       "rejected",
+                      "enrolled",
                     ].includes(app.application_status);
                     return (
                       <tr
@@ -379,7 +766,34 @@ function ApplicantDashboardInner() {
                         <td className="p-5 text-sm text-slate-500 font-mono font-medium">
                           {app.form_no || "-"}
                         </td>
-                        <td className="p-5 text-sm text-slate-400">-</td>
+                        <td className="p-5 text-sm text-slate-400">
+                          {app.matric_no ? (
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-sm text-slate-700">{app.matric_no}</span>
+                              <button
+                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors duration-200"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(app.matric_no!);
+                                    setCopiedId(app.id);
+                                    setTimeout(() => setCopiedId(null), 1800);
+                                  } catch (e) {
+                                    console.error("Copy failed", e);
+                                  }
+                                }}
+                                title="Copy Matric Number"
+                              >
+                                {copiedId === app.id ? (
+                                  <Check className="h-4 w-4 text-emerald-600 animate-in fade-in zoom-in duration-200" />
+                                ) : (
+                                  <Copy className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
                         <td className="p-5 text-sm text-slate-800 uppercase font-black tracking-tight">
                           {app.program_name}
                         </td>
@@ -478,7 +892,7 @@ function ApplicantDashboardInner() {
                                       const feeData =
                                         await ApiClient.getAcceptanceFee();
                                       setAcceptanceFeeData({
-                                        amount: feeData.acceptance_fee,
+                                        amount: feeData.acceptance_fee + feeData.processing_fee,
                                         feeName: feeData.fee_name,
                                         paid: app.has_paid_acceptance_fee,
                                       });
@@ -498,7 +912,7 @@ function ApplicantDashboardInner() {
                                 }
                               }}
                             >
-                              {["submitted", "admitted", "accepted"].includes(
+                              {["submitted", "admitted", "accepted", "enrolled"].includes(
                                 app.application_status,
                               )
                                 ? "Profile"
@@ -549,74 +963,54 @@ function ApplicantDashboardInner() {
           </Button>
 
           {currentApp &&
-          ["submitted", "admitted", "accepted"].includes(
+          ["submitted", "admitted", "accepted", "enrolled"].includes(
             currentApp.application_status,
           ) ? (
             <div className="space-y-10">
               <div>
-                {currentApp.admission_status === "admitted" &&
-                  (currentApp.admission_letter_sent ? (
-                    <div className="mb-8 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-100 shadow-sm text-left">
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 bg-green-500 rounded-lg text-white shadow-lg shadow-green-500/30">
-                          <FileText className="h-6 w-6" />
+                {acceptanceFeeData && !acceptanceFeeData.paid && (
+                  <div className="mb-8 rounded-xl border-2 p-6 space-y-4 bg-amber-50 border-amber-300 text-left">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl bg-amber-400 text-white font-bold">
+                          ₦
                         </div>
                         <div>
-                          <h5 className="font-black text-green-800 text-lg">
-                            Admission Letter Available
-                          </h5>
-                          <p className="text-green-600 font-medium text-sm">
-                            Your official admission letter is ready to be
-                            printed.
+                          <h3 className="font-bold text-lg text-amber-900">
+                            Acceptance Fee Payment Required
+                          </h3>
+                          <p className="text-sm text-amber-700">
+                            You must pay the acceptance fee to confirm your admission offer.
                           </p>
                         </div>
                       </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-3xl font-black text-amber-800">
+                          ₦{acceptanceFeeData.amount.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {acceptanceFeeData.feeName || "Acceptance Fee"} (incl. processing fee)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
                       <Button
-                        onClick={() => setShowLetter(true)}
-                        className="bg-green-600 hover:bg-green-700 text-white font-bold shadow-sm"
+                        className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold px-8"
+                        onClick={() => router.push('/applicant/payment?type=acceptance_fee')}
                       >
-                        <Printer className="w-4 h-4 mr-2" /> View Admission
-                        Letter
+                        Pay Acceptance Fee →
                       </Button>
                     </div>
-                  ) : !currentApp.has_paid_acceptance_fee ? (
-                    <div className="mb-8 bg-gradient-to-br from-amber-50 to-yellow-50 rounded-xl p-6 border border-amber-100 shadow-sm text-left">
-                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-amber-500 rounded-lg text-white shadow-lg shadow-amber-500/30">
-                          <AlertCircle className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <h5 className="font-black text-amber-800 text-lg">
-                            Acceptance Fee Payment Required
-                          </h5>
-                          <p className="text-amber-600 font-medium text-sm">
-                            Please pay your acceptance fee to secure your
-                            admission. Your admission letter will be provided
-                            after payment is confirmed.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mb-8 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100 shadow-sm text-left">
-                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-blue-500 rounded-lg text-white shadow-lg shadow-blue-500/30">
-                          <CheckCircle2 className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <h5 className="font-black text-blue-800 text-lg">
-                            Acceptance Fee Paid
-                          </h5>
-                          <p className="text-blue-600 font-medium text-sm">
-                            Your payment is confirmed. Please wait while the
-                            admission officer generates and sends your admission
-                            letter.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                  </div>
+                )}
               </div>
+
+              {isAdmitted && (
+                <div className="mb-8">
+                  {renderOfficialDocuments()}
+                </div>
+              )}
 
               {submittedFormData && (
                 <ApplicantProfile
@@ -657,10 +1051,20 @@ function ApplicantDashboardInner() {
         </div>
 
         {showLetter && admissionLetter && (
-          <FsmsAdmissionLetter
-            data={admissionLetter}
-            onClose={() => setShowLetter(false)}
-          />
+          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/40 backdrop-blur-md overflow-y-auto p-4 animate-in fade-in duration-300">
+            <div className="bg-white rounded-[32px] p-8 max-w-4xl w-full relative shadow-2xl animate-in zoom-in-95 duration-200 my-8">
+              <Button
+                onClick={() => setShowLetter(false)}
+                variant="ghost"
+                className="absolute top-4 right-4 text-slate-500 hover:text-slate-800 font-bold"
+              >
+                ✕ Close
+              </Button>
+              <div className="max-h-[80vh] overflow-y-auto pr-2 mt-4">
+                <FsmsAdmissionLetter {...admissionLetter} />
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -688,6 +1092,8 @@ function ApplicantDashboardInner() {
       )
       .map((a) => a.program_type_id),
   );
+
+
 
   return (
     <div className="min-h-screen bg-[#f8fafc]">
@@ -722,6 +1128,22 @@ function ApplicantDashboardInner() {
         {/* ── Program selection ── */}
         {paymentStep === "selection" && (
           <>
+            {/* Important Student Portal Access Instructions Alert */}
+            {status?.matric_no && (
+              <div className="flex items-start gap-3 p-4 bg-purple-50 rounded-2xl border border-purple-100 mb-6">
+                <AlertCircle className="w-5 h-5 text-purple-700 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-purple-900">
+                    Important Student Portal Access Instructions
+                  </p>
+                  <p className="text-sm text-purple-700 mt-1 leading-relaxed">
+                    Please <span className="font-bold">copy your matric number from the active applications table below and keep it safe</span>. You will need this matric number to access your new student portal. 
+                    Your default password is your <span className="font-bold">surname in lowercase</span>. You will be prompted to change it upon your first login.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Active Applications table on top */}
             <ApplicationsTable apps={applicants} />
 
@@ -953,52 +1375,226 @@ function ApplicantDashboardInner() {
           </div>
         )}
 
-        {/* ── Student portal modal — acceptance fee paid, prompt to access student portal ── */}
-        {showStudentPortalModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
-              <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
-                <CheckCircle2 className="w-10 h-10 text-purple-600" />
+        {/* ── Admitted dashboard — Documents & Tuition (replaces old student portal modal) ── */}
+        {isAdmitted && status?.has_paid_acceptance_fee && !(status?.has_paid_tuition || user?.role === "student") && paymentStep === "selection" && !viewingFormId && (
+          <div className="mt-10 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Section header */}
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-2 bg-emerald-500 rounded-full shadow-md shadow-emerald-500/30"></div>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">
+                Admitted Student Portal
+              </h2>
+            </div>
+
+            {/* Pay School Fees Card */}
+            <Card className="shadow-lg border border-amber-500/10 hover:border-amber-500/25 transition-all duration-300 group overflow-hidden bg-amber-500/[0.01]">
+              <div className="h-2 bg-gradient-to-r from-amber-500 to-amber-500/80 w-full shadow-sm" />
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-amber-500/10 p-2 rounded-xl group-hover:bg-amber-500/20 transition-colors duration-300 text-amber-600">
+                    <CreditCard className="w-6 h-6" />
+                  </div>
+                  <CardTitle className="text-lg font-bold text-slate-800">
+                    Pay School Fees
+                  </CardTitle>
+                </div>
+                <CardDescription className="text-slate-500 mt-1">
+                  Complete your school fees payment to unlock full student portal access, including course registration.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 bg-white">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <p className="text-sm text-amber-700 font-medium">
+                    Your admission is confirmed. Pay school fees to complete enrolment and receive your matric number.
+                  </p>
+                </div>
+
+                {tuitionPayError && (
+                  <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-700">{tuitionPayError}</p>
+                  </div>
+                )}
+
+                {tuitionPaySuccess ? (
+                  <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <p className="text-sm text-emerald-700 font-bold">
+                      Payment confirmed! Your account is being upgraded to full student...
+                    </p>
+                  </div>
+                ) : (
+                  <Button
+                    className="w-full h-14 text-base font-black uppercase tracking-wider bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/15 hover:shadow-amber-500/25 hover:scale-[1.01] transition-all duration-200 flex items-center justify-center gap-2"
+                    onClick={handlePayTuition}
+                    disabled={isPayingTuition}
+                  >
+                    {isPayingTuition ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Opening Payment...
+                      </>
+                    ) : (
+                      <>Proceed to Pay School Fees</>
+                    )}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Document Downloads Section */}
+            {renderOfficialDocuments()}
+          </div>
+        )}
+
+        {/* ── Fee Breakdown Modal ── */}
+        {showBreakdownModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-6 text-white">
+                <div className="flex items-center gap-3 mb-1">
+                  <CreditCard className="w-6 h-6" />
+                  <h3 className="text-xl font-black tracking-tight">School Fees Breakdown</h3>
+                </div>
+                <p className="text-amber-100 text-sm font-medium">Review your fee components before proceeding to payment.</p>
               </div>
-              <div className="space-y-3">
-                <h3 className="text-3xl font-black text-slate-900 tracking-tight">
-                  Acceptance Fee Confirmed!
-                </h3>
-                <p className="text-slate-600 font-medium leading-snug px-2">
-                  Your acceptance fee has been received. You can now access the{" "}
-                  <span className="font-black text-purple-700">
-                    Student Portal
-                  </span>{" "}
-                  to pay your school fees, upload required documents, and
-                  download your admission letter & other forms.
-                </p>
-              </div>
-              <div className="space-y-3">
-                <Button
-                  onClick={async () => {
-                    // Refresh token so the role updates from 'applicant' → 'admitted'
-                    // before navigating, preventing the student login from bouncing back.
-                    try {
-                      const response = (await ApiClient.verifyToken()) as any;
-                      if (response.token) ApiClient.setToken(response.token);
-                    } catch {}
-                    window.location.href = window.location.pathname.startsWith(
-                      "/e-portal",
-                    )
-                      ? "/e-portal/student/dashboard"
-                      : "/student/dashboard";
-                  }}
-                  className="w-full h-14 bg-purple-700 hover:bg-purple-800 text-white font-bold text-lg rounded-xl shadow-lg shadow-purple-700/30"
-                >
-                  Go to Student Portal
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowStudentPortalModal(false)}
-                  className="w-full text-slate-500 font-medium"
-                >
-                  Stay on this page
-                </Button>
+
+              <div className="p-6 space-y-5">
+                {loadingBreakdown && (
+                  <div className="space-y-3 animate-pulse">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex justify-between items-center py-3 border-b border-slate-100">
+                        <div className="h-4 bg-slate-200 rounded w-2/3" />
+                        <div className="h-4 bg-slate-200 rounded w-1/4" />
+                      </div>
+                    ))}
+                    <div className="flex justify-between items-center pt-2">
+                      <div className="h-5 bg-slate-200 rounded w-1/3" />
+                      <div className="h-5 bg-amber-200 rounded w-1/4" />
+                    </div>
+                  </div>
+                )}
+
+                {breakdownError && !loadingBreakdown && (
+                  <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-bold text-red-800">Could not load fee breakdown</p>
+                      <p className="text-sm text-red-600 mt-0.5">{breakdownError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {!loadingBreakdown && !breakdownError && feeComponents.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 mb-3">
+                      <button
+                        className={`px-3 py-2 rounded-lg font-semibold ${paymentMode === "full" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-700"}`}
+                        onClick={() => { setPaymentMode("full"); setInstallmentAmount(null); }}
+                      >Full Payment</button>
+                      <button
+                        className={`px-3 py-2 rounded-lg font-semibold ${paymentMode === "installment" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-700"}`}
+                        onClick={() => {
+                          setPaymentMode("installment");
+                          const plan = installmentPlans.find((p) => p.id === selectedInstallmentPlanId) || installmentPlans[0];
+                          if (plan) {
+                            setSelectedInstallmentPlanId(plan.id);
+                            setInstallmentAmount(parseFloat((feeTotal * (plan.percentage / 100) || 0).toFixed(2)));
+                          }
+                        }}
+                      >Installments</button>
+                    </div>
+
+                    {paymentMode === "installment" && installmentPlans.length > 0 && (
+                      <div className="space-y-2 pt-2 pb-4 animate-in fade-in duration-200">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                          Tuition Installments (Read-Only)
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          {installmentPlans.map((plan) => (
+                            <div
+                              key={plan.id}
+                              className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all opacity-80 ${
+                                selectedInstallmentPlanId === plan.id
+                                  ? "border-[#6b357d] bg-[#6b357d]/5 text-[#6b357d] font-bold shadow-sm"
+                                  : "border-slate-200 text-slate-500 bg-slate-50/50"
+                              }`}
+                            >
+                              <span className="text-xs font-bold truncate">{plan.name} ({plan.percentage}%)</span>
+                              <span className="text-xs font-black font-mono mt-1">
+                                ₦{(feeTotal * (plan.percentage / 100)).toLocaleString("en-NG", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {feeComponents.map((fc, idx) => (
+                      <div key={idx} className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0">
+                        <span className="text-sm font-semibold text-slate-700">{fc.name}</span>
+                        <span className="text-sm font-bold text-slate-900 tabular-nums">
+                          ₦{fc.amount.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    ))}
+
+                    <div className="flex justify-between items-center py-3 border-b border-slate-100">
+                      <span className="text-sm font-semibold text-slate-500">Processing Fee</span>
+                      <span className="text-sm font-bold text-slate-700 tabular-nums">
+                        ₦{tuitionProcessingFee.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-amber-300">
+                      <span className="text-base font-black text-slate-800 uppercase tracking-tight">Total Payable</span>
+                      <span className="text-xl font-black text-amber-600 tabular-nums">
+                        ₦{((paymentMode === "installment" ? (installmentAmount || 0) : (feeTotal * (remainingPercentage / 100))) + tuitionProcessingFee).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {!loadingBreakdown && !breakdownError && feeComponents.length === 0 && (
+                  <p className="text-center text-sm text-muted-foreground py-4 italic">
+                    No fee components found. Please contact the accounts office.
+                  </p>
+                )}
+
+                {tuitionPayError && (
+                  <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-200">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-700">{tuitionPayError}</p>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-3 pt-2">
+                  {!tuitionPaySuccess && (
+                    <Button
+                      className="w-full h-14 font-black text-lg bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/30 disabled:opacity-70"
+                      onClick={confirmAndPayTuition}
+                      disabled={
+                        isPayingTuition || loadingBreakdown || !!breakdownError || feeComponents.length === 0 ||
+                        (paymentMode === "installment" && !selectedInstallmentPlanId)
+                      }
+                    >
+                      {isPayingTuition ? (
+                        <><Loader2 className="w-5 h-5 animate-spin mr-2" />Opening Payment...</>
+                      ) : (
+                        <>Confirm & Pay</>
+                      )}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    className="w-full text-slate-500 font-medium"
+                    onClick={() => { setShowBreakdownModal(false); setTuitionPayError(null); }}
+                    disabled={isPayingTuition}
+                  >Cancel</Button>
+                </div>
               </div>
             </div>
           </div>

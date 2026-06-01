@@ -75,6 +75,7 @@ export default function StudentDashboard() {
   const [installmentAmount, setInstallmentAmount] = useState<number | null>(
     null,
   );
+  const [remainingPercentage, setRemainingPercentage] = useState<number>(100);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
 
@@ -173,20 +174,25 @@ export default function StudentDashboard() {
           ? breakdown.processing_fee
           : 300,
       );
-      setInstallmentPlans(plansRes.installment_plans || []);
-      // Determine next unpaid installment based on paymentHistory
       const plans = plansRes.installment_plans || [];
+      setInstallmentPlans(plans);
+
+      const paidPlanIds = new Set<number>();
+      (paymentHistory || []).forEach((p: any) => {
+        if (
+          p.payment_type === "tuition" &&
+          p.is_successful &&
+          p.installment_plan_id
+        ) {
+          paidPlanIds.add(p.installment_plan_id);
+        }
+      });
+
+      const unpaidPlans = plans.filter((pl: any) => !paidPlanIds.has(pl.id));
+      const remPct = unpaidPlans.length > 0 ? unpaidPlans.reduce((sum: number, pl: any) => sum + parseFloat(pl.percentage || 0), 0) : 100;
+      setRemainingPercentage(remPct);
+
       if (plans.length > 0) {
-        const paidPlanIds = new Set<number>();
-        (paymentHistory || []).forEach((p: any) => {
-          if (
-            p.payment_type === "tuition" &&
-            p.is_successful &&
-            p.installment_plan_id
-          ) {
-            paidPlanIds.add(p.installment_plan_id);
-          }
-        });
         const next =
           plans.find((pl: any) => !paidPlanIds.has(pl.id)) || plans[0];
         if (next) {
@@ -369,8 +375,8 @@ export default function StudentDashboard() {
   };
 
   const handleLogout = async () => {
-    router.replace("/");
     await logout();
+    router.replace("/student/login");
   };
 
   if (isLoading) {
@@ -1123,6 +1129,33 @@ export default function StudentDashboard() {
                       </button>
                     </div>
 
+                    {paymentMode === "installment" && installmentPlans.length > 0 && (
+                      <div className="space-y-2 pt-2 pb-4 animate-in fade-in duration-200">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                          Tuition Installments (Read-Only)
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          {installmentPlans.map((plan) => (
+                            <div
+                              key={plan.id}
+                              className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all opacity-80 ${
+                                selectedInstallmentPlanId === plan.id
+                                  ? "border-[#6b357d] bg-[#6b357d]/5 text-[#6b357d] font-bold shadow-sm"
+                                  : "border-slate-200 text-slate-500 bg-slate-50/50"
+                              }`}
+                            >
+                              <span className="text-xs font-bold truncate">{plan.name} ({plan.percentage}%)</span>
+                              <span className="text-xs font-black font-mono mt-1">
+                                ₦{(feeTotal * (plan.percentage / 100)).toLocaleString("en-NG", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {feeComponents.map((fc, idx) => (
                       <div
                         key={idx}
@@ -1160,30 +1193,11 @@ export default function StudentDashboard() {
                       </span>
                       <span className="text-xl font-black text-amber-600 tabular-nums">
                         ₦
-                        {(feeTotal + processingFee).toLocaleString("en-NG", {
+                        {((paymentMode === "installment" ? (installmentAmount || 0) : (feeTotal * (remainingPercentage / 100))) + processingFee).toLocaleString("en-NG", {
                           minimumFractionDigits: 2,
                         })}
                       </span>
                     </div>
-
-                    {/* Installment amount (if selected) */}
-                    {paymentMode === "installment" &&
-                      installmentAmount !== null && (
-                        <div className="flex justify-between items-center pt-3">
-                          <span className="text-sm font-semibold text-slate-700">
-                            Amount to pay now (incl. processing fee)
-                          </span>
-                          <span className="text-lg font-black text-amber-600 tabular-nums">
-                            ₦
-                            {(installmentAmount + processingFee).toLocaleString(
-                              "en-NG",
-                              {
-                                minimumFractionDigits: 2,
-                              },
-                            )}
-                          </span>
-                        </div>
-                      )}
                   </div>
                 )}
 

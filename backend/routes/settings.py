@@ -30,7 +30,8 @@ def update_setting(payload):
 
     key = data['key']
     raw_value = str(data['value'])
-    value = raw_value.lower() if key != 'current_academic_session' else raw_value
+    # Preserve case for session and semester names; lowercase everything else
+    value = raw_value if key in ('current_academic_session', 'current_semester') else raw_value.lower()
 
     if key == 'current_academic_session':
         Database.execute_update("UPDATE academic_sessions SET is_active = FALSE")
@@ -38,22 +39,67 @@ def update_setting(payload):
         if existing:
             Database.execute_update("UPDATE academic_sessions SET is_active = TRUE, updated_at = NOW() WHERE name = %s", (value,))
         else:
-            Database.execute_update("INSERT INTO academic_sessions (name, is_active, created_at, updated_at) VALUES (%s, TRUE, NOW(), NOW())", (value,))
+            Database.execute_update("INSERT INTO academic_sessions (name, is_active, isapplicantactive, created_at, updated_at) VALUES (%s, TRUE, FALSE, NOW(), NOW())", (value,))
 
         # Re-link all semester rows to the new active session
         Database.execute_update(
             """UPDATE semesters
                SET session_id   = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1),
-                   updated_date = NOW()"""
+                   updated_at = NOW()"""
         )
 
+        # Update all program fees to link to the new active session
+        Database.execute_update(
+            """UPDATE program_fees
+               SET academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)"""
+        )
+
+    if key == 'current_semester':
+        # Extract the core semester name (e.g. "First Semester" → "First")
+        semester_name = value.replace(' Semester', '').replace(' semester', '').strip()
+
+        # Get the current active academic session
+        session_res = Database.execute_query(
+            "SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1"
+        )
+        active_session_id = session_res[0]['id'] if session_res else None
+
+        # Deactivate all semesters
+        Database.execute_update(
+            "UPDATE semesters SET is_active = FALSE, updated_at = NOW()"
+        )
+
+        if active_session_id:
+            # Activate the matching semester and link it to the active session
+            Database.execute_update(
+                """UPDATE semesters
+                   SET is_active   = TRUE,
+                       session_id  = %s,
+                       updated_at  = NOW()
+                   WHERE LOWER(name) = LOWER(%s)""",
+                (active_session_id, semester_name)
+            )
+
+            # Also re-link all other semesters to the active session
+            Database.execute_update(
+                """UPDATE semesters
+                   SET session_id = %s,
+                       updated_at = NOW()
+                   WHERE session_id IS NULL OR session_id != %s""",
+                (active_session_id, active_session_id)
+            )
+
+    # Upsert: create the key if it doesn't exist yet (e.g. current_semester)
     success = Database.execute_update(
-        'UPDATE system_settings SET value = %s, updated_at = NOW() WHERE key = %s',
-        (value, key)
+        '''INSERT INTO system_settings (key, value, updated_at)
+           VALUES (%s, %s, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()''',
+        (key, value)
     )
     if not success:
         return jsonify({'message': 'Failed to update setting'}), 500
     return jsonify({'message': f'Setting {key} updated successfully', 'value': value}), 200
+
 
 
 # ── Semester management ───────────────────────────────────────────────────────
@@ -106,11 +152,11 @@ def activate_semester(payload):
 
     # Link all semesters to the active session, then activate only the chosen one
     Database.execute_update(
-        "UPDATE semesters SET session_id = %s, is_active = FALSE, updated_date = NOW()",
+        "UPDATE semesters SET session_id = %s, is_active = FALSE, updated_at = NOW()",
         (active_session_id,)
     )
     Database.execute_update(
-        "UPDATE semesters SET is_active = TRUE, updated_date = NOW() WHERE id = %s",
+        "UPDATE semesters SET is_active = TRUE, updated_at = NOW() WHERE id = %s",
         (semester_id,)
     )
 

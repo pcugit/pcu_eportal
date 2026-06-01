@@ -54,7 +54,7 @@ export default function StudentLoginPage() {
     if (user.role === "student") {
       router.replace("/student/dashboard");
     } else if (user.role === "admitted") {
-      router.replace("/student/dashboard");
+      router.replace("/applicant/dashboard");
     } else if (user.role === "admin") {
       router.replace("/ict/dashboard");
     } else if (user.role === "applicant") {
@@ -74,7 +74,7 @@ export default function StudentLoginPage() {
     setShowError(false);
 
     if (!formData.email) {
-      setLocalError("Email or matric number is required");
+      setLocalError("Matric number is required");
       setShowError(true);
       return;
     }
@@ -85,7 +85,7 @@ export default function StudentLoginPage() {
     }
 
     try {
-      await login(formData.email, formData.password);
+      await login(formData.email, formData.password, "student");
     } catch (err: any) {
       const msg =
         err instanceof Error ? err.message : "Login failed. Please try again.";
@@ -181,7 +181,7 @@ export default function StudentLoginPage() {
           <div className="space-y-1">
             <CardTitle className="text-2xl">Welcome Back</CardTitle>
             <CardDescription>
-              Log in to your student portal account. Use your email or matric
+              Log in to your student portal account using your matric
               number.
             </CardDescription>
           </div>
@@ -190,12 +190,12 @@ export default function StudentLoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email or Matric Number</Label>
+              <Label htmlFor="email">Matric Number</Label>
               <Input
                 id="email"
                 name="email"
                 type="text"
-                placeholder="Enter your registered email or matric number"
+                placeholder="Enter your matric number"
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isLoading}

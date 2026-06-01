@@ -72,14 +72,7 @@ export default function ICTSettings() {
       }
     } catch (err) {
       console.error("Error loading settings:", err);
-      // Fallback: if /settings/all fails, try /admin/settings format
-      try {
-        const data = await ApiClient.getGlobalSettings();
-        const fallback = Object.entries(data)
-          .filter(([key]) => !EXCLUDED_SETTING_KEYS.includes(key))
-          .map(([key, value]) => ({ key, value }));
-        setSettings(fallback);
-      } catch {}
+      setSettings([]);
     } finally {
       setLoading(false);
     }
@@ -208,6 +201,10 @@ function AcademicSessionManager({ onSuccess }: { onSuccess?: () => void }) {
   const loadSettings = async () => {
     try {
       const data = await ApiClient.getGlobalSettings();
+      // Ensure current_semester has a default so the form always submits a value
+      if (!data.current_semester) {
+        data.current_semester = "First Semester";
+      }
       setSettings(data);
     } catch (err) {
       console.error("Failed to load settings:", err);

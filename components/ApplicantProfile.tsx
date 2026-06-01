@@ -317,60 +317,6 @@ export default function ApplicantProfile({ applicant, form, documents, acceptanc
           </div>
         </div>
       </div>
-
-      {/* Acceptance Fee Payment Section */}
-      {acceptanceFeeData && (
-        <div className={`rounded-xl border-2 p-6 space-y-4 ${
-          acceptanceFeeData.paid
-            ? 'bg-emerald-50 border-emerald-200'
-            : 'bg-amber-50 border-amber-300'
-        }`}>
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
-                acceptanceFeeData.paid ? 'bg-emerald-500 text-white' : 'bg-amber-400 text-white'
-              }`}>
-                {acceptanceFeeData.paid ? '✓' : '₦'}
-              </div>
-              <div>
-                <h3 className={`font-bold text-lg ${
-                  acceptanceFeeData.paid ? 'text-emerald-800' : 'text-amber-900'
-                }`}>
-                  {acceptanceFeeData.paid ? 'Acceptance Fee Paid' : 'Acceptance Fee Payment Required'}
-                </h3>
-                <p className={`text-sm ${
-                  acceptanceFeeData.paid ? 'text-emerald-700' : 'text-amber-700'
-                }`}>
-                  {acceptanceFeeData.paid
-                    ? 'Your acceptance fee has been confirmed. Your admission letter will be sent shortly.'
-                    : 'You must pay the acceptance fee to confirm your admission offer.'}
-                </p>
-              </div>
-            </div>
-            <div className="text-right shrink-0">
-              <p className={`text-3xl font-black ${
-                acceptanceFeeData.paid ? 'text-emerald-700' : 'text-amber-800'
-              }`}>
-                ₦{acceptanceFeeData.amount.toLocaleString()}
-              </p>
-              <p className="text-xs text-slate-500">{acceptanceFeeData.feeName}</p>
-            </div>
-          </div>
-
-          {!acceptanceFeeData.paid && (
-            <div className="flex items-center gap-3 pt-2">
-              <Button
-                className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold px-8"
-                onClick={() => router.push('/applicant/payment?type=acceptance_fee')}
-              >
-                Pay Acceptance Fee →
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
-
     </div>
   );
 }

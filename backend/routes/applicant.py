@@ -229,7 +229,9 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
                    LIMIT 1''',
                 ('%acceptance%',)
             )
-        return float(fee_res[0]['amount']) if fee_res else 40000.0
+        if not fee_res:
+            raise ValueError('Acceptance fee not configured for this program')
+        return float(fee_res[0]['amount'])
 
     context = _get_applicant_fee_context(user_id)
 
@@ -268,6 +270,23 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
                 raise ValueError('Invalid installment percentage for selected plan')
             installment_amount = round((total * pct) / 100.0, 2)
             return installment_amount
+
+        # Full Payment: compute as the total of what is left
+        plans = Database.execute_query('SELECT id, percentage FROM installment_plans')
+        if plans:
+            paid = Database.execute_query(
+                '''SELECT installment_plan_id 
+                   FROM payment_transactions 
+                   WHERE user_id = %s 
+                     AND tran_type = 'tuition' 
+                     AND tran_status = 'successful' 
+                     AND installment_plan_id IS NOT NULL''',
+                (user_id,)
+            )
+            paid_ids = {p['installment_plan_id'] for p in (paid or [])}
+            remaining_pct = sum(float(pl['percentage'] or 0) for pl in plans if pl['id'] not in paid_ids)
+            if len(paid_ids) > 0:
+                return round((total * remaining_pct) / 100.0, 2)
 
         return total
 
@@ -1030,107 +1049,388 @@ def initiate_payment(payload):
     }), 200
 
 
+def make_frontend_url(path):
+    base = Config.FRONTEND_BASE_URL.rstrip('/')
+    if '/e-portal' not in base.lower() and not path.startswith('/e-portal'):
+        path = '/e-portal' + path
+    return f"{base}{path}"
+
+
+def make_html_redirect(redirect_url):
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Payment Callback Processing</title>
+    <script type="text/javascript">
+        window.location.href = "{redirect_url}";
+    </script>
+</head>
+<body>
+    <p>Redirecting you back to the application portal...</p>
+</body>
+</html>"""
+    return Response(html_content, mimetype='text/html')
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Payment — verify (callback)
+# ✅ NEW ARCHITECTURE: Payment callback (server-side requery)
 # ─────────────────────────────────────────────────────────────────────────────
+# This is the entry point when Interswitch redirects after payment.
+# CRITICAL: This runs SERVER-SIDE immediately, not client-polling.
+# This fixes the bug where client timeout caused FAILED status.
 
 @applicant_bp.route('/payment/callback', methods=['GET', 'POST'])
 def payment_callback():
     """
-    Handles the redirect callback from Interswitch Webpay (usually a POST request
-    with form fields) and redirects the user back to Next.js frontend with the
-    txnref query parameter.
-    """
-    txnref = request.form.get('txnref') or request.args.get('txnref') or \
-             request.form.get('txnRef') or request.args.get('txnRef') or ''
+    ✅ NEW: Immediate server-side requery (replaces client-side polling strategy)
     
-    frontend_url = f"{Config.FRONTEND_BASE_URL.rstrip('/')}/e-portal/applicant/payment/callback?txnref={txnref}"
-    return redirect(frontend_url)
+    Flow:
+    1. User completes payment on Interswitch
+    2. Interswitch redirects here with txnref parameter
+    3. We IMMEDIATELY requery Interswitch (server-to-server, ~600ms)
+    4. Classify response:
+       - '00' → settle immediately, redirect /dashboard
+       - PENDING codes → redirect /verifying (client polls /payment/status)
+       - Definitive FAIL → redirect /payment?failed=true
+    
+    This prevents the bug: "ISW settles after 4 min, but client timeout at 3 min marked FAILED"
+    """
+    from utils.payment_status import classify_response, build_update_sql_params, generate_receipt_no, atomic_settle_payment
+    from utils.interswitch import InterswitchClient
+    
+    # Get transaction reference from Interswitch redirect
+    # Interswitch sends txnref as FORM DATA (POST body), not query parameter
+    txnref = (
+        request.form.get('txnref') or 
+        request.form.get('txnRef') or 
+        request.args.get('txnref') or 
+        request.args.get('txnRef') or
+        ''
+    ).strip()
+    
+    if not txnref:
+        redirect_url = make_frontend_url("/applicant/payment?failed=true&message=No+transaction+reference+found")
+        return make_html_redirect(redirect_url)
+    
+    # Find transaction in DB
+    txn = Database.execute_query(
+        '''SELECT id, user_id, amount_in_kobo, amount, tran_type, tran_status, 
+                  COALESCE(requery_count, 0) AS requery_count
+           FROM payment_transactions
+           WHERE reference_no = %s
+           ORDER BY created_at DESC LIMIT 1''',
+        (txnref,)
+    )
+    
+    if not txn:
+        print(f"[callback] Transaction not found: {txnref}")
+        redirect_url = make_frontend_url(f"/applicant/payment?failed=true&ref={txnref}&message=Transaction+not+found")
+        return make_html_redirect(redirect_url)
+    
+    txn = txn[0]
+    user_id = txn['user_id']
+    payment_type = txn['tran_type']
+    amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
+    requery_count = txn['requery_count']
+    
+    # If already finalised, redirect to frontend callback to show the finalised status page
+    if txn['tran_status'] not in ('pending', 'requery_error'):
+        redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
+        return make_html_redirect(redirect_url)
+    
+    # ✅ IMMEDIATE SERVER-SIDE REQUERY (this is the fix!)
+    try:
+        isw_resp = InterswitchClient.requery_transaction(txnref, amount_kobo)
+    except Exception as e:
+        print(f"[callback] Requery error for {txnref}: {e}")
+        # Leave as pending, client will retry via /payment/status polling
+        Database.execute_update(
+            '''UPDATE payment_transactions 
+               SET tran_status = 'requery_error', requery_count = COALESCE(requery_count, 0) + 1
+               WHERE reference_no = %s''',
+            (txnref,)
+        )
+        redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
+        return make_html_redirect(redirect_url)
+    
+    response_code = str(isw_resp.get('ResponseCode', '')).strip()
+    response_desc = isw_resp.get('ResponseDescription', '')
+    
+    # Classify response using the fixed logic
+    tran_status = classify_response(response_code, requery_count)
+    is_successful = (tran_status == 'successful')
+    
+    print(f"[callback] {txnref} → code={response_code!r} → {tran_status}")
+    
+    # ✅ CRITICAL: For successful payments, acquire lock FIRST before any status update
+    if is_successful:
+        # Try to acquire atomic lock (sets status to 'processing')
+        lock_acquired = atomic_settle_payment(txnref, user_id, payment_type)
+        
+        if lock_acquired:
+            # We won the race! Update transaction to final 'successful' state with receipt
+            receipt_no = generate_receipt_no()
+            sql, params = build_update_sql_params(
+                'successful', txnref, response_code, response_desc,
+                isw_resp, amount_kobo, receipt_no
+            )
+            Database.execute_update(sql, params)
+            
+            print(f"[callback] SUCCESS: {txnref} | matric generated, role upgraded")
+            redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
+            return make_html_redirect(redirect_url)
+        else:
+            # Another handler already settled it
+            # Just return success (downstream already applied)
+            print(f"[callback] Already settled by another handler: {txnref}")
+            redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
+            return make_html_redirect(redirect_url)
+    
+    # For non-successful payments, update status directly
+    receipt_no = None
+    sql, params = build_update_sql_params(
+        tran_status, txnref, response_code, response_desc,
+        isw_resp, amount_kobo, receipt_no
+    )
+    Database.execute_update(sql, params)
+    
+    # Redirect to the frontend callback page. The page will verify status from /verify-payment
+    # and handle pending / failed states accordingly.
+    redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
+    return make_html_redirect(redirect_url)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Payment — verify (callback)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def verify_transaction_by_reference(reference_no: str):
+    if not reference_no:
+        return None
+
+    # Fetch transaction (include user_id and other fields)
+    txn_res = Database.execute_query(
+        '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no,
+                  tran_type, COALESCE(requery_count, 0) AS requery_count, user_id
+           FROM payment_transactions
+           WHERE reference_no = %s
+           ORDER BY created_at DESC LIMIT 1''',
+        (reference_no,)
+    )
+    if not txn_res:
+        print(f"[callback verify] Transaction {reference_no} not found in database.")
+        return None
+
+    txn = txn_res[0]
+    user_id = txn['user_id']
+    payment_type = txn['tran_type']
+    requery_count = int(txn['requery_count'])
+
+    # If transaction is already completed (successful, failed, cancelled), no-op
+    if txn['tran_status'] in ('successful', 'failed', 'cancelled'):
+        print(f"[callback verify] Transaction {reference_no} already completed with status: {txn['tran_status']}")
+        return txn['tran_status']
+
+    amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
+
+    # Recheck DB status right before calling Interswitch to avoid duplicate calls
+    latest_check = Database.execute_query(
+        '''SELECT tran_status FROM payment_transactions
+           WHERE reference_no = %s
+           ORDER BY created_at DESC LIMIT 1''',
+        (reference_no,)
+    )
+    if latest_check and latest_check[0].get('tran_status') != 'pending':
+        return latest_check[0].get('tran_status')
+
+    # Requery Interswitch
+    try:
+        isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
+    except Exception as e:
+        print(f"[callback verify] Interswitch requery error for {reference_no}: {e}")
+        Database.execute_update(
+            '''UPDATE payment_transactions
+               SET tran_status = 'requery_error',
+                   requery_count = COALESCE(requery_count, 0) + 1,
+                   updated_at = NOW()
+               WHERE reference_no = %s''',
+            (reference_no,)
+        )
+        return 'pending'
+
+    response_code = str(isw_resp.get('ResponseCode', '')).strip()
+    response_desc = isw_resp.get('ResponseDescription', '')
+
+    tran_status = classify_response(response_code, requery_count)
+    is_successful = (tran_status == 'successful')
+
+    # Ensure transaction hasn't been updated concurrently
+    latest_after = Database.execute_query(
+        '''SELECT tran_status FROM payment_transactions
+           WHERE reference_no = %s
+           ORDER BY created_at DESC LIMIT 1''',
+        (reference_no,)
+    )
+    if latest_after and latest_after[0].get('tran_status') != 'pending':
+        return latest_after[0].get('tran_status')
+
+    # Update transaction record
+    receipt_no_val = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
+    sql, params = build_update_sql_params(
+        tran_status, reference_no, response_code, response_desc,
+        isw_resp, amount_kobo, receipt_no_val,
+    )
+    Database.execute_update(sql, params)
+
+    # Downstream actions on success
+    if is_successful:
+        apply_downstream_success(user_id, payment_type, reference_no=reference_no)
+
+    print(f"[callback verify] Transaction {reference_no} verified and updated to: {tran_status}")
+    return tran_status
+
 
 @applicant_bp.route('/verify-payment', methods=['POST'])
 @AuthHandler.token_required
 def verify_payment(payload):
+    """
+    ✅ REFACTORED: Now primarily checks DB status with conditional server-side requery.
+    
+    Old behavior: Client polls ISW directly 45 times, marks FAILED on timeout
+    New behavior: Client polls DB status, endpoint triggers requery only every 5s
+    
+    Result: PENDING resolves in seconds, not minutes. Timeouts never cause FAILED.
+    """
+    from utils.payment_status import classify_response, build_update_sql_params, generate_receipt_no, atomic_settle_payment, get_session_payment_summary
+    from utils.interswitch import InterswitchClient
+    from datetime import datetime, timedelta
+    
     user_id = payload['user_id']
-    data    = request.get_json() or {}
-
+    data = request.get_json() or {}
     reference_no = data.get('reference_no')
+    
     if not reference_no:
         return jsonify({'message': 'reference_no is required'}), 400
-
-    # ── Fetch transaction (include requery_count for threshold check) ─────────
-    txn_res = Database.execute_query(
-        '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no,
-                  tran_type, COALESCE(requery_count, 0) AS requery_count
+    
+    # Fetch transaction
+    txn = Database.execute_query(
+        '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no, tran_type,
+                  academic_session_id,
+                  COALESCE(requery_count, 0) AS requery_count,
+                  last_queried_at, fully_paid_for_session
            FROM payment_transactions
            WHERE reference_no = %s AND user_id = %s
            ORDER BY created_at DESC LIMIT 1''',
         (reference_no, user_id)
     )
-    if not txn_res:
+    
+    if not txn:
         return jsonify({'message': 'Transaction not found'}), 404
-
-    txn           = txn_res[0]
-    payment_type  = txn['tran_type']
-    requery_count = int(txn['requery_count'])
-
-    # Idempotency — already finalised
-    if txn['tran_status'] in ('successful', 'failed'):
-        return jsonify({
-            'message':     'Transaction already verified',
-            'tran_status': txn['tran_status'],
-            'receipt_no':  txn['receipt_no'],
-            'is_successful': txn['tran_status'] == 'successful',
-        }), 200
-
-    amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
-
-    # ── Requery Interswitch ───────────────────────────────────────────────────
-    try:
-        isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
-    except Exception as e:
-        print(f"[verify-payment] Interswitch requery error for {reference_no}: {e}")
+    
+    txn = txn[0]
+    payment_type = txn['tran_type']
+    current_status = txn['tran_status']
+    session_id = txn.get('academic_session_id')
+    
+    # Build response with session payment status if this is tuition
+    def build_response(status, is_successful, receipt_no=None, message=None):
+        response = {
+            'tran_status': status,
+            'is_successful': is_successful,
+            'receipt_no': receipt_no,
+        }
+        
+        # Add session payment summary for tuition payments
+        if payment_type == 'tuition' and session_id:
+            session_summary = get_session_payment_summary(user_id, session_id)
+            response['session_payment'] = session_summary
+            response['fully_paid_for_session'] = session_summary['is_fully_paid']
+        
+        if message:
+            response['message'] = message
+        
+        return response
+    
+    # If already finalised (success/failed/cancelled), just return status
+    if current_status in ('successful', 'failed', 'cancelled'):
+        return jsonify(build_response(
+            current_status, 
+            current_status == 'successful',
+            txn['receipt_no'],
+            'Transaction already finalised'
+        )), 200
+    
+    # ✅ KEY CHANGE: Rate-limited requery (max 1 per 5 seconds)
+    # Only requery if:
+    # 1. Status is PENDING
+    # 2. We haven't queried in the last 5 seconds
+    amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
+    last_queried = txn.get('last_queried_at')
+    should_requery = (
+        current_status == 'pending' and
+        (last_queried is None or 
+         (datetime.utcnow() - last_queried).total_seconds() > 5)
+    )
+    
+    if should_requery:
+        # Rate limit: Mark that we're querying now
         Database.execute_update(
-            '''UPDATE payment_transactions
-               SET tran_status    = 'requery_error',
-                   requery_count  = COALESCE(requery_count, 0) + 1,
-                   updated_at     = NOW()
-               WHERE reference_no = %s AND user_id = %s''',
-            (reference_no, user_id)
+            '''UPDATE payment_transactions 
+               SET last_queried_at = NOW()
+               WHERE reference_no = %s''',
+            (reference_no,)
         )
-        return jsonify({
-            'message':     'Could not reach Interswitch. Your payment is being verified — please check back shortly.',
-            'tran_status': 'pending',
-            'is_successful': False,
-        }), 503
-
-    response_code = str(isw_resp.get('ResponseCode', '')).strip()
-    response_desc = isw_resp.get('ResponseDescription', '')
-
-    # ── Classify using shared logic (Z0/T0 → pending, not failed) ────────────
-    tran_status   = classify_response(response_code, requery_count)
-    is_successful = (tran_status == 'successful')
-
-    print(
-        f"[verify-payment] {reference_no} | code={response_code!r} "
-        f"requery_count={requery_count} → {tran_status}"
-    )
-
-    # ── Update transaction record ─────────────────────────────────────────────
-    receipt_no: str = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
-    sql, params = build_update_sql_params(
-        tran_status, reference_no, response_code, response_desc,
-        isw_resp, amount_kobo, receipt_no,
-    )
-    # build_update_sql_params uses WHERE reference_no = %s (no user_id)
-    # add user_id guard for this user-facing endpoint
-    sql = sql.replace('WHERE reference_no = %s',
-                      'WHERE reference_no = %s AND user_id = %s')
-    params = params + (user_id,)
-    Database.execute_update(sql, params)
-
-    # ── Downstream on success ─────────────────────────────────────────────────
-    if is_successful:
-        apply_downstream_success(user_id, payment_type, reference_no=reference_no)
+        
+        # Requery ISW
+        try:
+            isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
+            response_code = str(isw_resp.get('ResponseCode', '')).strip()
+            response_desc = isw_resp.get('ResponseDescription', '')
+            
+            # Classify using fixed logic
+            tran_status = classify_response(response_code, txn['requery_count'])
+            is_successful = (tran_status == 'successful')
+            
+            print(f"[verify-payment] {reference_no} | requery code={response_code!r} → {tran_status}")
+            
+            # Update transaction
+            receipt_no = generate_receipt_no() if is_successful else None
+            sql, params = build_update_sql_params(
+                tran_status, reference_no, response_code, response_desc,
+                isw_resp, amount_kobo, receipt_no
+            )
+            Database.execute_update(sql, params)
+            
+            # If successful, settle with atomic lock
+            if is_successful:
+                atomic_settle_payment(reference_no, user_id, payment_type)
+                return jsonify(build_response(
+                    'successful',
+                    True,
+                    receipt_no
+                )), 200
+            
+            # Return updated status (pending or failed)
+            return jsonify(build_response(
+                tran_status,
+                False,
+                message=response_desc
+            )), 200
+            
+        except Exception as e:
+            print(f"[verify-payment] Requery error for {reference_no}: {e}")
+            return jsonify(build_response(
+                'pending',
+                False,
+                message='Could not reach ISW, retrying...'
+            )), 503
+    
+    # No requery needed (too soon), just return current DB status
+    return jsonify(build_response(
+        current_status,
+        False,
+        message='Still verifying, check again soon'
+    )), 200
 
     # ── Response ──────────────────────────────────────────────────────────────
     if tran_status == 'pending':
@@ -1255,8 +1555,8 @@ def payment_webhook():
     payment_type  = txn['tran_type']
     requery_count = int(txn['requery_count'])
 
-    # Idempotency — already finalised
-    if txn['tran_status'] in ('successful', 'failed'):
+    # Idempotency — already finalised (skip webhook processing for cancelled txns)
+    if txn['tran_status'] in ('successful', 'failed', 'cancelled'):
         print(f"[webhook] Already finalised ({txn['tran_status']}): {reference_no}")
         return jsonify({'message': 'already processed'}), 200
 
@@ -1280,14 +1580,15 @@ def payment_webhook():
     response_code = str(isw_resp.get('ResponseCode', '')).strip()
     response_desc = isw_resp.get('ResponseDescription', '')
 
-    # ── Classify (Z0/T0/empty stay pending; fail only after N retries) ────────
+    # ── Classify (Z0/Z6/Z9/'' → cancelled; others pending or failed) ─────────
     tran_status   = classify_response(response_code, requery_count)
     is_successful = (tran_status == 'successful')
+    is_cancelled  = (tran_status == 'cancelled')
 
-    print(
-        f"[webhook] {reference_no} | code={response_code!r} "
-        f"requery_count={requery_count} → {tran_status} (type={payment_type})"
-    )
+    log_msg = f"[webhook] {reference_no} | code={response_code!r} requery_count={requery_count} → {tran_status} (type={payment_type})"
+    if is_cancelled:
+        log_msg += f" (cancelled by user, response_desc='{response_desc}')"
+    print(log_msg)
 
     # ── Update transaction record ─────────────────────────────────────────────
     receipt_no: str = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
@@ -1321,7 +1622,10 @@ def get_applicant_status(payload):
                COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS program_session,
                app.created_at,
                app.form_no,
+               u.matric_no,
                ptype.name AS program_name,
+               dg.code AS degree_code,
+               COALESCE(app.approved_course, app.finalised_course) AS approved_course,
                (
                    -- Primary: stored reference was confirmed successful
                    EXISTS (
@@ -1364,6 +1668,7 @@ def get_applicant_status(payload):
            JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types ptype ON app.prog_type = ptype.id
            LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+           LEFT JOIN degrees dg ON app.degree_id = dg.id
            WHERE app.user_id = %s
            ORDER BY app.created_at DESC''',
         (user_id,)
@@ -1385,12 +1690,13 @@ def get_acceptance_fee(payload):
             'processing_fee': processing_fee,
             'found': True,
         }), 200
-    except ValueError:
+    except ValueError as e:
         return jsonify({
-            'acceptance_fee': 0,
+            'message': str(e),
+            'acceptance_fee': None,
             'processing_fee': processing_fee,
             'found': False,
-        }), 200
+        }), 400
 
 
 @applicant_bp.route('/tuition-fee-breakdown', methods=['GET'])
@@ -1400,10 +1706,25 @@ def get_tuition_fee_breakdown(payload):
     Returns an itemized breakdown of all fee components that make up the
     school fees (tuition) payment for the authenticated admitted student.
     Components include: Tuition & Accommodation, Sundry Fees, Digital Training, etc.
+    
+    Also returns the payment status for the current session:
+    - total_expected: Total fees for this session
+    - total_paid: Amount already paid
+    - is_fully_paid: Whether all fees are paid
+    - remaining: Amount still owed
+    - payment_percentage: Percentage of fees paid (0-100)
     """
+    from utils.payment_status import get_session_payment_summary
+    
     user_id = payload['user_id']
     try:
         context = _get_applicant_fee_context(user_id)
+
+        # Get active session
+        session_res = Database.execute_query(
+            'SELECT id FROM academic_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1'
+        )
+        current_session_id = session_res[0]['id'] if session_res else None
 
         fees = Database.execute_query(
             '''SELECT fc.name AS fee_name, pf.amount
@@ -1430,16 +1751,31 @@ def get_tuition_fee_breakdown(payload):
             components.append({'name': name, 'amount': amount})
 
         processing_fee = _get_processing_fee()
+        
+        # Get session payment summary
+        session_payment = {}
+        if current_session_id:
+            session_payment = get_session_payment_summary(user_id, current_session_id)
+        
         return jsonify({
-            'components':     components,
-            'total':          total,
-            'processing_fee': processing_fee,
-            'found':          len(components) > 0,
+            'components':         components,
+            'total':              total,
+            'processing_fee':     processing_fee,
+            'found':              len(components) > 0,
+            'session_payment':    session_payment,
+            'fully_paid_for_session': session_payment.get('is_fully_paid', False),
         }), 200
 
     except Exception as e:
         print(f'[tuition-fee-breakdown] Error: {e}')
-        return jsonify({'message': 'Failed to load fee breakdown', 'components': [], 'total': 0, 'processing_fee': 300.0}), 500
+        return jsonify({
+            'message': str(e),
+            'components': [],
+            'total': 0,
+            'processing_fee': 300.0,
+            'session_payment': {},
+            'fully_paid_for_session': False,
+        }), 500
 
 
 @applicant_bp.route('/admission-letter', methods=['GET'])

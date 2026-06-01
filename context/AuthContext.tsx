@@ -76,7 +76,7 @@ interface AuthContextType {
     password: string,
     phone_number: string,
   ) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, portal?: "applicant" | "student") => Promise<void>;
   logout: (redirectUrl?: string) => Promise<void>;
   refreshStatus: () => Promise<void>;
   error: string | null;
@@ -140,11 +140,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       localStorage.removeItem("last_active");
 
       let finalUrl = "/";
-      if (user?.role === "student" || user?.role === "admitted") {
+      if (user?.role === "student") {
         finalUrl = "/student/login";
       } else if (
         user?.role === "applicant" ||
-        user?.role === "freshapplicant"
+        user?.role === "freshapplicant" ||
+        user?.role === "admitted"
       ) {
         finalUrl = "/auth/login";
       }
@@ -294,11 +295,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     [],
   );
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, portal?: 'applicant' | 'student') => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = (await ApiClient.login(email, password)) as ApiResponse;
+      const response = (await ApiClient.login(email, password, portal)) as ApiResponse;
       ApiClient.setToken(response.token);
       saveUserAndRole(response.user);
       if (response.applicant) {
@@ -359,13 +360,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     async (redirectUrl?: string) => {
       let finalUrl = redirectUrl;
       if (!finalUrl) {
-        if (user?.role === "student" || user?.role === "admitted") {
+        const currentPath = typeof window !== "undefined" ? window.location.pathname : "";
+        const isStudentPath = currentPath.includes("/student");
+        const isApplicantPath = currentPath.includes("/applicant") || currentPath.includes("/auth");
+        const isStaffPath = [
+          "/admission_officer",
+          "/dean",
+          "/deo",
+          "/hod",
+          "/ict",
+          "/lecturer",
+          "/registrar",
+          "/staff"
+        ].some(p => currentPath.includes(p));
+
+        if (isStudentPath) {
           finalUrl = "/student/login";
-        } else if (
-          user?.role === "applicant" ||
-          user?.role === "freshapplicant"
-        ) {
+        } else if (isApplicantPath) {
           finalUrl = "/auth/login";
+        } else if (isStaffPath) {
+          finalUrl = "/staff/login";
         } else {
           finalUrl = "/";
         }
@@ -394,7 +408,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const refreshStatus = useCallback(async () => {
     try {
-      if (user?.role === "applicant" || user?.role === "admitted") {
+      if (user?.role === "freshapplicant" || user?.role === "applicant" || user?.role === "admitted") {
         const response = (await ApiClient.verifyToken()) as {
           token?: string;
           user: User;

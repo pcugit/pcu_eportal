@@ -7,8 +7,22 @@ from datetime import datetime
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
 
+# Codes Interswitch returns when user cancels with no transaction made
+CANCELLED_CODES = {'Z0', 'Z9', ''}
+
 # Codes that mean "not processed yet or transient status – try again later"
-PENDING_CODES = {'Z0', 'T0', 'Z62', 'Z25', '99', '96', ''}
+# These should NEVER be marked failed, even after multiple requeries
+PENDING_CODES = {'T0', 'T03', 'Z62', 'Z25', '99', '96', 'Z16'}
+
+# Definitive failure codes — only these should cause IMMEDIATE failure
+# These represent permanent declines (not transient network/timeout issues)
+DEFINITIVE_FAILURE_CODES = {
+    'Z6',   # Declined by card issuer
+    'T9',   # Transaction declined
+    '91',   # Issuer unavailable (permanent)
+    'Z23',  # Invalid card
+    'Z28',  # Transaction not permissible
+}
 
 # Only flip status to 'failed' after this many confirmed non-success requeries.
 # Note: Codes in PENDING_CODES are never marked failed by count.
@@ -27,29 +41,45 @@ def generate_receipt_no() -> str:
 
 def classify_response(response_code: str, current_requery_count: int) -> str:
     """
-    Return the tran_status to write, given the Interswitch ResponseCode
-    and how many times we have already requeried this transaction.
+    Return the tran_status to write, given the Interswitch ResponseCode.
+    
+    CRITICAL: Default to 'pending' for unknown codes, NOT 'failed'.
+    Only mark as 'failed' if we have a definitive failure code OR we've
+    exhausted retries with non-pending codes.
+    
+    This prevents the bug where a timeout causes FAILED when ISW eventually settles.
 
     Params
     ------
     response_code        : raw ResponseCode from Interswitch (may be None/empty)
     current_requery_count: the requery_count value already in the DB row
-                           (i.e. *before* incrementing for this attempt)
 
     Returns
     -------
-    'successful' | 'pending' | 'failed'
+    'successful' | 'cancelled' | 'pending' | 'failed'
     """
     code = (response_code or '').strip()
 
+    # Successful payment
     if code == '00':
         return 'successful'
 
+    # User cancelled on gateway (empty response, no transaction made)
+    if code in CANCELLED_CODES:
+        return 'cancelled'
+
+    # Transient/processing codes — NEVER mark as failed, always PENDING
     if code in PENDING_CODES:
         return 'pending'
 
-    # Any other response code (e.g. insufficient funds, card declined) is a definitive failure
-    return 'failed'
+    # Definitive failure codes — mark failed immediately
+    if code in DEFINITIVE_FAILURE_CODES:
+        return 'failed'
+
+    # ✅ CRITICAL FIX: Unknown codes default to PENDING, not FAILED
+    # Better to keep retrying than to incorrectly mark as failed
+    # (Unknown codes may be new ISW codes not in our enum yet)
+    return 'pending'
 
 
 # ── Application row creation (post-payment) ──────────────────────────────────
@@ -169,7 +199,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                WHERE user_id = %s AND applicant_stage = 'admitted'""",
             (user_id,)
         )
-        # Promote user to 'admitted' role (id=13) — grants limited student portal access
+        # Promote user to 'admitted' role (id=13) — stays on applicant portal
         Database.execute_update(
             "UPDATE users SET user_type_id = 13, updated_at = NOW() WHERE id = %s",
             (user_id,)
@@ -253,6 +283,8 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                     if not clash:
                         break
 
+                # Set default password to surname (lowercase) for first student portal login;
+                # is_first_login in student_auth will force a password change.
                 default_password = (last_name or '').strip().lower() or matric_no.lower()
                 hashed_password = AuthHandler.hash_password(default_password)
                 Database.execute_update(
@@ -355,3 +387,211 @@ def build_update_sql_params(
         reference_no,
     )
     return sql, params
+
+
+# ── Atomic settlement with race condition prevention ────────────────────────
+
+def atomic_settle_payment(reference_no: str, user_id: int, payment_type: str) -> bool:
+    """
+    Atomically settle a payment transaction. Only one process (callback, worker, or verify)
+    can win the race to settle a given transaction.
+    
+    This prevents duplicate downstream operations (e.g., creating two student records).
+    
+    Returns:
+        True if this process won the settlement race and applied downstream logic
+        False if another process already won (abort silently)
+    """
+    # ✅ ATOMIC: Only update if status is still 'pending'
+    # If this succeeds with 1 row affected, we own this transaction
+    update_sql = '''UPDATE payment_transactions
+                   SET tran_status = 'processing'
+                   WHERE reference_no = %s AND user_id = %s AND tran_status = 'pending' '''
+    
+    Database.execute_update(update_sql, (reference_no, user_id))
+    
+    # Check if we actually updated the row (only 1 process can win)
+    check_res = Database.execute_query(
+        'SELECT tran_status FROM payment_transactions WHERE reference_no = %s AND user_id = %s',
+        (reference_no, user_id)
+    )
+    
+    if not check_res or check_res[0]['tran_status'] != 'processing':
+        # Another process already grabbed it or it's already settled
+        print(f"[atomic_settle] {reference_no} already being processed by another handler")
+        return False
+    
+    # ✅ We own this transaction — apply downstream
+    print(f"[atomic_settle] {reference_no} acquired lock, applying downstream success")
+    apply_downstream_success(user_id, payment_type, reference_no=reference_no)
+    
+    # ✅ If this is a tuition payment, update the fully_paid_for_session flag
+    if payment_type == 'tuition':
+        update_session_payment_status(reference_no, user_id)
+    
+    return True
+
+
+# ── Session-based fee tracking ────────────────────────────────────────────────
+
+def update_session_payment_status(reference_no: str, user_id: int) -> None:
+    """
+    After a tuition payment is marked successful, check if the student has now
+    fully paid all fees for that academic session.
+    
+    Logic:
+      1. Get the academic_session_id from this transaction
+      2. Query: SUM(amount_paid) for all successful tuition payments for this user+session
+      3. Query: expected fees for this student+session
+      4. If SUM >= expected_fees: Set fully_paid_for_session = TRUE for ALL txns in this session
+      5. Else: Set to FALSE
+    """
+    # Get the academic_session_id and level for this transaction
+    txn = Database.execute_query(
+        '''SELECT academic_session_id FROM payment_transactions
+           WHERE reference_no = %s AND user_id = %s''',
+        (reference_no, user_id)
+    )
+    
+    if not txn or not txn[0].get('academic_session_id'):
+        print(f"[update_session_payment_status] {reference_no}: No academic_session_id found")
+        return
+    
+    session_id = txn[0]['academic_session_id']
+    
+    # Get current student level
+    student = Database.execute_query(
+        '''SELECT s.current_level_id FROM students s
+           WHERE s."UserId" = %s
+           ORDER BY s."CreatedDate" DESC LIMIT 1''',
+        (user_id,)
+    )
+    
+    if not student:
+        print(f"[update_session_payment_status] {reference_no}: No student record found")
+        return
+    
+    current_level_id = student[0].get('current_level_id')
+    if not current_level_id:
+        print(f"[update_session_payment_status] {reference_no}: No current_level_id found")
+        return
+    
+    # Get total amount paid for this session
+    paid_res = Database.execute_query(
+        '''SELECT COALESCE(SUM(amount_paid), 0) as total_paid
+           FROM payment_transactions
+           WHERE user_id = %s 
+             AND academic_session_id = %s 
+             AND tran_type = 'tuition'
+             AND tran_status = 'successful' ''',
+        (user_id, session_id)
+    )
+    
+    total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0
+    
+    # Get expected fees for this student+session+level
+    # Query: sum of all tuition fees from program_fees table
+    # program_fees links to program_types, fee_components, and has academic_session_id
+    expected_res = Database.execute_query(
+        '''SELECT COALESCE(SUM(pf.amount), 0) as expected_fees
+           FROM program_fees pf
+           WHERE pf.academic_session_id = %s 
+             AND pf.level = %s ''',
+        (session_id, current_level_id)
+    )
+    
+    expected_fees = float(expected_res[0]['expected_fees'] or 0) if expected_res else 0
+    
+    print(f"[update_session_payment_status] {reference_no}: "
+          f"Session {session_id}, Level {current_level_id}, "
+          f"Paid: ₦{total_paid}, Expected: ₦{expected_fees}")
+    
+    # Determine if fully paid
+    is_fully_paid = (total_paid >= expected_fees) if expected_fees > 0 else False
+    
+    # Update ALL tuition transactions for this session to have the same fully_paid_for_session flag
+    # (This ensures consistency across installments)
+    Database.execute_update(
+        '''UPDATE payment_transactions
+           SET fully_paid_for_session = %s,
+               updated_at = NOW()
+           WHERE user_id = %s 
+             AND academic_session_id = %s 
+             AND tran_type = 'tuition' ''',
+        (is_fully_paid, user_id, session_id)
+    )
+    
+    print(f"[update_session_payment_status] {reference_no}: "
+          f"Set fully_paid_for_session = {is_fully_paid}")
+
+
+def get_session_payment_summary(user_id: int, session_id: int) -> dict:
+    """
+    Get payment summary for a student for a specific academic session.
+    
+    Returns:
+      {
+        'total_expected': float,
+        'total_paid': float,
+        'is_fully_paid': bool,
+        'remaining': float,
+        'payment_percentage': int (0-100)
+      }
+    """
+    student = Database.execute_query(
+        '''SELECT current_level_id FROM students
+           WHERE "UserId" = %s
+           ORDER BY "CreatedDate" DESC LIMIT 1''',
+        (user_id,)
+    )
+    
+    if not student or not student[0].get('current_level_id'):
+        return {
+            'total_expected': 0,
+            'total_paid': 0,
+            'is_fully_paid': False,
+            'remaining': 0,
+            'payment_percentage': 0,
+        }
+    
+    current_level_id = student[0]['current_level_id']
+    
+    # Get total paid
+    paid_res = Database.execute_query(
+        '''SELECT COALESCE(SUM(amount_paid), 0) as total_paid
+           FROM payment_transactions
+           WHERE user_id = %s 
+             AND academic_session_id = %s 
+             AND tran_type = 'tuition'
+             AND tran_status = 'successful' ''',
+        (user_id, session_id)
+    )
+    
+    total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0
+    
+    # Get expected fees
+    expected_res = Database.execute_query(
+        '''SELECT COALESCE(SUM(pf.amount), 0) as expected_fees
+           FROM program_fees pf
+           WHERE pf.academic_session_id = %s 
+             AND pf.level = %s ''',
+        (session_id, current_level_id)
+    )
+    
+    expected_fees = float(expected_res[0]['expected_fees'] or 0) if expected_res else 0
+    
+    is_fully_paid = (total_paid >= expected_fees) if expected_fees > 0 else False
+    remaining = max(0, expected_fees - total_paid)
+    
+    if expected_fees > 0:
+        payment_percentage = min(100, int((total_paid / expected_fees) * 100))
+    else:
+        payment_percentage = 0
+    
+    return {
+        'total_expected': expected_fees,
+        'total_paid': total_paid,
+        'is_fully_paid': is_fully_paid,
+        'remaining': remaining,
+        'payment_percentage': payment_percentage,
+    }

@@ -45,6 +45,19 @@ function CallbackContent() {
   const MAX_POLLS = 45;        // 45 × 4s = 3 minutes max
   const POLL_INTERVAL_MS = 4000;
 
+  const [showSkeleton, setShowSkeleton] = useState(false);
+
+  useEffect(() => {
+    if (state === "verifying") {
+      const timer = setTimeout(() => {
+        setShowSkeleton(true);
+      }, 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowSkeleton(false);
+    }
+  }, [state]);
+
   useEffect(() => {
     if (!txnref) {
       setState("error");
@@ -72,8 +85,15 @@ function CallbackContent() {
           return; // done
         }
 
-        // Definitive failure
-        if (res.tran_status === "failed" || res.tran_status === "cancelled") {
+        // If the gateway reports the user CANCELLED the payment, redirect
+        // straight back to the payment page instead of waiting for confirmation.
+        if (res.tran_status === "cancelled") {
+          router.replace("/applicant/payment");
+          return;
+        }
+
+        // Definitive failure (non-cancel failures stay on the page so user can retry)
+        if (res.tran_status === "failed") {
           setState("failed");
           setResult({ response_desc: res.response_desc });
           return;
@@ -121,9 +141,68 @@ function CallbackContent() {
       state === "failed" || state === "error" ? "bg-gradient-to-r from-red-400 to-rose-500" :
         "bg-gradient-to-r from-[#433878] to-[#6b357d]";
 
+function DashboardSkeleton() {
+  return (
+    <div className="min-h-screen bg-[#f8fafc] w-full">
+      {/* Header skeleton */}
+      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-slate-200 animate-pulse" />
+          <div className="h-6 w-32 bg-slate-200 rounded-md animate-pulse" />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="h-8 w-24 bg-slate-200 rounded-md animate-pulse" />
+          <div className="h-8 w-8 rounded-full bg-slate-200 animate-pulse" />
+        </div>
+      </header>
+
+      {/* Content skeleton matching the image layout */}
+      <main className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+        {/* Large Top Card (Banner) */}
+        <div className="w-full h-48 bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between animate-pulse">
+          <div className="space-y-3">
+            <div className="h-8 w-1/3 bg-slate-200 rounded-lg" />
+            <div className="h-4 w-1/2 bg-slate-200 rounded-lg" />
+          </div>
+          <div className="h-10 w-28 bg-slate-200 rounded-lg" />
+        </div>
+
+        {/* Mid section: Row blocks */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-4 bg-[#6b357d]/20 rounded-full" />
+            <div className="h-6 w-48 bg-slate-200 rounded-md animate-pulse" />
+          </div>
+
+          {/* List of 4 table/row elements as seen in the user's uploaded image */}
+          <div className="space-y-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="w-full h-16 bg-white rounded-2xl border border-slate-100 px-6 flex items-center justify-between animate-pulse"
+              >
+                <div className="flex items-center gap-4 w-2/3">
+                  <div className="w-8 h-8 rounded-full bg-slate-200" />
+                  <div className="h-4 w-1/4 bg-slate-200 rounded-md" />
+                  <div className="h-4 w-1/3 bg-slate-200 rounded-md" />
+                </div>
+                <div className="h-8 w-24 bg-slate-200 rounded-lg" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+  if (state === "verifying" && showSkeleton) {
+    return <DashboardSkeleton />;
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
-      <Card className="max-w-md w-full border-0 shadow-2xl rounded-[40px] overflow-hidden">
+      <Card className="max-w-md w-full border-0 shadow-2xl rounded-[40px] overflow-hidden bg-white/95 backdrop-blur-md">
         <div className={`h-2 ${accentBar}`} />
 
         <CardHeader className="text-center pt-10 pb-2">
@@ -172,7 +251,7 @@ function CallbackContent() {
 
         <CardContent className="px-8 pb-2">
           {state === "success" && result && (
-            <div className="bg-slate-50 rounded-2xl p-5 space-y-3 text-sm">
+            <div className="bg-slate-50/85 rounded-2xl p-5 space-y-3 text-sm">
               {result.receipt_no && (
                 <div className="flex justify-between">
                   <span className="text-slate-500 font-medium">Receipt No.</span>
@@ -207,7 +286,7 @@ function CallbackContent() {
             </div>
           )}
           {state === "failed" && (
-            <div className="bg-red-50 rounded-2xl p-5 text-sm text-red-700 font-medium border border-red-100">
+            <div className="bg-red-50/80 rounded-2xl p-5 text-sm text-red-700 font-medium border border-red-100">
               Your transaction reference:{" "}
               <span className="font-mono font-bold break-all">{txnref}</span>
               <span className="text-xs mt-2 block text-red-500">
@@ -248,13 +327,11 @@ function CallbackContent() {
                 </Button>
               )}
               <Button
-                className="w-full h-12 font-bold bg-green-600 hover:bg-green-700"
+                className="w-full h-12 font-bold bg-[#6b357d] hover:bg-[#5a2d69] text-white"
                 onClick={() => {
-                  if (result?.payment_type === "tuition" || user?.role === "student" || user?.role === "admitted") {
-                    router.push("/student/dashboard");
-                  } else {
-                    router.push("/applicant/dashboard");
-                  }
+                  // Always return to the applicant dashboard so users (including
+                  // newly-upgraded students) can copy their matric number.
+                  router.push("/applicant/dashboard");
                 }}
               >
                 Go to Dashboard
@@ -278,9 +355,6 @@ function CallbackContent() {
               </Button>
             </>
           )}
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-300 text-center mt-2">
-            Powered by <span className="text-slate-400 italic">Interswitch</span>
-          </p>
         </CardFooter>
       </Card>
     </div>

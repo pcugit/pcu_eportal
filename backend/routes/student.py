@@ -579,6 +579,17 @@ def admin_update_student(payload):
             if session_res:
                 session_id = session_res[0]['id']
 
+        # ── Get user_id for this student ──
+        student_res = Database.execute_query(
+            'SELECT "UserId", current_level_id FROM students WHERE "Id" = %s',
+            (student_id,)
+        )
+        if not student_res:
+            return jsonify({'message': 'Student not found'}), 404
+        
+        user_id = student_res[0]['UserId']
+        old_level_id = student_res[0]['current_level_id']
+
         # Update students table
         Database.execute_update(
             '''UPDATE students 
@@ -588,6 +599,31 @@ def admin_update_student(payload):
                WHERE "Id" = %s''',
             (matric_no, level_id, student_id)
         )
+
+        # ── If level was changed, reset fully_paid_for_session flag for current session ──
+        if level_id and level_id != old_level_id:
+            print(f"[admin_update_student] Level changed from {old_level_id} to {level_id}")
+            
+            # Get current session_id from applications
+            current_session_res = Database.execute_query(
+                '''SELECT acs.id FROM academic_sessions acs
+                   WHERE acs.is_active = TRUE
+                   ORDER BY acs.id DESC LIMIT 1''',
+            )
+            
+            if current_session_res:
+                current_session_id = current_session_res[0]['id']
+                # Reset fully_paid_for_session to FALSE since student moved to new level
+                # They now need to pay fees for the new level
+                Database.execute_update(
+                    '''UPDATE payment_transactions
+                       SET fully_paid_for_session = FALSE
+                       WHERE user_id = %s 
+                         AND academic_session_id = %s 
+                         AND tran_type = 'tuition' ''',
+                    (user_id, current_session_id)
+                )
+                print(f"[admin_update_student] Reset fully_paid_for_session for session {current_session_id}")
 
         # Update applications table academic_session_id
         if session_id:

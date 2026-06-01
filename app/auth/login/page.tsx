@@ -91,12 +91,12 @@ export default function LoginPage() {
       return;
     }
 
-    // Admitted student — stay on this page to show the upgrade message
+    // Full student — stay on this page to show the upgrade message
     if (role === "student") {
       return;
     }
 
-    // Applicant → dashboard
+    // Applicant or admitted → applicant dashboard
     router.replace("/applicant/dashboard");
   }, [isAuthenticated, user, applicant, router]);
 
@@ -124,7 +124,7 @@ export default function LoginPage() {
     }
 
     try {
-      await login(formData.email, formData.password);
+      await login(formData.email, formData.password, "applicant");
     } catch (err) {
       // Error is handled in the auth context
     }
@@ -154,15 +154,24 @@ export default function LoginPage() {
               in to your student portal to continue.
             </p>
           </CardContent>
-          <CardFooter>
+          <CardFooter className="flex flex-col gap-3">
             <Button
-              className="w-full"
+              className="w-full bg-slate-900 text-white hover:bg-slate-800"
               onClick={async () => {
                 await logout();
                 router.push("/student/login");
               }}
             >
               Sign In to Student Portal
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full border-[#6b357d] text-[#6b357d] hover:bg-[#6b357d]/5"
+              onClick={() => {
+                router.push("/applicant/dashboard");
+              }}
+            >
+              Stay in Admission Portal
             </Button>
           </CardFooter>
         </Card>

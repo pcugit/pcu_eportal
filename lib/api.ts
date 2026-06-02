@@ -311,6 +311,45 @@ export class ApiClient {
       const data = await response.json();
       const status = response.status;
 
+      // ── Global 401 interceptor ──────────────────────────────────────
+      // If the JWT has expired or is invalid, clear all auth state and
+      // redirect to login. Skip auth endpoints (they return 401 for
+      // invalid credentials, not expired tokens).
+      const isAuthEndpoint =
+        endpoint.startsWith("/auth/login") ||
+        endpoint.startsWith("/auth/signup");
+      if (response.status === 401 && !isAuthEndpoint) {
+        this.setToken(null);
+        this.clearCache();
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("auth_user");
+          localStorage.removeItem("last_active");
+
+          // Determine the correct login page based on current path
+          const currentPath = window.location.pathname;
+          let loginPath = "/auth/login";
+          if (currentPath.includes("/student")) {
+            loginPath = "/student/login";
+          } else if (
+            ["/admission_officer", "/dean", "/deo", "/hod", "/ict", "/lecturer", "/registrar", "/staff"].some(
+              (p) => currentPath.includes(p),
+            )
+          ) {
+            loginPath = "/staff/login";
+          }
+
+          // Handle basePath
+          if (currentPath.startsWith("/e-portal")) {
+            loginPath = `/e-portal${loginPath}`;
+          }
+
+          window.location.href = loginPath;
+        }
+        const error: any = new Error("Session expired. Please log in again.");
+        error.response = data;
+        throw error;
+      }
+
       // Clear cache on mutations to ensure fresh data, even if the request failed
       if (!isGet) {
         this.clearCache();

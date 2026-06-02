@@ -42,13 +42,13 @@ def get_applications(payload):
                              (
                                  CASE 
                                      WHEN app.applicant_stage = 'submitted' THEN 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(aq.choice1, '')
+                                         COALESCE(dg.code || ' ', '') || COALESCE(ps1.name, '')
                                      WHEN app.applicant_stage = 'screening' THEN 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, aq.choice1, '')
+                                         COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, ps1.name, '')
                                      WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
                                      ELSE 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
                                  END
                              ) AS program_name,
                              app.applicant_stage AS application_status,
@@ -60,7 +60,9 @@ def get_applications(payload):
                       LEFT JOIN program_types pt ON app.prog_type = pt.id
                       LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
                       LEFT JOIN degrees dg ON app.degree_id = dg.id
-                      LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id'''
+                      LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
+                      LEFT JOIN program_choice pc ON pc.application_id = app.id
+                      LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id'''
 
     if status == 'admitted':
         # Show both admitted (awaiting fee) and accepted (fee paid)
@@ -98,13 +100,13 @@ def get_application_details(payload, applicant_id):
                    (
                        CASE 
                            WHEN app.applicant_stage = 'submitted' THEN 
-                               COALESCE(dg.code || ' ', '') || COALESCE(aq.choice1, '')
+                               COALESCE(dg.code || ' ', '') || COALESCE(ps1.name, '')
                            WHEN app.applicant_stage = 'screening' THEN 
-                               COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, aq.choice1, '')
+                               COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, ps1.name, '')
                            WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 
-                               COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                               COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
                            ELSE 
-                               COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, aq.choice1, '')
+                               COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
                        END
                    ) AS program_name,
                    app.applicant_stage AS application_status,
@@ -121,6 +123,8 @@ def get_application_details(payload, applicant_id):
             LEFT JOIN program_types pt ON app.prog_type = pt.id
             LEFT JOIN degrees dg ON app.degree_id = dg.id
             LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
+            LEFT JOIN program_choice pc ON pc.application_id = app.id
+            LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
             WHERE app.id = %s''',
         (applicant_id,)
     )
@@ -193,17 +197,35 @@ def get_application_details(payload, applicant_id):
         if olevel_exams:
             form_data['olevel_results'] = olevel_exams
 
-        if aq.get('choice1'):
-            form_data['first_choice_program_name'] = aq.get('choice1')
-            ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get('choice1'),))
-            if ps_res:
-                form_data['first_choice_program_id'] = ps_res[0]['id']
+        # Load university choices from program_choice table
+        pc_res = Database.execute_query(
+            '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
+               FROM program_choice pc
+               LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
+               LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
+               WHERE pc.application_id = %s''',
+            (application_id,)
+        )
+        if pc_res:
+            pc_row = pc_res[0]
+            if pc_row.get('first_choice'):
+                form_data['first_choice_program_id'] = pc_row['first_choice']
+                form_data['first_choice_program_name'] = pc_row['first_choice_name']
+            if pc_row.get('second_choice'):
+                form_data['second_choice_program_id'] = pc_row['second_choice']
+                form_data['second_choice_program_name'] = pc_row['second_choice_name']
 
-        if aq.get('choice2'):
-            form_data['second_choice_program_name'] = aq.get('choice2')
-            ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get('choice2'),))
-            if ps_res:
-                form_data['second_choice_program_id'] = ps_res[0]['id']
+        # Load original JAMB choices (manually typed) & other UTME details
+        utme_fields = [
+            'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
+            'utme_subject1', 'utme_score1',
+            'utme_subject2', 'utme_score2',
+            'utme_subject3', 'utme_score3',
+            'utme_subject4', 'utme_score4'
+        ]
+        for f in utme_fields:
+            if aq.get(f) is not None:
+                form_data[f] = aq.get(f)
 
     import json as _json
     if form_data.get('additional_info'):

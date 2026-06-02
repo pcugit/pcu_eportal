@@ -93,7 +93,7 @@ export default function ApplicantDashboard() {
 function ApplicantDashboardInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, isAuthenticated, logout, refreshStatus } = useAuth();
+  const { user, isAuthenticated, logout, refreshStatus, isLoading: authLoading } = useAuth();
   const [status, setStatus] = useState<ApplicantStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [admissionLetter, setAdmissionLetter] =
@@ -684,12 +684,38 @@ function ApplicantDashboardInner() {
     );
   };
 
+  // ── Auth gate: wait for AuthContext to finish checking the token ──────
+  // Without this, the dashboard shell renders during the async gap between
+  // hydration and verifyToken completion (the expired-session flash bug).
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground font-medium">Verifying session…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Auth check completed and user is not authenticated → redirect to login
+  if (!isAuthenticated) {
+    if (typeof window !== "undefined") {
+      const currentPath = window.location.pathname;
+      const loginPath = currentPath.startsWith("/e-portal")
+        ? "/e-portal/auth/login"
+        : "/auth/login";
+      window.location.href = loginPath;
+    }
+    return null;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground font-medium">Authenticating</p>
+          <p className="text-muted-foreground font-medium">Loading dashboard…</p>
         </div>
       </div>
     );

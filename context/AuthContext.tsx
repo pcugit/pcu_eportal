@@ -89,19 +89,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  // Initialize from localStorage for instant UI responsiveness
-  const getStoredUser = () => {
-    if (typeof window === "undefined") return null;
-    const stored = localStorage.getItem("auth_user");
-    try {
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const storedUser = getStoredUser();
-  const [user, setUser] = useState<User | null>(storedUser);
+  // IMPORTANT: Do NOT hydrate `user` from localStorage.
+  // That old pattern made `isAuthenticated` true before verifyToken completed,
+  // causing dashboard pages to render their shell for expired sessions.
+  // The cached user is only used to decide whether to call verifyToken.
+  const [user, setUser] = useState<User | null>(null);
   const [applicant, setApplicant] = useState<ApplicantData | null>(null);
   const [student, setStudent] = useState<StudentData | null>(null);
 
@@ -198,15 +190,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       ) {
         // Session expired while browser was closed — clear everything and don't verify
         ApiClient.setToken(null);
-        localStorage.removeItem("auth_user");
-        localStorage.removeItem("last_active");
+        saveUserAndRole(null);
+        setApplicant(null);
+        setStudent(null);
         setIsLoading(false);
       } else {
         verifyToken();
       }
     } else {
+      // No token at all — ensure stale cached user is also cleared
+      saveUserAndRole(null);
       setIsLoading(false);
-      localStorage.removeItem("auth_user");
     }
     fetchPortalStatus();
   }, []);

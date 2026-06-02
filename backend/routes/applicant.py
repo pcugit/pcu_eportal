@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, Response, send_file, redirect
 from database import Database
 from utils.auth import AuthHandler
+from datetime import datetime, timedelta, timezone
 from utils.document_handler import DocumentHandler
 from utils.pdf_generator import PDFGenerator
 from utils.payment_receipt_generator import PaymentReceiptGenerator
@@ -19,6 +20,14 @@ import uuid
 import secrets
 import string
 import json
+
+from routes.form_templates.utme import template as utme_template
+from routes.form_templates.postgraduate import template as postgraduate_template
+from routes.form_templates.jupeb import template as jupeb_template
+from routes.form_templates.hnd_conversion import template as hnd_conversion_template
+from routes.form_templates.ijmb import template as ijmb_template
+from routes.form_templates.direct_entry import template as direct_entry_template
+from routes.form_templates.part_time import template as part_time_template
 
 applicant_bp = Blueprint('Applicant', __name__)
 
@@ -416,125 +425,17 @@ def get_form_template(payload, program_type_id):
         return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
 
     form_templates = {
-        1: {
-            'program': 'Undergraduate',
-            'steps': [
-                {
-                    'title': 'Personal Information',
-                    'type': 'fields',
-                    'fields': [
-                        {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
-                        {'name': 'first_name', 'type': 'text', 'label': 'First Name', 'required': True, 'disabled': True},
-                        {'name': 'last_name', 'type': 'text', 'label': 'Last Name', 'required': True, 'disabled': True},
-                        {'name': 'middle_name', 'type': 'text', 'label': 'Middle name', 'required': False},
-                        {'name': 'gender', 'type': 'select', 'label': 'Gender', 'options': ['Male', 'Female'], 'required': True},
-                        {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                        {'name': 'place_of_birth', 'type': 'text', 'label': 'Place of birth', 'required': True},
-                        {'name': 'marital_status', 'type': 'select', 'label': 'Marital Status', 'options': ['Single', 'Married', 'Divorced', 'Widowed'], 'required': True},
-                        {'name': 'religion', 'type': 'select', 'label': 'Religion', 'options': ['Christianity', 'Islam', 'Traditional', 'Other'], 'required': True},
-                        {'name': 'blood_group', 'type': 'text', 'label': 'Blood Group', 'required': False},
-                        {'name': 'genotype', 'type': 'text', 'label': 'Genotype', 'required': False},
-                        {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
-                        {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
-                        {'name': 'nationality', 'type': 'select', 'label': 'Nationality', 'options': ['Nigerian', 'Non-Nigerian'], 'required': True},
-                        {'name': 'state', 'type': 'select', 'label': 'State', 'options': ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara','FCT'], 'required': True},
-                        {'name': 'lga', 'type': 'text', 'label': 'Local Government Area', 'required': True},
-                        {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
-                    ]
-                },
-                {'title': 'Sponsor and Next of Kin', 'type': 'fields', 'fields': [
-                    {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
-                    {'name': 'sponsor_address', 'type': 'text', 'label': 'Sponsor Address', 'required': True},
-                    {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
-                    {'name': 'sponsor_relationship', 'type': 'select', 'label': 'Sponsor Relationship', 'options': ['Father','Mother','Guardian','Uncle','Aunt','Self','Other'], 'required': True},
-                    {'name': 'sponsor_email', 'type': 'email', 'label': 'Sponsor Email', 'required': False},
-                    {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
-                    {'name': 'next_of_kin_address', 'type': 'text', 'label': "Next of Kin's Address", 'required': True},
-                    {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True},
-                ]},
-                {'title': "O'LEVEL", 'type': 'olevel'},
-                {'title': 'Documents', 'type': 'documents', 'documents': [
-                    {'type': 'passport', 'label': 'Passport Photograph', 'required': True},
-                    {'type': 'birth_certificate', 'label': 'Birth Certificate', 'required': True},
-                ]},
-            ]
-        },
-        2: {
-            'program': 'Postgraduate',
-            'steps': [
-                {'title': 'Personal Information', 'type': 'fields', 'fields': [
-                    {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
-                    {'name': 'first_name', 'type': 'text', 'label': 'First Name', 'required': True, 'disabled': True},
-                    {'name': 'last_name', 'type': 'text', 'label': 'Last Name', 'required': True, 'disabled': True},
-                    {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                    {'name': 'nationality', 'type': 'text', 'label': 'Nationality', 'required': True},
-                    {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
-                    {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
-                    {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
-                ]},
-                {'title': 'Academic Qualifications', 'type': 'fields', 'fields': [
-                    {'name': 'qualification_type', 'type': 'select', 'label': 'First Degree Type', 'options': ['BSc','BA','BEng','Other'], 'required': True},
-                    {'name': 'qualification_institution', 'type': 'text', 'label': 'University Name', 'required': True},
-                    {'name': 'qualification_year', 'type': 'number', 'label': 'Year of Graduation', 'required': True},
-                    {'name': 'work_experience', 'type': 'textarea', 'label': 'Work Experience', 'required': False},
-                    {'name': 'additional_info', 'type': 'textarea', 'label': 'Research Interests', 'required': False},
-                ]},
-                {'title': 'Sponsor and Next of Kin', 'type': 'fields', 'fields': [
-                    {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
-                    {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
-                    {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
-                    {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True},
-                ]},
-                {'title': 'Documents', 'type': 'documents', 'documents': [
-                    {'type': 'transcript', 'label': 'University Transcript', 'required': True},
-                    {'type': 'certificate', 'label': 'Degree Certificate', 'required': True},
-                    {'type': 'identification', 'label': 'Identification (Passport/Driver License)', 'required': True},
-                    {'type': 'recommendation', 'label': 'Recommendation Letters (2)', 'required': True},
-                ]},
-            ]
-        },
-        14: {
-            'program': 'Part-Time',
-            'steps': [
-                {'title': 'Personal Information', 'type': 'fields', 'fields': [
-                    {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
-                    {'name': 'first_name', 'type': 'text', 'label': 'First name', 'required': True, 'disabled': True},
-                    {'name': 'last_name', 'type': 'text', 'label': 'Last name', 'required': True, 'disabled': True},
-                    {'name': 'middle_name', 'type': 'text', 'label': 'Middle name', 'required': False},
-                    {'name': 'gender', 'type': 'select', 'label': 'Gender', 'options': ['Male','Female'], 'required': True},
-                    {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                    {'name': 'place_of_birth', 'type': 'text', 'label': 'Place of birth', 'required': True},
-                    {'name': 'marital_status', 'type': 'select', 'label': 'Marital Status', 'options': ['Single','Married','Divorced','Widowed'], 'required': True},
-                    {'name': 'religion', 'type': 'select', 'label': 'Religion', 'options': ['Christianity','Islam','Traditional','Other'], 'required': True},
-                    {'name': 'blood_group', 'type': 'text', 'label': 'Blood Group', 'required': False},
-                    {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
-                    {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
-                    {'name': 'genotype', 'type': 'text', 'label': 'Genotype', 'required': False},
-                    {'name': 'state', 'type': 'select', 'label': 'State', 'options': ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara','FCT'], 'required': True},
-                    {'name': 'who_referred_you', 'type': 'text', 'label': 'Who referred you?', 'required': False},
-                    {'name': 'nationality', 'type': 'select', 'label': 'Nationality', 'options': ['Nigerian','Non-Nigerian'], 'required': True},
-                    {'name': 'contact_address', 'type': 'textarea', 'label': 'Contact Address', 'required': True},
-                    {'name': 'lga', 'type': 'text', 'label': 'Local Government Area', 'required': True},
-                ]},
-                {'title': 'Sponsor and Next of Kin', 'type': 'fields', 'fields': [
-                    {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
-                    {'name': 'sponsor_address', 'type': 'text', 'label': 'Sponsor Address', 'required': True},
-                    {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
-                    {'name': 'sponsor_relationship', 'type': 'select', 'label': 'Sponsor Relationship', 'options': ['Father','Mother','Guardian','Uncle','Aunt','Self','Other'], 'required': True},
-                    {'name': 'sponsor_email', 'type': 'email', 'label': 'Sponsor Email', 'required': False},
-                    {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
-                    {'name': 'next_of_kin_address', 'type': 'text', 'label': "Next of Kin's Address", 'required': True},
-                    {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True},
-                ]},
-                {'title': "O'LEVEL", 'type': 'olevel'},
-                {'title': 'Documents', 'type': 'documents', 'documents': [
-                    {'type': 'passport', 'label': 'Passport Photograph', 'required': True},
-                    {'type': 'birth_certificate', 'label': 'Birth Certificate', 'required': True},
-                ]},
-            ]
-        },
+        1: utme_template,
+        2: postgraduate_template,
+        3: jupeb_template,
+        4: hnd_conversion_template,
+        5: ijmb_template,
+        6: direct_entry_template,
+        7: part_time_template,
     }
-    template = form_templates.get(program_type_id, form_templates[1])
+    template = form_templates.get(program_type_id)
+    if template is None:
+        return jsonify({'message': f'No form template found for program_type_id {program_type_id}'}), 404
     return jsonify(template), 200
 
 
@@ -605,7 +506,9 @@ def submit_form(payload):
         'qualification_type': clean_val('qualification_type'),
         'qualification_institution': clean_val('qualification_institution'),
         'qualification_year': clean_val('qualification_year'),
-        'additional_info': clean_val('additional_info'),
+        # work_experience (PG template field) has no dedicated column — fall back to
+        # additional_info only when additional_info is not explicitly provided.
+        'additional_info': clean_val('additional_info') or clean_val('work_experience'),
     }
     pi_cols = [k for k, v in pi_fields.items() if v is not None]
     pi_vals = [pi_fields[k] for k in pi_cols]
@@ -659,35 +562,76 @@ def submit_form(payload):
             tuple(sp_vals)
         )
 
+    # ── Program Choice (University course choices) ──────────────────────────
+    first_choice_id = data.get('first_choice_program_id')
+    second_choice_id = data.get('second_choice_program_id')
+    
+    fc_val = None
+    if first_choice_id not in ('', 'null', 'undefined', None):
+        try:
+            fc_val = int(first_choice_id)
+        except ValueError:
+            pass
+            
+    sc_val = None
+    if second_choice_id not in ('', 'null', 'undefined', None):
+        try:
+            sc_val = int(second_choice_id)
+        except ValueError:
+            pass
+
+    if fc_val is not None or sc_val is not None:
+        pc_exists = Database.execute_query('SELECT id FROM program_choice WHERE application_id = %s', (application_id,))
+        if pc_exists:
+            Database.execute_update(
+                'UPDATE program_choice SET first_choice = %s, second_choice = %s WHERE application_id = %s',
+                (fc_val, sc_val, application_id)
+            )
+        else:
+            Database.execute_update(
+                'INSERT INTO program_choice (application_id, first_choice, second_choice) VALUES (%s, %s, %s)',
+                (application_id, fc_val, sc_val)
+            )
+
+        # For the first choice, also write degree_id to the applications row
+        if fc_val is not None:
+            deg_res = Database.execute_query(
+                '''SELECT dp.degree_id
+                   FROM program_setup ps
+                   JOIN degree_program dp ON dp.degree_id = ps.degree_id
+                   WHERE ps.id = %s
+                   LIMIT 1''',
+                (fc_val,)
+            )
+            if deg_res and deg_res[0].get('degree_id'):
+                Database.execute_update(
+                    '''UPDATE applications
+                       SET degree_id = %s, updated_at = NOW()
+                       WHERE id = %s AND degree_id IS NULL''',
+                    (deg_res[0]['degree_id'], application_id)
+                )
+
     # ── Academic qualification / O'Level ─────────────────────────────────────
     aq_fields = {'user_id': user_id}
-    for choice_key, choice_col in [('first_choice_program_id', 'choice1'), ('second_choice_program_id', 'choice2')]:
-        choice_id = data.get(choice_key)
-        if choice_id:
-            try:
-                ps_res = Database.execute_query('SELECT name FROM program_setup WHERE id = %s', (int(choice_id),))
-                if ps_res:
-                    aq_fields[choice_col] = ps_res[0]['name']
-
-                # For the first choice, also write degree_id to the applications row
-                if choice_col == 'choice1':
-                    deg_res = Database.execute_query(
-                        '''SELECT dp.degree_id
-                           FROM program_setup ps
-                           JOIN degree_program dp ON dp.degree_id = ps.degree_id
-                           WHERE ps.id = %s
-                           LIMIT 1''',
-                        (int(choice_id),)
-                    )
-                    if deg_res and deg_res[0].get('degree_id'):
-                        Database.execute_update(
-                            '''UPDATE applications
-                               SET degree_id = %s, updated_at = NOW()
-                               WHERE id = %s AND degree_id IS NULL''',
-                            (deg_res[0]['degree_id'], application_id)
-                        )
-            except ValueError:
-                pass
+    
+    # Extract original JAMB choices (manually typed) and other UTME details into aq_fields
+    utme_cols = [
+        'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
+        'utme_subject1', 'utme_score1',
+        'utme_subject2', 'utme_score2',
+        'utme_subject3', 'utme_score3',
+        'utme_subject4', 'utme_score4'
+    ]
+    for col in utme_cols:
+        val = data.get(col)
+        if val not in ('', 'null', 'undefined', None):
+            if 'score' in col:
+                try:
+                    aq_fields[col] = int(val)
+                except ValueError:
+                    pass
+            else:
+                aq_fields[col] = val
 
     olevel_raw = data.get('olevel_results')
     if olevel_raw:
@@ -1369,7 +1313,7 @@ def verify_payment(payload):
     should_requery = (
         current_status == 'pending' and
         (last_queried is None or 
-         (datetime.utcnow() - last_queried).total_seconds() > 5)
+         (datetime.now(timezone.utc).replace(tzinfo=None) - last_queried).total_seconds() > 5)
     )
     
     if should_requery:
@@ -1431,33 +1375,7 @@ def verify_payment(payload):
         False,
         message='Still verifying, check again soon'
     )), 200
-
-    # ── Response ──────────────────────────────────────────────────────────────
-    if tran_status == 'pending':
-        return jsonify({
-            'tran_status':   'pending',
-            'response_code': response_code,
-            'response_desc': response_desc or 'Payment is still being processed. Please wait a moment and refresh.',
-            'is_successful': False,
-            'amount':        float(txn['amount']),
-            'reference_no':  reference_no,
-            'receipt_no':    txn['receipt_no'],
-            'payment_type':  payment_type,
-            'message':       'Your payment is being processed. This can take a few minutes — we will update your status automatically.',
-        }), 202
-
-    return jsonify({
-        'tran_status':   tran_status,
-        'response_code': response_code,
-        'response_desc': response_desc,
-        'is_successful': is_successful,
-        'amount':        float(txn['amount']),
-        'reference_no':  reference_no,
-        'receipt_no':    txn['receipt_no'],
-        'payment_type':  payment_type,
-    }), 200
-
-
+    
 # ─────────────────────────────────────────────────────────────────────────────
 # Payment — cancel (user closed the Interswitch modal without completing)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1972,12 +1890,35 @@ def get_form(payload, applicant_id):
         if olevel_exams:
             form_data['olevel_results'] = olevel_exams
 
-        for choice_key, col in [('first_choice_program_name', 'choice1'), ('second_choice_program_name', 'choice2')]:
-            if aq.get(col):
-                form_data[choice_key] = aq.get(col)
-                ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get(col),))
-                if ps_res:
-                    form_data[choice_key.replace('name', 'id')] = ps_res[0]['id']
+        # Load university choices from program_choice table
+        pc_res = Database.execute_query(
+            '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
+               FROM program_choice pc
+               LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
+               LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
+               WHERE pc.application_id = %s''',
+            (application_id,)
+        )
+        if pc_res:
+            pc_row = pc_res[0]
+            if pc_row.get('first_choice'):
+                form_data['first_choice_program_id'] = pc_row['first_choice']
+                form_data['first_choice_program_name'] = pc_row['first_choice_name']
+            if pc_row.get('second_choice'):
+                form_data['second_choice_program_id'] = pc_row['second_choice']
+                form_data['second_choice_program_name'] = pc_row['second_choice_name']
+
+        # Load original JAMB choices (manually typed) & other UTME details
+        utme_fields = [
+            'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
+            'utme_subject1', 'utme_score1',
+            'utme_subject2', 'utme_score2',
+            'utme_subject3', 'utme_score3',
+            'utme_subject4', 'utme_score4'
+        ]
+        for f in utme_fields:
+            if aq.get(f) is not None:
+                form_data[f] = aq.get(f)
 
     prog_type = app_res[0].get('prog_type')
     if prog_type:
@@ -2253,7 +2194,4 @@ def respond_to_recommendation(payload):
         'SELECT ar.id, ar.application_id, ar.recommended_program_id FROM application_reviews ar WHERE ar.id = %s AND ar.application_id = %s',
         (review_id, applicant_id)
     )
-    if not review:
-        return jsonify({'message': 'Review not found'}), 404
-
     return jsonify({'message': f'Recommendation {response} successfully', 'applicant_id': applicant_id, 'response': response}), 200

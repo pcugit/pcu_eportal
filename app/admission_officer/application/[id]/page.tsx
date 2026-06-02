@@ -205,9 +205,56 @@ function ApplicantInfoTab({
             <p className="font-bold text-slate-600 text-sm uppercase">
               {form?.second_choice_program_name || "N/A"}
             </p>
-          </div>
         </div>
       </div>
+
+      {/* JAMB / UTME Details */}
+      {form?.utme_reg_no && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            JAMB / UTME Details
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+            {[
+              { label: "JAMB Registration Number", value: form?.utme_reg_no },
+              { label: "JAMB Score", value: form?.utme_score },
+              { label: "Mode of Entry", value: form?.mode_of_entry },
+              { label: "Original First Choice (JAMB)", value: form?.choice1 },
+              { label: "Original Second Choice (JAMB)", value: form?.choice2 },
+            ].map((item, idx) => (
+              <div
+                key={idx}
+                className="p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl"
+              >
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
+                  {item.label}
+                </span>
+                <span className="font-bold text-slate-800 text-sm">
+                  {item.value || "N/A"}
+                </span>
+              </div>
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
+            {[1, 2, 3, 4].map((num) => {
+              const subject = form?.[`utme_subject${num}`];
+              const score = form?.[`utme_score${num}`];
+              if (!subject) return null;
+              return (
+                <div key={num} className="p-3 bg-purple-50/30 border border-purple-100/40 rounded-xl">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
+                    {subject}
+                  </span>
+                  <span className="font-black text-[#6b357d] text-base">
+                    {score || "0"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* O'Level Results */}
       <div className="space-y-4 pt-4">

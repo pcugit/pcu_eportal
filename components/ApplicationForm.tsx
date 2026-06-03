@@ -122,7 +122,7 @@ const OlevelExamBlock = memo(function OlevelExamBlock({
         <CheckCircle2 className="w-4 h-4 text-blue-500" />
         {sittingLabel}
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="space-y-2">
           <Label>Name of Exam*</Label>
           <Select
@@ -132,7 +132,7 @@ const OlevelExamBlock = memo(function OlevelExamBlock({
             <SelectTrigger>
               <SelectValue placeholder="--select--" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent position="popper">
               <SelectItem value="WAEC">WAEC</SelectItem>
               <SelectItem value="NECO">NECO</SelectItem>
               <SelectItem value="NABTEB">NABTEB</SelectItem>
@@ -147,28 +147,9 @@ const OlevelExamBlock = memo(function OlevelExamBlock({
             onChange={(e) => handleFieldChange("number", e.target.value)}
           />
         </div>
-        <div className="space-y-2">
-          <Label>Exam Period (MAY/JUNE)*</Label>
-          <Input
-            value={exam.period}
-            onChange={(e) => handleFieldChange("period", e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Exam Year*</Label>
-          <Select
-            value={exam.year?.toString()}
-            onValueChange={(val) => handleFieldChange("year", val)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="--select--" />
-            </SelectTrigger>
-            <SelectContent>{yearItems}</SelectContent>
-          </Select>
-        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-        {Array.from({ length: 10 }).map((_, i) => (
+        {Array.from({ length: 5 }).map((_, i) => (
           <OlevelSubjectRow
             key={i}
             index={i}
@@ -216,7 +197,7 @@ const OlevelSubjectRow = memo(function OlevelSubjectRow({
           <SelectTrigger>
             <SelectValue placeholder="--SELECT--" />
           </SelectTrigger>
-          <SelectContent>{subjectItems}</SelectContent>
+          <SelectContent position="popper">{subjectItems}</SelectContent>
         </Select>
       </div>
       <div className="w-32 space-y-2">
@@ -228,7 +209,7 @@ const OlevelSubjectRow = memo(function OlevelSubjectRow({
           <SelectTrigger>
             <SelectValue placeholder="--" />
           </SelectTrigger>
-          <SelectContent>{gradeItems}</SelectContent>
+          <SelectContent position="popper">{gradeItems}</SelectContent>
         </Select>
       </div>
     </div>
@@ -274,7 +255,7 @@ function parseOlevelForState(raw: any) {
       number: "",
       period: "",
       year: "",
-      subjects: Array.from({ length: 10 }, () => ({
+      subjects: Array.from({ length: 5 }, () => ({
         subject_id: "",
         grade_id: "",
       })),
@@ -289,10 +270,10 @@ function parseOlevelForState(raw: any) {
         subjects: [
           ...(exam.subjects || []),
           ...Array.from(
-            { length: Math.max(0, 10 - (exam.subjects?.length || 0)) },
+            { length: Math.max(0, 5 - (exam.subjects?.length || 0)) },
             () => ({ subject_id: "", grade_id: "" }),
           ),
-        ].slice(0, 10),
+        ].slice(0, 5),
       }));
     }
   } catch {}
@@ -1025,7 +1006,7 @@ export default function ApplicationForm({
           <CardTitle>STEP - {step.title}</CardTitle>
           <CardDescription>Fill out all required fields</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-6 overflow-visible">
           {step.type === "passport_upload" && (
             <div className="flex flex-col items-center justify-center py-6 space-y-6">
               <div className="text-center max-w-md space-y-2">
@@ -1108,16 +1089,18 @@ export default function ApplicationForm({
                     />
                   ) : field.type === "select" ? (
                     <Select
-                      value={formData[field.name] || ""}
+                      value={formData[field.name] || undefined}
                       onValueChange={(value) =>
                         handleSelectChange(field.name, value)
                       }
                       disabled={saving || submitting || field.disabled}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder={`--Select--`} />
+                        <SelectValue
+                          placeholder={field.placeholder || "--Select--"}
+                        />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent position="popper" className="z-[9999]">
                         {field.options?.map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
@@ -1206,7 +1189,7 @@ export default function ApplicationForm({
                     <SelectTrigger className="h-12 border-slate-200">
                       <SelectValue placeholder="--SELECT--" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" className="z-[9999]">
                       {availableCourses.map((p) => (
                         <SelectItem key={p.id} value={p.id.toString()}>
                           {p.course} {p.department ? `(${p.department})` : ""}
@@ -1231,7 +1214,7 @@ export default function ApplicationForm({
                     <SelectTrigger className="h-12 border-slate-200">
                       <SelectValue placeholder="--SELECT--" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" className="z-[9999]">
                       {availableCourses.map((p) => (
                         <SelectItem key={p.id} value={p.id.toString()}>
                           {p.course} {p.department ? `(${p.department})` : ""}
@@ -1266,7 +1249,6 @@ export default function ApplicationForm({
                           <th className="p-4 w-12">#</th>
                           <th className="p-4">Name</th>
                           <th className="p-4">Document</th>
-                          <th className="p-4">Level</th>
                           <th className="p-4 text-center">Delete</th>
                         </tr>
                       </thead>
@@ -1292,9 +1274,6 @@ export default function ApplicationForm({
                                 >
                                   Download
                                 </a>
-                              </td>
-                              <td className="p-4 text-sm text-slate-600">
-                                O'Level
                               </td>
                               <td className="p-4 text-center">
                                 <Button
@@ -1362,7 +1341,7 @@ export default function ApplicationForm({
                         <SelectTrigger className="h-12 border-slate-200">
                           <SelectValue placeholder="--Select Document--" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent position="popper">
                           {step.documents.map((d) => (
                             <SelectItem key={d.type} value={d.type}>
                               {d.label} {d.required && "*"}

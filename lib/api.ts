@@ -331,9 +331,16 @@ export class ApiClient {
           if (currentPath.includes("/student")) {
             loginPath = "/student/login";
           } else if (
-            ["/admission_officer", "/dean", "/deo", "/hod", "/ict", "/lecturer", "/registrar", "/staff"].some(
-              (p) => currentPath.includes(p),
-            )
+            [
+              "/admission_officer",
+              "/dean",
+              "/deo",
+              "/hod",
+              "/ict",
+              "/lecturer",
+              "/registrar",
+              "/staff",
+            ].some((p) => currentPath.includes(p))
           ) {
             loginPath = "/staff/login";
           }
@@ -857,7 +864,7 @@ export class ApiClient {
     return data;
   }
 
-  static async getApplicationDetails(applicant_id: number) {
+  static async getApplicationDetails(applicant_id: string | number) {
     const { data } = await this.fetch(
       `/admission_officer/application/${applicant_id}`,
     );
@@ -881,7 +888,7 @@ export class ApiClient {
   }
 
   static async sendAdmissionLetter(
-    applicant_id: number,
+    applicant_id: string | number,
     admission_date?: string,
     template_id?: string,
   ) {
@@ -1396,7 +1403,9 @@ export class ApiClient {
   }
 
   static async getGlobalSettings(): Promise<any> {
-    const { data } = await this.fetch<{ settings: Array<{ key: string; value: string }> }>("/settings/all");
+    const { data } = await this.fetch<{
+      settings: Array<{ key: string; value: string }>;
+    }>("/settings/all");
     const settings = data?.settings || [];
     // Transform array of {key, value} into a key→value map for backward compatibility
     return settings.reduce((acc: Record<string, string>, s) => {
@@ -1411,10 +1420,10 @@ export class ApiClient {
     // Send each setting individually so the sync logic in settings.py fires
     // (e.g. current_academic_session syncs academic_sessions table,
     //  current_semester syncs semesters table)
-    let lastResult: { message: string } = { message: '' };
+    let lastResult: { message: string } = { message: "" };
     for (const [key, value] of Object.entries(settings)) {
       // Skip entries with no value (avoids 400 from backend)
-      if (value === undefined || value === null || value === '') continue;
+      if (value === undefined || value === null || value === "") continue;
       const { data } = await this.fetch<{ message: string }>(
         "/settings/update",
         {

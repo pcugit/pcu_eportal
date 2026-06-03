@@ -39,6 +39,17 @@ function ApplicantInfoTab({
 }) {
   const olevelResults = form?.olevel_results || [];
 
+  // Check if actual JAMB/UTME data was submitted
+  const hasUTMEData = !!(
+    form?.utme_reg_no ||
+    form?.utme_score ||
+    form?.utme_subject1 ||
+    form?.choice1
+  );
+
+  // Check if actual O'Level data was submitted
+  const hasOLevelData = olevelResults.length > 0;
+
   return (
     <div className="space-y-8 bg-white border border-slate-100 p-8 shadow-sm rounded-[24px]">
       {/* Header with passport */}
@@ -205,11 +216,12 @@ function ApplicantInfoTab({
             <p className="font-bold text-slate-600 text-sm uppercase">
               {form?.second_choice_program_name || "N/A"}
             </p>
+          </div>
         </div>
       </div>
 
-      {/* JAMB / UTME Details */}
-      {form?.utme_reg_no && (
+      {/* JAMB / UTME Details - Only if data was submitted */}
+      {hasUTMEData && (
         <div className="space-y-4 pt-4">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
             JAMB / UTME Details
@@ -235,14 +247,17 @@ function ApplicantInfoTab({
               </div>
             ))}
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
             {[1, 2, 3, 4].map((num) => {
               const subject = form?.[`utme_subject${num}`];
               const score = form?.[`utme_score${num}`];
               if (!subject) return null;
               return (
-                <div key={num} className="p-3 bg-purple-50/30 border border-purple-100/40 rounded-xl">
+                <div
+                  key={num}
+                  className="p-3 bg-purple-50/30 border border-purple-100/40 rounded-xl"
+                >
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
                     {subject}
                   </span>
@@ -256,77 +271,76 @@ function ApplicantInfoTab({
         </div>
       )}
 
-      {/* O'Level Results */}
-      <div className="space-y-4 pt-4">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-          O'Level Results
-        </h3>
-        {olevelResults.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {olevelResults.map((exam: any, idx: number) => (
-              <div
-                key={idx}
-                className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
-                    <h4 className="font-black text-[#6b357d] uppercase text-sm tracking-tight">
-                      {exam.name || "WAEC"} — Sitting {idx + 1}
-                    </h4>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
-                    <div>
-                      <span className="block text-[9px] text-slate-400">
-                        Reg Number
-                      </span>
-                      <span className="text-slate-700 font-mono">
-                        {exam.number}
-                      </span>
+      {/* O'Level Results - Only if data was submitted */}
+      {hasOLevelData && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            O'Level Results
+          </h3>
+          {olevelResults.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {olevelResults.map((exam: any, idx: number) => (
+                <div
+                  key={idx}
+                  className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+                      <h4 className="font-black text-[#6b357d] uppercase text-sm tracking-tight">
+                        {exam.name || "WAEC"} — Sitting {idx + 1}
+                      </h4>
                     </div>
-                    <div>
-                      <span className="block text-[9px] text-slate-400">
-                        Exam Year
-                      </span>
-                      <span className="text-slate-700">{exam.year}</span>
+                    <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
+                      <div>
+                        <span className="block text-[9px] text-slate-400">
+                          Reg Number
+                        </span>
+                        <span className="text-slate-700 font-mono">
+                          {exam.number}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-700">{exam.year}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-                    <table className="w-full text-left text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="p-3 font-bold">Subject</th>
-                          <th className="p-3 text-right font-bold">Grade</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {exam.subjects
-                          ?.filter((s: any) => s.subject)
-                          .map((s: any, sIdx: number) => (
-                            <tr
-                              key={sIdx}
-                              className="hover:bg-slate-50/50 transition-colors"
-                            >
-                              <td className="p-3 text-xs font-bold text-slate-600 uppercase">
-                                {s.subject}
-                              </td>
-                              <td className="p-3 text-right font-black text-slate-800">
-                                {s.grade || "-"}
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
+                    <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+                      <table className="w-full text-left text-sm border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            <th className="p-3 font-bold">Subject</th>
+                            <th className="p-3 text-right font-bold">Grade</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {exam.subjects
+                            ?.filter((s: any) => s.subject)
+                            .map((s: any, sIdx: number) => (
+                              <tr
+                                key={sIdx}
+                                className="hover:bg-slate-50/50 transition-colors"
+                              >
+                                <td className="p-3 text-xs font-bold text-slate-600 uppercase">
+                                  {s.subject}
+                                </td>
+                                <td className="p-3 text-right font-black text-slate-800">
+                                  {s.grade || "-"}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="p-6 bg-slate-50 border border-dashed rounded-2xl text-center text-slate-400 font-medium">
-            No O'Level results uploaded.
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 bg-slate-50 border border-dashed rounded-2xl text-center text-slate-400 font-medium">
+              No O'Level results uploaded.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -410,7 +424,7 @@ function ReviewsTab({
   onReviewSuccess,
 }: {
   application: ApplicationDetail;
-  onReviewSuccess: () => void;
+  onReviewSuccess: () => void | Promise<void>;
 }) {
   const [reviewing, setReviewing] = useState(false);
   const [decision, setDecision] = useState<"accept" | "reject" | "recommend">(
@@ -477,7 +491,10 @@ function ReviewsTab({
       setApprovedCourse("");
       setDecision("accept");
       window.dispatchEvent(new Event("application-reviewed"));
-      onReviewSuccess();
+      // Await the callback to ensure data is refreshed before closing
+      await Promise.resolve(onReviewSuccess());
+      // Add a small delay to ensure state updates propagate
+      await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit review");
     } finally {
@@ -664,14 +681,6 @@ function ReviewsTab({
                       )}
                   </SelectContent>
                 </Select>
-                {approvedCourse && (
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest pt-1 px-1">
-                    Recorded as:{" "}
-                    <span className="text-[#6b357d]">
-                      approved &amp; finalised course
-                    </span>
-                  </p>
-                )}
               </div>
             )}
 

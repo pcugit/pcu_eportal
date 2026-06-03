@@ -20,6 +20,7 @@ import uuid
 import secrets
 import string
 import json
+import copy
 
 from routes.form_templates.utme import template as utme_template
 from routes.form_templates.postgraduate import template as postgraduate_template
@@ -414,6 +415,83 @@ def get_installment_plans(payload):
 # ─────────────────────────────────────────────────────────────────────────────
 # Application form
 # ─────────────────────────────────────────────────────────────────────────────
+# Form Templates & Dynamic Options
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _populate_dynamic_options(template, program_type_id):
+    """Populate dynamic options in template based on program type"""
+    try:
+        # Create a deep copy to avoid modifying the original template
+        template = copy.deepcopy(template)
+        
+        # Fetch all countries from database, ordered by ID
+        countries = Database.execute_query(
+            'SELECT id, name FROM country ORDER BY id ASC'
+        )
+        # Do NOT include placeholder - frontend handles it with SelectValue placeholder prop
+        country_options = [c['name'] for c in (countries or [])]
+        
+        # Fetch all UTME subjects from database
+        subjects = Database.execute_query(
+            'SELECT name FROM utme_subjects ORDER BY name ASC'
+        )
+        subject_options = [s['name'] for s in (subjects or [])]
+        
+        # Populate fields across all steps
+        for step in template.get('steps', []):
+            for field in step.get('fields', []):
+                field_name = field.get('name', '')
+                
+                # Populate nationality from countries table
+                if field_name == 'nationality':
+                    field['options'] = country_options
+                
+                # Populate UTME subjects
+                elif field_name.startswith('utme_subject'):
+                    field['options'] = subject_options
+        
+        return template
+    except Exception as e:
+        print(f"Error populating dynamic options: {e}")
+        import traceback
+        traceback.print_exc()
+        return template
+
+
+@applicant_bp.route('/get-utme-subjects', methods=['GET'])
+@AuthHandler.token_required
+def get_utme_subjects(payload):
+    """Fetch all UTME subjects from database"""
+    try:
+        subjects = Database.execute_query(
+            'SELECT id, name FROM utme_subjects ORDER BY name ASC'
+        )
+        return jsonify({
+            'subjects': [{'id': s['id'], 'name': s['name']} for s in (subjects or [])]
+        }), 200
+    except Exception as e:
+        print(f"Error fetching UTME subjects: {e}")
+        return jsonify({'message': 'Failed to fetch subjects', 'subjects': []}), 500
+
+
+@applicant_bp.route('/get-countries', methods=['GET'])
+@AuthHandler.token_required
+def get_countries(payload):
+    """Fetch all countries from database, ordered by ID with placeholder"""
+    try:
+        countries = Database.execute_query(
+            'SELECT id, name FROM country ORDER BY id ASC'
+        )
+        # Add placeholder option at the beginning
+        countries_list = [{'id': '', 'name': '-select nationality-'}]
+        countries_list.extend([{'id': c['id'], 'name': c['name']} for c in (countries or [])])
+        return jsonify({'countries': countries_list}), 200
+    except Exception as e:
+        print(f"Error fetching countries: {e}")
+        return jsonify({'message': 'Failed to fetch countries', 'countries': []}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @applicant_bp.route('/form/<int:program_type_id>', methods=['GET'])
 @AuthHandler.token_required
@@ -436,6 +514,10 @@ def get_form_template(payload, program_type_id):
     template = form_templates.get(program_type_id)
     if template is None:
         return jsonify({'message': f'No form template found for program_type_id {program_type_id}'}), 404
+    
+    # Populate dynamic options (e.g., UTME subjects from database)
+    template = _populate_dynamic_options(template, program_type_id)
+    
     return jsonify(template), 200
 
 
@@ -615,6 +697,10 @@ def submit_form(payload):
     aq_fields = {'user_id': user_id}
     
     # Extract original JAMB choices (manually typed) and other UTME details into aq_fields
+    # Build subject ID to name mapping for subject field conversion
+    subject_rows = Database.execute_query('SELECT id, name FROM utme_subjects')
+    subject_map = {str(r['id']): r['name'] for r in (subject_rows or [])}
+    
     utme_cols = [
         'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
         'utme_subject1', 'utme_score1',
@@ -630,6 +716,14 @@ def submit_form(payload):
                     aq_fields[col] = int(val)
                 except ValueError:
                     pass
+            elif 'subject' in col:
+                # Convert subject ID to subject name if it's numeric
+                subject_val = str(val).strip()
+                if subject_val.isdigit():
+                    aq_fields[col] = subject_map.get(subject_val, subject_val)
+                else:
+                    # If not numeric, assume it's already a subject name
+                    aq_fields[col] = subject_val
             else:
                 aq_fields[col] = val
 

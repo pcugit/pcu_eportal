@@ -441,12 +441,13 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     
     Logic:
       1. Get the academic_session_id from this transaction
-      2. Query: SUM(amount_paid) for all successful tuition payments for this user+session
-      3. Query: expected fees for this student+session
-      4. If SUM >= expected_fees: Set fully_paid_for_session = TRUE for ALL txns in this session
-      5. Else: Set to FALSE
+      2. Get the student's program_type, level, and faculty_id (same as frontend uses)
+      3. Query: SUM(amount_paid) for all successful tuition payments for this user+session
+      4. Query: expected fees for this student+session using SAME FILTERS as frontend
+      5. If SUM >= expected_fees: Set fully_paid_for_session = TRUE for ALL txns in this session
+      6. Else: Set to FALSE
     """
-    # Get the academic_session_id and level for this transaction
+    # Get the academic_session_id from this transaction
     txn = Database.execute_query(
         '''SELECT academic_session_id FROM payment_transactions
            WHERE reference_no = %s AND user_id = %s''',
@@ -459,26 +460,48 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     
     session_id = txn[0]['academic_session_id']
     
-    # Get current student level
-    student = Database.execute_query(
-        '''SELECT s.current_level_id FROM students s
+    # Get current student level AND program context (program_type, faculty_id)
+    # Uses SAME query as frontend's _get_applicant_fee_context()
+    student_res = Database.execute_query(
+        '''SELECT s.current_level_id,
+                  app.prog_type,
+                  ps.faculty_id
+           FROM students s
+           JOIN users u ON u.id = s."UserId"
+           LEFT JOIN applications app ON app.user_id = u.id 
+              AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+              AND app.created_at = (
+                SELECT MAX(created_at) FROM applications WHERE user_id = u.id
+              )
+           LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
            WHERE s."UserId" = %s
            ORDER BY s."CreatedDate" DESC LIMIT 1''',
         (user_id,)
     )
     
-    if not student:
+    if not student_res:
         print(f"[update_session_payment_status] {reference_no}: No student record found")
         return
     
-    current_level_id = student[0].get('current_level_id')
+    current_level_id = student_res[0].get('current_level_id')
+    program_type = student_res[0].get('prog_type')
+    faculty_id = student_res[0].get('faculty_id')
+    
     if not current_level_id:
         print(f"[update_session_payment_status] {reference_no}: No current_level_id found")
         return
     
+    if not program_type or not faculty_id:
+        print(f"[update_session_payment_status] {reference_no}: Missing program_type ({program_type}) or faculty_id ({faculty_id})")
+        return
+    
     # Get total amount paid for this session
     paid_res = Database.execute_query(
-        '''SELECT COALESCE(SUM(amount_paid), 0) as total_paid
+        '''SELECT COALESCE(SUM(amount_paid), 0) as total_paid,
+                  COUNT(*) as payment_count,
+                  STRING_AGG(DISTINCT tran_status, ', ') as statuses,
+                  STRING_AGG(DISTINCT tran_type, ', ') as types,
+                  STRING_AGG(CAST(amount_paid AS VARCHAR), ', ') as individual_amounts
            FROM payment_transactions
            WHERE user_id = %s 
              AND academic_session_id = %s 
@@ -488,20 +511,54 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     )
     
     total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0
+    payment_count = paid_res[0]['payment_count'] if paid_res else 0
+    
+    # Debug: Log all tuition transactions for this user+session
+    if paid_res and payment_count > 0:
+        print(f"[update_session_payment_status] {reference_no}: Found {payment_count} successful tuition payments: {paid_res[0]['individual_amounts']}")
+    else:
+        print(f"[update_session_payment_status] {reference_no}: WARNING - No successful tuition payments found for user {user_id}, session {session_id}")
+        all_txns = Database.execute_query(
+            '''SELECT reference_no, tran_type, tran_status, amount_paid, amount_paid_in_kobo
+               FROM payment_transactions
+               WHERE user_id = %s AND academic_session_id = %s
+               LIMIT 10''',
+            (user_id, session_id)
+        )
+        print(f"[update_session_payment_status] {reference_no}: All transactions for this user+session: {all_txns}")
     
     # Get expected fees for this student+session+level
-    # Query: sum of all tuition fees from program_fees table
-    # program_fees links to program_types, fee_components, and has academic_session_id
+    # Uses SAME filters as frontend's getTuitionBreakdown:
+    # program_type, level, faculty_id
     expected_res = Database.execute_query(
         '''SELECT COALESCE(SUM(pf.amount), 0) as expected_fees
            FROM program_fees pf
-           WHERE pf.academic_session_id = %s 
-             AND pf.level = %s ''',
-        (session_id, current_level_id)
+           JOIN fee_components fc ON fc.id = pf.fee_component_id
+           WHERE pf.program_type = %s
+             AND pf.level = %s
+             AND pf.faculty_id = %s
+             AND pf.academic_session_id = %s
+             AND LOWER(fc.name) NOT LIKE '%%acceptance%%' ''',
+        (str(program_type), str(current_level_id), str(faculty_id), session_id)
     )
     
     expected_fees = float(expected_res[0]['expected_fees'] or 0) if expected_res else 0
     
+    # Debug: Log which fees were matched (same breakdown as frontend shows)
+    fee_check = Database.execute_query(
+        '''SELECT fc.name, SUM(pf.amount) as total
+           FROM program_fees pf
+           JOIN fee_components fc ON fc.id = pf.fee_component_id
+           WHERE pf.program_type = %s
+             AND pf.level = %s
+             AND pf.faculty_id = %s
+             AND pf.academic_session_id = %s
+             AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+           GROUP BY fc.name
+           ORDER BY fc.name ASC''',
+        (str(program_type), str(current_level_id), str(faculty_id), session_id)
+    )
+    print(f"[update_session_payment_status] {reference_no}: Fee breakdown (program_type={program_type}, level={current_level_id}, faculty_id={faculty_id}): {fee_check}")
     print(f"[update_session_payment_status] {reference_no}: "
           f"Session {session_id}, Level {current_level_id}, "
           f"Paid: ₦{total_paid}, Expected: ₦{expected_fees}")
@@ -528,6 +585,7 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
 def get_session_payment_summary(user_id: int, session_id: int) -> dict:
     """
     Get payment summary for a student for a specific academic session.
+    Uses SAME fee lookup as getTuitionBreakdown (program_type, level, faculty_id).
     
     Returns:
       {
@@ -538,14 +596,25 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
         'payment_percentage': int (0-100)
       }
     """
-    student = Database.execute_query(
-        '''SELECT current_level_id FROM students
-           WHERE "UserId" = %s
-           ORDER BY "CreatedDate" DESC LIMIT 1''',
+    # Get student's current level, program_type, and faculty_id
+    student_res = Database.execute_query(
+        '''SELECT s.current_level_id,
+                  app.prog_type,
+                  ps.faculty_id
+           FROM students s
+           JOIN users u ON u.id = s."UserId"
+           LEFT JOIN applications app ON app.user_id = u.id 
+              AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+              AND app.created_at = (
+                SELECT MAX(created_at) FROM applications WHERE user_id = u.id
+              )
+           LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
+           WHERE s."UserId" = %s
+           ORDER BY s."CreatedDate" DESC LIMIT 1''',
         (user_id,)
     )
     
-    if not student or not student[0].get('current_level_id'):
+    if not student_res or not student_res[0].get('current_level_id'):
         return {
             'total_expected': 0,
             'total_paid': 0,
@@ -554,7 +623,18 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
             'payment_percentage': 0,
         }
     
-    current_level_id = student[0]['current_level_id']
+    current_level_id = student_res[0]['current_level_id']
+    program_type = student_res[0].get('prog_type')
+    faculty_id = student_res[0].get('faculty_id')
+    
+    if not program_type or not faculty_id:
+        return {
+            'total_expected': 0,
+            'total_paid': 0,
+            'is_fully_paid': False,
+            'remaining': 0,
+            'payment_percentage': 0,
+        }
     
     # Get total paid
     paid_res = Database.execute_query(
@@ -569,13 +649,17 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
     
     total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0
     
-    # Get expected fees
+    # Get expected fees using SAME filters as frontend
     expected_res = Database.execute_query(
         '''SELECT COALESCE(SUM(pf.amount), 0) as expected_fees
            FROM program_fees pf
-           WHERE pf.academic_session_id = %s 
-             AND pf.level = %s ''',
-        (session_id, current_level_id)
+           JOIN fee_components fc ON fc.id = pf.fee_component_id
+           WHERE pf.program_type = %s
+             AND pf.level = %s
+             AND pf.faculty_id = %s
+             AND pf.academic_session_id = %s
+             AND LOWER(fc.name) NOT LIKE '%%acceptance%%' ''',
+        (str(program_type), str(current_level_id), str(faculty_id), session_id)
     )
     
     expected_fees = float(expected_res[0]['expected_fees'] or 0) if expected_res else 0

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, ChevronRight, FileText } from "lucide-react";
+import { LogOut, ChevronRight, FileText, Search, ChevronLeft } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -45,8 +45,11 @@ const statusColors: Record<string, string> = {
   screening: "bg-purple-50 text-purple-700 border border-purple-200/60 shadow-sm shadow-purple-500/5",
   admitted: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
   accepted: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
+  enrolled: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
   rejected: "bg-rose-50 text-rose-700 border border-rose-200/60 shadow-sm shadow-rose-500/5",
 };
+
+const PER_PAGE = 10;
 
 export default function ApplicationsPage() {
   const router = useRouter();
@@ -54,6 +57,24 @@ export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string>("submitted");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset page when status or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [status, debouncedSearch]);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
@@ -62,13 +83,21 @@ export default function ApplicationsPage() {
     }
 
     loadApplications();
-  }, [isAuthenticated, user, router, status]);
+  }, [isAuthenticated, user, router, status, currentPage, debouncedSearch]);
 
   const loadApplications = async () => {
     setLoading(true);
     try {
-      const response = await ApiClient.getApplications(status);
+      const response = await ApiClient.getApplications(
+        status,
+        undefined,
+        currentPage,
+        PER_PAGE,
+        debouncedSearch || undefined,
+      );
       setApplications((response.applications as any as Application[]) || []);
+      setTotalPages(response.total_pages || 1);
+      setTotalCount(response.count || 0);
     } catch (err) {
       console.error("Error loading applications:", err);
     } finally {
@@ -79,6 +108,25 @@ export default function ApplicationsPage() {
   const handleLogout = async () => {
     await logout();
     router.replace("/staff/login");
+  };
+
+  const statusLabel = (appStatus: string) => {
+    if (appStatus === 'accepted') return 'Admitted';
+    if (appStatus === 'enrolled') return 'Enrolled';
+    return appStatus.replace('_', ' ');
+  };
+
+  // Generate visible page numbers (show max 5 around current)
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    let start = Math.max(1, currentPage - 2);
+    let end = Math.min(totalPages, currentPage + 2);
+    if (end - start < 4) {
+      if (start === 1) end = Math.min(totalPages, start + 4);
+      else start = Math.max(1, end - 4);
+    }
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
   };
 
   return (
@@ -115,6 +163,35 @@ export default function ApplicationsPage() {
           </Select>
         </div>
 
+        {/* Search Bar + Count */}
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            setDebouncedSearch(searchQuery);
+          }}
+          className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3"
+        >
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by name or form number..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200/80 rounded-xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-300 shadow-sm transition-all"
+            />
+          </div>
+          <Button 
+            type="submit"
+            className="h-10 px-6 bg-[#6b357d] hover:bg-[#592a68] text-white font-bold rounded-xl shadow-sm hover:shadow transition-all"
+          >
+            Search
+          </Button>
+          <span className="text-sm text-slate-500 font-semibold whitespace-nowrap sm:ml-2">
+            {totalCount} result{totalCount !== 1 ? 's' : ''}
+          </span>
+        </form>
+
         {/* Applications List */}
         {loading ? (
           <div className="text-center py-20 bg-white border border-slate-100 rounded-3xl shadow-sm">
@@ -128,9 +205,14 @@ export default function ApplicationsPage() {
                 <FileText className="w-8 h-8" />
               </div>
               <div className="space-y-1">
-                <p className="text-slate-800 font-bold text-lg">Inbox is Empty</p>
+                <p className="text-slate-800 font-bold text-lg">
+                  {debouncedSearch ? 'No Results Found' : 'Inbox is Empty'}
+                </p>
                 <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                  No applications found matching the <span className="font-bold text-slate-500 capitalize">{status.replace("_", " ")}</span> status filter.
+                  {debouncedSearch
+                    ? <>No applications matching "<span className="font-bold text-slate-500">{debouncedSearch}</span>" in the <span className="font-bold text-slate-500 capitalize">{status.replace("_", " ")}</span> filter.</>
+                    : <>No applications found matching the <span className="font-bold text-slate-500 capitalize">{status.replace("_", " ")}</span> status filter.</>
+                  }
                 </p>
               </div>
             </CardContent>
@@ -150,16 +232,12 @@ export default function ApplicationsPage() {
                           <Badge
                             className={`${statusColors[app.application_status] || 'bg-slate-50 text-slate-700 border border-slate-200'} font-bold text-[10px] uppercase tracking-wider py-1 px-3.5 rounded-full`}
                           >
-                            {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
+                            {statusLabel(app.application_status)}
                           </Badge>
-                          {/* Fee status pill — only shown on admitted tab */}
-                          {status === 'admitted' && (
-                            <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border shadow-sm ${
-                              app.application_status === 'accepted'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : 'bg-amber-50 text-amber-700 border-amber-100'
-                            }`}>
-                              {app.application_status === 'accepted' ? '✓ Fee Paid' : '⏳ Awaiting Fee'}
+                          {/* Fee status pill — only shown on admitted tab if still awaiting payment */}
+                          {status === 'admitted' && app.application_status === 'admitted' && (
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full border shadow-sm bg-amber-50 text-amber-700 border-amber-100" title="Awaiting Fee">
+                              ⏳
                             </span>
                           )}
                         </div>
@@ -192,6 +270,44 @@ export default function ApplicationsPage() {
                 </Card>
               </Link>
             ))}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4">
+                <p className="text-sm text-slate-500 font-medium">
+                  Page {currentPage} of {totalPages}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-purple-50 hover:text-[#6b357d] hover:border-purple-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  {getPageNumbers().map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p)}
+                      className={`min-w-[36px] h-9 rounded-lg text-sm font-bold transition-all shadow-sm ${
+                        p === currentPage
+                          ? 'bg-[#6b357d] text-white border border-[#6b357d]'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-purple-50 hover:text-[#6b357d] hover:border-purple-200'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-purple-50 hover:text-[#6b357d] hover:border-purple-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

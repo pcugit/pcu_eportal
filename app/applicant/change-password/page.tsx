@@ -50,7 +50,7 @@ export default function ChangePasswordPage() {
           <h2 className="font-bold">Reset Password</h2>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+        <form noValidate onSubmit={handleSubmit} className="p-8 space-y-5">
           {message && (
             <div className={cn(
               "p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2",

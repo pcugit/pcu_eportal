@@ -47,6 +47,7 @@ import { Recommendation } from "@/lib/api";
 import ApplicationFormComponent from "@/components/ApplicationForm";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 import ApplicantProfile from "@/components/ApplicantProfile";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 const TYPE_STYLES: Record<number, { color: string; border: string }> = {
   1: { color: "from-blue-500/10 to-blue-600/5", border: "border-blue-200" },
@@ -156,6 +157,11 @@ function ApplicantDashboardInner() {
   const [preloadedTemplates, setPreloadedTemplates] = useState<
     Record<number, any>
   >({}); // keyed by program_type_id
+
+  // PG Notice modal states triggered inside Apply button click
+  const [showPGNotice, setShowPGNotice] = useState(false);
+  const [pendingApplyApp, setPendingApplyApp] = useState<ApplicantStatus | null>(null);
+  const [preloadedPassportUrls, setPreloadedPassportUrls] = useState<Record<number, string>>({});
 
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(
@@ -398,6 +404,133 @@ function ApplicantDashboardInner() {
   const handleLogout = async () => {
     await logout();
     router.replace("/auth/login");
+  };
+
+  const prefetchApplicationData = async (app: ApplicantStatus) => {
+    try {
+      const [templateResult, formResult] = await Promise.all([
+        preloadedTemplates[app.program_type_id]
+          ? Promise.resolve(preloadedTemplates[app.program_type_id])
+          : ApiClient.getFormTemplate(app.program_type_id),
+        preloadedForms[app.id]
+          ? Promise.resolve(preloadedForms[app.id])
+          : ApiClient.getForm(app.id)
+              .then((r) => ({
+                form: r.form ?? r,
+                documents: r.documents ?? [],
+              }))
+              .catch(() => ({
+                form: null,
+                documents: [],
+              })),
+      ]);
+
+      setPreloadedTemplates((prev) => ({
+        ...prev,
+        [app.program_type_id]: templateResult,
+      }));
+      setPreloadedForms((prev) => ({
+        ...prev,
+        [app.id]: {
+          form: (formResult as any).form,
+          documents: (formResult as any).documents ?? [],
+        },
+      }));
+
+      const passportDoc = (formResult as any).documents?.find(
+        (d: any) =>
+          d.document_type === "passport" ||
+          d.document_type?.toLowerCase().includes("passport") ||
+          d.original_filename?.toLowerCase().includes("passport"),
+      );
+
+      if (passportDoc?.document_id) {
+        const baseUrl = ApiClient.getBaseUrl();
+        const response = await fetch(
+          `${baseUrl}/applicant/download-document/${passportDoc.document_id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${ApiClient.getToken()}`,
+            },
+          },
+        );
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          setPreloadedPassportUrls((prev) => {
+            if (prev[app.id]) {
+              URL.revokeObjectURL(prev[app.id]);
+            }
+            return {
+              ...prev,
+              [app.id]: url,
+            };
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to prefetch application data", e);
+    }
+  };
+
+  const handleOpenApplicationForm = async (app: ApplicantStatus) => {
+    setViewingFormId(app.id);
+
+    const cachedTemplate = preloadedTemplates[app.program_type_id];
+    const cachedForm = preloadedForms[app.id];
+
+    if (cachedTemplate) setFormTemplate(cachedTemplate);
+    if (cachedForm) {
+      setSubmittedFormData(cachedForm.form);
+      setSubmittedDocuments(cachedForm.documents);
+    }
+
+    const fullyReady = !!cachedTemplate && !!cachedForm;
+    if (!fullyReady) setProfileLoading(true);
+
+    try {
+      const [templateResult, formResult] = await Promise.all([
+        cachedTemplate
+          ? Promise.resolve(cachedTemplate)
+          : ApiClient.getFormTemplate(app.program_type_id),
+        cachedForm
+          ? Promise.resolve(cachedForm)
+          : ApiClient.getForm(app.id)
+              .then((r) => ({
+                form: r.form ?? r,
+                documents: r.documents ?? [],
+              }))
+              .catch(() => ({
+                form: null,
+                documents: [],
+              })),
+      ]);
+
+      if (!cachedTemplate) setFormTemplate(templateResult);
+      if (!cachedForm) {
+        setSubmittedFormData((formResult as any).form);
+        setSubmittedDocuments((formResult as any).documents ?? []);
+      }
+
+      if (["admitted", "accepted"].includes(app.application_status)) {
+        try {
+          const feeData = await ApiClient.getAcceptanceFee();
+          setAcceptanceFeeData({
+            amount: feeData.acceptance_fee + feeData.processing_fee,
+            feeName: feeData.fee_name,
+            paid: app.has_paid_acceptance_fee,
+          });
+        } catch (e) {
+          console.error("Failed to load acceptance fee", e);
+        }
+      } else {
+        setAcceptanceFeeData(null);
+      }
+    } catch (e) {
+      console.error("Failed to load form data", e);
+    } finally {
+      setProfileLoading(false);
+    }
   };
 
   // ── Admitted student handlers ──────────────────────────────────────────────
@@ -1023,83 +1156,19 @@ function ApplicantDashboardInner() {
                               size="sm"
                               className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-9 px-6 rounded-lg transition-all duration-300 shadow-md shadow-purple-500/10 hover:shadow-purple-500/20"
                               onClick={async () => {
-                                setViewingFormId(app.id);
+                                const isApplyAction = ![
+                                  "submitted",
+                                  "admitted",
+                                  "accepted",
+                                  "enrolled",
+                                ].includes(app.application_status);
 
-                                const cachedTemplate =
-                                  preloadedTemplates[app.program_type_id];
-                                const cachedForm = preloadedForms[app.id];
-
-                                if (cachedTemplate)
-                                  setFormTemplate(cachedTemplate);
-                                if (cachedForm) {
-                                  setSubmittedFormData(cachedForm.form);
-                                  setSubmittedDocuments(cachedForm.documents);
-                                }
-
-                                const fullyReady =
-                                  !!cachedTemplate && !!cachedForm;
-                                if (!fullyReady) setProfileLoading(true);
-
-                                try {
-                                  const [templateResult, formResult] =
-                                    await Promise.all([
-                                      cachedTemplate
-                                        ? Promise.resolve(cachedTemplate)
-                                        : ApiClient.getFormTemplate(
-                                            app.program_type_id,
-                                          ),
-                                      cachedForm
-                                        ? Promise.resolve(cachedForm)
-                                        : ApiClient.getForm(app.id)
-                                            .then((r) => ({
-                                              form: r.form ?? r,
-                                              documents: r.documents ?? [],
-                                            }))
-                                            .catch(() => ({
-                                              form: null,
-                                              documents: [],
-                                            })),
-                                    ]);
-
-                                  if (!cachedTemplate)
-                                    setFormTemplate(templateResult);
-                                  if (!cachedForm) {
-                                    setSubmittedFormData(
-                                      (formResult as any).form,
-                                    );
-                                    setSubmittedDocuments(
-                                      (formResult as any).documents ?? [],
-                                    );
-                                  }
-
-                                  if (
-                                    ["admitted", "accepted"].includes(
-                                      app.application_status,
-                                    )
-                                  ) {
-                                    try {
-                                      const feeData =
-                                        await ApiClient.getAcceptanceFee();
-                                      setAcceptanceFeeData({
-                                        amount:
-                                          feeData.acceptance_fee +
-                                          feeData.processing_fee,
-                                        feeName: feeData.fee_name,
-                                        paid: app.has_paid_acceptance_fee,
-                                      });
-                                    } catch (e) {
-                                      console.error(
-                                        "Failed to load acceptance fee",
-                                        e,
-                                      );
-                                    }
-                                  } else {
-                                    setAcceptanceFeeData(null);
-                                  }
-                                } catch (e) {
-                                  console.error("Failed to load form data", e);
-                                } finally {
-                                  setProfileLoading(false);
+                                if (app.program_type_id === 2 && isApplyAction) {
+                                  setPendingApplyApp(app);
+                                  setShowPGNotice(true);
+                                  prefetchApplicationData(app);
+                                } else {
+                                  await handleOpenApplicationForm(app);
                                 }
                               }}
                             >
@@ -1236,6 +1305,7 @@ function ApplicantDashboardInner() {
                 user={user}
                 initialFormData={submittedFormData ?? undefined}
                 initialDocuments={submittedDocuments ?? undefined}
+                initialPassportUrl={viewingFormId ? preloadedPassportUrls[viewingFormId] : undefined}
                 onSuccess={() => {
                   setViewingFormId(null);
                   setFormTemplate(null);
@@ -1889,6 +1959,77 @@ function ApplicantDashboardInner() {
               </div>
             </div>
           </div>
+        )}
+
+        {showPGNotice && (
+          <Dialog
+            open={showPGNotice}
+            onOpenChange={(open) => {
+              if (!open) {
+                setShowPGNotice(false);
+                setPendingApplyApp(null);
+              }
+            }}
+          >
+            <DialogContent className="max-w-xl md:max-w-2xl bg-white border border-slate-200 shadow-2xl rounded-2xl p-10 z-[10000] focus:outline-none">
+              <div className="font-serif text-black space-y-6 text-[15px] leading-relaxed">
+                <h2 className="text-xl font-bold tracking-wide uppercase mb-6">INSTRUCTIONS TO STUDENTS</h2>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-[30px_1fr] items-start">
+                    <span className="pl-1">a)</span>
+                    <span>It is the student’s responsibility to ensure that every field on this form is properly filled correctly</span>
+                  </div>
+
+                  <div className="grid grid-cols-[30px_1fr] items-start">
+                    <span className="pl-1">b)</span>
+                    <span>A student who has third class is not eligible for this programme, such should contact the Postgraduate School for further information.</span>
+                  </div>
+
+                  <div className="grid grid-cols-[30px_1fr] items-start">
+                    <span className="pl-1">c)</span>
+                    <span>One of the referees must be an Academic staff of a recognized university, recognized by the Senate of the Precious Cornerstone University.</span>
+                  </div>
+
+                  <div className="grid grid-cols-[30px_1fr] items-start font-bold">
+                    <span className="pl-1">d)</span>
+                    <span>Any false information detected renders this application invalid, and the Postgraduate School shall not be responsible for ANY REFUND.</span>
+                  </div>
+
+                  <div className="grid grid-cols-[30px_1fr] items-start">
+                    <span className="pl-1">e)</span>
+                    <span>Any questions about this form or about postgraduate registration in general should be directed to the Dean, Postgraduate School.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-6 mt-6 border-t border-slate-100">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPGNotice(false);
+                    setPendingApplyApp(null);
+                  }}
+                  className="flex-1 border-slate-200 text-slate-500 hover:bg-slate-50 font-semibold h-12 rounded-xl transition-all"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    setShowPGNotice(false);
+                    if (pendingApplyApp) {
+                      const appToOpen = pendingApplyApp;
+                      setPendingApplyApp(null);
+                      await handleOpenApplicationForm(appToOpen);
+                    }
+                  }}
+                  className="flex-1 bg-[#6b21a8] hover:bg-purple-800 text-white font-bold h-12 rounded-xl transition-all duration-200 shadow-md shadow-purple-500/10 hover:shadow-purple-500/20"
+                >
+                  Continue
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
     </div>

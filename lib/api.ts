@@ -851,14 +851,20 @@ export class ApiClient {
   static async getApplications(
     status?: string,
     program_id?: number,
-  ): Promise<{ applications: Application[] }> {
+    page?: number,
+    per_page?: number,
+    search?: string,
+  ): Promise<{ applications: Application[]; count: number; page: number; per_page: number; total_pages: number }> {
     let endpoint = "/admission_officer/applications";
     const params = new URLSearchParams();
     if (status) params.append("status", status);
     if (program_id) params.append("program_id", program_id.toString());
+    if (page) params.append("page", page.toString());
+    if (per_page) params.append("per_page", per_page.toString());
+    if (search) params.append("search", search);
     if (params.toString()) endpoint += `?${params.toString()}`;
 
-    const { data } = await this.fetch<{ applications: Application[] }>(
+    const { data } = await this.fetch<{ applications: Application[]; count: number; page: number; per_page: number; total_pages: number }>(
       endpoint,
     );
     return data;

@@ -7,19 +7,43 @@ from datetime import datetime
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
 
-# Codes Interswitch returns when user cancels with no transaction made
-CANCELLED_CODES = {'Z0', 'Z9', ''}
+# ── CANCELLED: user-initiated cancellations, no real transaction occurred ─────
+# These should NEVER be requeried — the user chose to cancel.
+CANCELLED_CODES = {
+    'Z0',   # User cancelled on ISW gateway (no transaction)
+    'Z6',   # User cancelled (must be recorded as cancelled, NOT failed)
+    'Z9',   # User cancelled / session expired on gateway
+    '',     # Empty response (page closed before completing)
+}
 
-# Codes that mean "not processed yet or transient status – try again later"
-# These should NEVER be marked failed, even after multiple requeries
-PENDING_CODES = {'T0', 'T03', 'Z62', 'Z25', '99', '96', 'Z16'}
+# ── PENDING / REQUERY: transient or processing codes — try again later ────────
+# The background worker will keep requerying these until they resolve.
+# These represent temporary infrastructure issues, NOT permanent declines.
+PENDING_CODES = {
+    'T0',    # Transaction pending / processing
+    'T03',   # Transaction pending at processor
+    'Z62',   # Pending — waiting on processor
+    'Z25',   # Transaction pending
+    'Z16',   # Transaction pending / incomplete
+    '91',    # Issuer or switch inoperative (temporary — bank may come back)
+    '92',    # Routing Error (temporary network/routing issue)
+    '96',    # System Malfunction (temporary system issue)
+    '99',    # General pending / timeout
+    '70120', # Beneficiary bank service unavailability (temporary)
+}
 
-# Definitive failure codes — only these should cause IMMEDIATE failure
-# These represent permanent declines (not transient network/timeout issues)
+# ── DEFINITIVE FAILURE: permanent declines — mark FAILED immediately ──────────
+# These represent hard declines from the issuer or gateway. No point requerying.
 DEFINITIVE_FAILURE_CODES = {
-    'Z6',   # Declined by card issuer
-    'T9',   # Transaction declined
-    '91',   # Issuer unavailable (permanent)
+    '06',   # Error (generic permanent error from issuer)
+    '30',   # Format Error (malformed transaction data)
+    '51',   # Insufficient Funds
+    '55',   # Incorrect PIN
+    '57',   # Transaction not permitted to cardholder
+    '58',   # Transaction not permitted to terminal
+    '59',   # Suspected Fraud
+    '63',   # Security Violation
+    'T9',   # Transaction declined by gateway
     'Z23',  # Invalid card
     'Z28',  # Transaction not permissible
 }
@@ -479,14 +503,58 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
         (user_id,)
     )
     
-    if not student_res:
-        print(f"[update_session_payment_status] {reference_no}: No student record found")
-        return
+    current_level_id = None
+    program_type = None
+    faculty_id = None
     
-    current_level_id = student_res[0].get('current_level_id')
-    program_type = student_res[0].get('prog_type')
-    faculty_id = student_res[0].get('faculty_id')
-    
+    if student_res and student_res[0].get('current_level_id'):
+        current_level_id = student_res[0]['current_level_id']
+        program_type = student_res[0].get('prog_type')
+        faculty_id = student_res[0].get('faculty_id')
+    else:
+        # Fallback for new students who don't have a record in `students` yet
+        try:
+            app_res = Database.execute_query(
+                '''SELECT app.prog_type,
+                          pt.level_id,
+                          app.finalised_course,
+                          app.approved_course,
+                          app.program_setup_id
+                   FROM applications app
+                   JOIN program_types pt ON app.prog_type = pt.id
+                   WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                   ORDER BY app.created_at DESC LIMIT 1''',
+                (user_id,)
+            )
+            if app_res:
+                app_row = app_res[0]
+                program_type = app_row['prog_type']
+                current_level_id = app_row['level_id']
+                
+                finalised_course = (app_row.get('finalised_course') or '').strip()
+                if not finalised_course:
+                    finalised_course = (app_row.get('approved_course') or '').strip()
+                if not finalised_course and app_row.get('program_setup_id'):
+                    ps_res = Database.execute_query(
+                        'SELECT name FROM program_setup WHERE id = %s',
+                        (app_row['program_setup_id'],)
+                    )
+                    if ps_res:
+                        finalised_course = ps_res[0]['name']
+                
+                if finalised_course:
+                    faculty_res = Database.execute_query(
+                        '''SELECT faculty_id
+                           FROM program_setup
+                           WHERE LOWER(name) = LOWER(%s)
+                           LIMIT 1''',
+                        (finalised_course,)
+                    )
+                    if faculty_res:
+                        faculty_id = faculty_res[0].get('faculty_id')
+        except Exception as e:
+            print(f"[update_session_payment_status] Fallback lookup failed: {e}")
+
     if not current_level_id:
         print(f"[update_session_payment_status] {reference_no}: No current_level_id found")
         return
@@ -614,20 +682,59 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
         (user_id,)
     )
     
-    if not student_res or not student_res[0].get('current_level_id'):
-        return {
-            'total_expected': 0,
-            'total_paid': 0,
-            'is_fully_paid': False,
-            'remaining': 0,
-            'payment_percentage': 0,
-        }
+    current_level_id = None
+    program_type = None
+    faculty_id = None
     
-    current_level_id = student_res[0]['current_level_id']
-    program_type = student_res[0].get('prog_type')
-    faculty_id = student_res[0].get('faculty_id')
-    
-    if not program_type or not faculty_id:
+    if student_res and student_res[0].get('current_level_id'):
+        current_level_id = student_res[0]['current_level_id']
+        program_type = student_res[0].get('prog_type')
+        faculty_id = student_res[0].get('faculty_id')
+    else:
+        # Fallback for new students who don't have a record in `students` yet
+        try:
+            app_res = Database.execute_query(
+                '''SELECT app.prog_type,
+                          pt.level_id,
+                          app.finalised_course,
+                          app.approved_course,
+                          app.program_setup_id
+                   FROM applications app
+                   JOIN program_types pt ON app.prog_type = pt.id
+                   WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                   ORDER BY app.created_at DESC LIMIT 1''',
+                (user_id,)
+            )
+            if app_res:
+                app_row = app_res[0]
+                program_type = app_row['prog_type']
+                current_level_id = app_row['level_id']
+                
+                finalised_course = (app_row.get('finalised_course') or '').strip()
+                if not finalised_course:
+                    finalised_course = (app_row.get('approved_course') or '').strip()
+                if not finalised_course and app_row.get('program_setup_id'):
+                    ps_res = Database.execute_query(
+                        'SELECT name FROM program_setup WHERE id = %s',
+                        (app_row['program_setup_id'],)
+                    )
+                    if ps_res:
+                        finalised_course = ps_res[0]['name']
+                
+                if finalised_course:
+                    faculty_res = Database.execute_query(
+                        '''SELECT faculty_id
+                           FROM program_setup
+                           WHERE LOWER(name) = LOWER(%s)
+                           LIMIT 1''',
+                        (finalised_course,)
+                    )
+                    if faculty_res:
+                        faculty_id = faculty_res[0].get('faculty_id')
+        except Exception as e:
+            print(f"[get_session_payment_summary] Fallback lookup failed: {e}")
+
+    if not current_level_id or not program_type or not faculty_id:
         return {
             'total_expected': 0,
             'total_paid': 0,

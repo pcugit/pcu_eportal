@@ -44,16 +44,19 @@ export default function FirstLoginPasswordChange({
     setError(null);
     try {
       await ApiClient.changePassword("", newPassword);
-      await refreshStatus();
       setSuccess(true);
-      setTimeout(() => {
+      setTimeout(async () => {
+        try {
+          await refreshStatus();
+        } catch (refreshErr) {
+          console.error("Failed to refresh status after password change:", refreshErr);
+        }
         onComplete();
       }, 2000);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to change password",
       );
-    } finally {
       setLoading(false);
     }
   };
@@ -62,14 +65,10 @@ export default function FirstLoginPasswordChange({
     <Card className="w-full max-w-md mx-auto border-primary/20 shadow-xl">
       <CardHeader className="text-center">
         <CardTitle className="text-2xl font-bold">
-          Secure Your Account
+          Change your password
         </CardTitle>
-        <CardDescription>
-          This is your first login. Please change your default password (your
-          surname) to a secure one.
-        </CardDescription>
       </CardHeader>
-      <form onSubmit={handleSubmit}>
+      <form noValidate onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {error && (
             <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg flex items-center gap-2">

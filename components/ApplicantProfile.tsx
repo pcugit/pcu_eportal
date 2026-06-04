@@ -36,6 +36,12 @@ export default function ApplicantProfile({
   const router = useRouter();
   const [passportUrl, setPassportUrl] = React.useState<string | null>(null);
 
+  const isPG =
+    applicant?.program_type_id === 2 ||
+    applicant?.program_id === 2 ||
+    applicant?.prog_type === 2 ||
+    form?.proposed_course !== undefined;
+
   // Find passport document
   const passportDoc = documents.find(
     (d) =>
@@ -252,58 +258,184 @@ export default function ApplicantProfile({
 
             {/* Personal Info Grid */}
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Gender:</span> {form?.gender}
-                </p>
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Date of Birth:</span>{" "}
-                  {form?.date_of_birth}
-                </p>
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Place of Birth:</span>{" "}
-                  {form?.place_of_birth}
-                </p>
-              </div>
+              {!isPG ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Gender:</span> {form?.gender}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Date of Birth:</span>{" "}
+                      {form?.date_of_birth}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Place of Birth:</span>{" "}
+                      {form?.place_of_birth}
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Marital:</span>{" "}
-                  {form?.marital_status}
-                </p>
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Religion:</span>{" "}
-                  {form?.religion}
-                </p>
-                <p className="text-sm text-slate-600 md:col-span-1">
-                  <span className="text-slate-500">Address:</span>{" "}
-                  {form?.address || form?.contact_address || "N/A"}
-                </p>
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Marital:</span>{" "}
+                      {form?.marital_status}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Religion:</span>{" "}
+                      {form?.religion}
+                    </p>
+                    <p className="text-sm text-slate-600 md:col-span-1">
+                      <span className="text-slate-500">Address:</span>{" "}
+                      {form?.address || form?.contact_address || "N/A"}
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">LGA:</span> {form?.lga}
-                </p>
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">State:</span> {form?.state}
-                </p>
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Nationality:</span>{" "}
-                  {form?.nationality || "Nigeria"}
-                </p>
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">LGA:</span> {form?.lga}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">State:</span> {form?.state}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Nationality:</span>{" "}
+                      {form?.nationality || "Nigeria"}
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 pb-8">
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Blood Group:</span>{" "}
-                  {form?.blood_group}
-                </p>
-                <p className="text-sm text-slate-600">
-                  <span className="text-slate-500">Genotype:</span>{" "}
-                  {form?.genotype}
-                </p>
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 pb-8">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Blood Group:</span>{" "}
+                      {form?.blood_group}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Genotype:</span>{" "}
+                      {form?.genotype}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 border-b border-slate-50 pb-6">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Gender:</span> {form?.gender || "N/A"}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Date of Birth:</span>{" "}
+                      {form?.date_of_birth || "N/A"}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Physically Challenged:</span>{" "}
+                      {!form?.physically_challenged || form.physically_challenged === "No"
+                        ? "No"
+                        : form.physical_challenge_reason || "Yes"}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-y-6 border-b border-slate-50 pb-6">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Contact Address:</span>{" "}
+                      {form?.address || "N/A"}
+                    </p>
+                  </div>
+
+                  {/* PG Academic History */}
+                  <div className="pt-4">
+                    <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-6">
+                      Academic History
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-8 gap-x-6 pb-6 border-b border-slate-50">
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Previous Institution:</span>
+                        <br />
+                        <span className="font-semibold">{form?.previous_institution || "N/A"}</span>
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Department:</span>
+                        <br />
+                        <span className="font-semibold">{form?.department || "N/A"}</span>
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Previous Course of Study:</span>
+                        <br />
+                        <span className="font-semibold">{form?.previous_course || "N/A"}</span>
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Class of First Degree:</span>
+                        <br />
+                        <span className="font-semibold">{form?.class_of_degree || "N/A"}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* PG Proposed Study */}
+                  <div className="pt-4">
+                    <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-6">
+                      Proposed Study Details
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-8 gap-x-6 pb-6 border-b border-slate-50">
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Degree in View:</span>
+                        <br />
+                        <span className="font-semibold">{form?.degree_name ? `${form.degree_name}${form.degree_code ? ` (${form.degree_code})` : ""}` : "N/A"}</span>
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Proposed Course of Study:</span>
+                        <br />
+                        <span className="font-semibold">{form?.proposed_course_name || "N/A"}</span>
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Proposed Faculty / Institute / Centre:</span>
+                        <br />
+                        <span className="font-semibold">{form?.proposed_faculty_name || "N/A"}</span>
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Mode of Study:</span>
+                        <br />
+                        <span className="font-semibold">{form?.mode_of_study || "N/A"}</span>
+                      </p>
+                      {form?.area_of_specialisation && (
+                        <p className="text-sm text-slate-600 md:col-span-2">
+                          <span className="text-slate-500">Area of Specialisation:</span>
+                          <br />
+                          <span className="font-semibold">{form.area_of_specialisation}</span>
+                        </p>
+                      )}
+                      {form?.proposed_research_title && (
+                        <p className="text-sm text-slate-600 md:col-span-2">
+                          <span className="text-slate-500">Proposed Title of Research:</span>
+                          <br />
+                          <span className="font-semibold">{form.proposed_research_title}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* PG Referees */}
+                  <div className="pt-4 pb-6 border-b border-slate-50">
+                    <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-6">
+                      Referees
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {[
+                        { label: "Referee 1", name: form?.referee_name1, address: form?.referee_address1 },
+                        { label: "Referee 2", name: form?.referee_name2, address: form?.referee_address2 },
+                        { label: "Referee 3", name: form?.referee_name3, address: form?.referee_address3 },
+                      ].filter(ref => ref.name).map((ref, idx) => (
+                        <div key={idx} className="bg-slate-50/50 border border-slate-100 rounded-xl p-5 space-y-3">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{ref.label}</p>
+                          <div>
+                            <span className="text-[10px] text-slate-400 uppercase block font-bold">Name</span>
+                            <span className="text-sm font-semibold text-slate-800">{ref.name}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 uppercase block font-bold">Address</span>
+                            <span className="text-sm text-slate-600 leading-snug block">{ref.address || "N/A"}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Sponsor's Section */}
               <div className="pt-4">
@@ -315,22 +447,25 @@ export default function ApplicantProfile({
                     <span className="text-slate-500">Name:</span>{" "}
                     {form?.sponsor_name}
                   </p>
-                  <p className="text-sm text-slate-600">
-                    <span className="text-slate-500">Phone Number :</span>
-                    <br />
-                    {form?.sponsor_phone_number}
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    <span className="text-slate-500">Email:</span>{" "}
-                    {form?.sponsor_email || "N/A"}
-                  </p>
-
-                  <p className="text-sm text-slate-600">
-                    <span className="text-slate-500">Relationship:</span>
-                    <br />
-                    {form?.sponsor_relationship}
-                  </p>
-                  <p className="text-sm text-slate-600 md:col-span-2">
+                  {!isPG ? (
+                    <>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Phone Number :</span>
+                        <br />
+                        {form?.sponsor_phone_number}
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Email:</span>{" "}
+                        {form?.sponsor_email || "N/A"}
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        <span className="text-slate-500">Relationship:</span>
+                        <br />
+                        {form?.sponsor_relationship}
+                      </p>
+                    </>
+                  ) : null}
+                  <p className={`text-sm text-slate-600 ${isPG ? "md:col-span-2" : "md:col-span-2"}`}>
                     <span className="text-slate-500">Address:</span>{" "}
                     {form?.sponsor_address}
                   </p>
@@ -352,7 +487,14 @@ export default function ApplicantProfile({
                     <br />
                     {form?.next_of_kin_phone_number}
                   </p>
-                  <p className="text-sm text-slate-600 md:col-span-1">
+                  {isPG && form?.next_of_kin_secondary_phone_number ? (
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Alt Phone Number :</span>
+                      <br />
+                      {form.next_of_kin_secondary_phone_number}
+                    </p>
+                  ) : null}
+                  <p className={`text-sm text-slate-600 ${isPG && form?.next_of_kin_secondary_phone_number ? "md:col-span-3" : "md:col-span-1"}`}>
                     <span className="text-slate-500">Address:</span>{" "}
                     {form?.next_of_kin_address}
                   </p>
@@ -360,30 +502,28 @@ export default function ApplicantProfile({
               </div>
 
               {/* Programme Choice Section */}
-              <div className="pt-10">
-                <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-6">
-                  Choice Information
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-y-8">
-                  <p className="text-sm text-slate-600">
-                    <span className="text-slate-500">
-                      First Choice Program:
-                    </span>
-                    <br />
-                    {form?.first_choice_program_name || "N/A"}
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    <span className="text-slate-500">
-                      Second Choice Program:
-                    </span>
-                    <br />
-                    {form?.second_choice_program_name || "N/A"}
-                  </p>
+              {!isPG && (
+                <div className="pt-10">
+                  <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-6">
+                    Choice Information
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-8">
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">First Choice Program:</span>
+                      <br />
+                      {form?.first_choice_program_name || "N/A"}
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      <span className="text-slate-500">Second Choice Program:</span>
+                      <br />
+                      {form?.second_choice_program_name || "N/A"}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* JAMB / UTME Details - Only if data was submitted */}
-              {(form?.utme_reg_no ||
+              {!isPG && (form?.utme_reg_no ||
                 form?.utme_score ||
                 form?.utme_subject1 ||
                 form?.choice1) && (
@@ -393,9 +533,7 @@ export default function ApplicantProfile({
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-y-8 mb-6">
                     <p className="text-sm text-slate-600">
-                      <span className="text-slate-500">
-                        JAMB Registration Number:
-                      </span>
+                      <span className="text-slate-500">JAMB Registration Number:</span>
                       <br />
                       {form?.utme_reg_no || "N/A"}
                     </p>
@@ -427,10 +565,7 @@ export default function ApplicantProfile({
                       const score = form?.[`utme_score${num}`];
                       if (!subject) return null;
                       return (
-                        <div
-                          key={num}
-                          className="bg-purple-50/30 border border-purple-100/40 rounded-lg p-3"
-                        >
+                        <div key={num} className="bg-purple-50/30 border border-purple-100/40 rounded-lg p-3">
                           <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">
                             {subject}
                           </p>
@@ -447,19 +582,21 @@ export default function ApplicantProfile({
           </div>
 
           {/* Bottom Grid: O'Level and Documents */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          <div className={`grid grid-cols-1 ${isPG ? "" : "lg:grid-cols-2"} gap-8 items-start`}>
             {/* O'Level Column */}
-            <div className="space-y-4">
-              {olevelResults.length > 0 ? (
-                olevelResults.map((exam: any, idx: number) =>
-                  renderOlevelCard(exam, idx),
-                )
-              ) : (
-                <div className="bg-white border border-slate-100 p-8 text-center text-slate-400 font-medium italic">
-                  No O'Level results found
-                </div>
-              )}
-            </div>
+            {!isPG && (
+              <div className="space-y-4">
+                {olevelResults.length > 0 ? (
+                  olevelResults.map((exam: any, idx: number) =>
+                    renderOlevelCard(exam, idx),
+                  )
+                ) : (
+                  <div className="bg-white border border-slate-100 p-8 text-center text-slate-400 font-medium italic">
+                    No O'Level results found
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Documents Column */}
             <div className="bg-white border border-slate-100 p-8 shadow-sm space-y-6">

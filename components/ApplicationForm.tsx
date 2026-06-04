@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
 import { ApiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +29,12 @@ import {
   X,
   User,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // --- Memoized year options (static, never changes) ---
 const YEAR_OPTIONS = Array.from({ length: 30 }, (_, i) => 2026 - i);
@@ -235,7 +241,7 @@ interface Document {
 
 interface FormStep {
   title: string;
-  type?: "fields" | "olevel" | "documents" | "course" | "passport_upload";
+  type?: "fields" | "olevel" | "documents" | "course" | "passport_upload" | "pg_study" | "pg_referees";
   fields?: FormField[];
   documents?: Document[];
 }
@@ -276,7 +282,7 @@ function parseOlevelForState(raw: any) {
         ].slice(0, 5),
       }));
     }
-  } catch {}
+  } catch { }
   return blank;
 }
 
@@ -350,6 +356,7 @@ interface ApplicationFormProps {
   onSuccess?: () => void;
   initialFormData?: Record<string, any>;
   initialDocuments?: any[];
+  initialPassportUrl?: string;
 }
 
 export default function ApplicationForm({
@@ -361,6 +368,7 @@ export default function ApplicationForm({
   onSuccess,
   initialFormData,
   initialDocuments,
+  initialPassportUrl,
 }: ApplicationFormProps) {
   const [formData, setFormData] = useState<Record<string, any>>(
     initialFormData ?? {},
@@ -382,6 +390,12 @@ export default function ApplicationForm({
   const [availablePrograms, setAvailablePrograms] = useState<any[]>([]);
   const [availableCourses, setAvailableCourses] = useState<any[]>(
     initialFormData?.available_courses ?? [],
+  );
+  const [availableFaculties, setAvailableFaculties] = useState<any[]>(
+    initialFormData?.available_faculties ?? [],
+  );
+  const [availableDegrees, setAvailableDegrees] = useState<any[]>(
+    initialFormData?.available_degrees ?? [],
   );
   const [olevelSubjects, setOlevelSubjects] = useState<any[]>([]);
   const [olevelGrades, setOlevelGrades] = useState<any[]>([]);
@@ -431,8 +445,12 @@ export default function ApplicationForm({
     null,
   );
   const [passportPreviewUrl, setPassportPreviewUrl] = useState<string | null>(
-    null,
+    initialPassportUrl ?? null,
   );
+  const initialPassportUrlRef = useRef(initialPassportUrl);
+  useEffect(() => {
+    initialPassportUrlRef.current = initialPassportUrl;
+  }, [initialPassportUrl]);
 
   const hasSteps = !!template.steps && template.steps.length > 0;
   const steps: FormStep[] = [];
@@ -468,7 +486,9 @@ export default function ApplicationForm({
   }
 
   // Inject COURSE step after O'Level or Personal Info if not already present
-  if (!steps.find((s) => s.type === "course")) {
+  // Skip for PG: check both programId and whether the template has a pg_study step
+  const hasPgStudy = steps.some((s) => s.type === "pg_study");
+  if (!hasPgStudy && !steps.find((s) => s.type === "course")) {
     const olevelIdx = steps.findIndex((s) => s.type === "olevel");
     if (olevelIdx !== -1) {
       steps.splice(olevelIdx + 1, 0, { title: "COURSE", type: "course" });
@@ -503,7 +523,7 @@ export default function ApplicationForm({
         const writeCache = (key: string, data: any) => {
           try {
             sessionStorage.setItem(key, JSON.stringify(data));
-          } catch {}
+          } catch { }
         };
 
         let programs = readCache(CACHE_KEY_PROGRAMS);
@@ -568,6 +588,12 @@ export default function ApplicationForm({
           if (response.form.available_courses) {
             setAvailableCourses(response.form.available_courses);
           }
+          if (response.form.available_faculties) {
+            setAvailableFaculties(response.form.available_faculties);
+          }
+          if (response.form.available_degrees) {
+            setAvailableDegrees(response.form.available_degrees);
+          }
           if (response.form.olevel_results) {
             const padded = parseOlevelForState(response.form.olevel_results);
             setOlevelExams(padded);
@@ -618,6 +644,7 @@ export default function ApplicationForm({
 
   // Fetch existing passport preview URL when loaded
   useEffect(() => {
+    if (passportPreviewUrl) return;
     const passportDoc = uploadedDocuments["passport"];
     if (passportDoc?.document_id) {
       const fetchPassport = async () => {
@@ -641,12 +668,16 @@ export default function ApplicationForm({
       };
       fetchPassport();
     }
-  }, [uploadedDocuments["passport"]?.document_id]);
+  }, [uploadedDocuments["passport"]?.document_id, passportPreviewUrl]);
 
   // Clean up object URLs on change or unmount
   useEffect(() => {
     return () => {
-      if (passportPreviewUrl && passportPreviewUrl.startsWith("blob:")) {
+      if (
+        passportPreviewUrl &&
+        passportPreviewUrl.startsWith("blob:") &&
+        passportPreviewUrl !== initialPassportUrlRef.current
+      ) {
         URL.revokeObjectURL(passportPreviewUrl);
       }
     };
@@ -803,11 +834,60 @@ export default function ApplicationForm({
       // 2. Validate standard fields step
       if (step.type === "fields" && step.fields) {
         const missingFields = step.fields
-          .filter((field) => field.required && !formData[field.name])
+          .filter((field) => {
+            if (field.name === "physical_challenge_reason") {
+              return formData.physically_challenged === "Yes" && !formData[field.name];
+            }
+            return field.required && !formData[field.name];
+          })
           .map((field) => field.label);
 
         if (missingFields.length > 0) {
           setError(`Please fill in: ${missingFields.join(", ")}`);
+          setSaving(false);
+          return false;
+        }
+      }
+
+      // Validate PG Study step
+      if (step.type === "pg_study") {
+        const missing = [];
+        if (!formData.degree_id) missing.push("Degree in View");
+        if (!formData.proposed_course) missing.push("Proposed Course of Study");
+        if (!formData.mode_of_study) missing.push("Mode of Study");
+
+        const selectedDegreeId = parseInt(formData.degree_id || "0");
+        const selectedDegree = availableDegrees.find((d) => d.id === selectedDegreeId);
+        const isResearchDegree =
+          selectedDegree?.code?.toUpperCase()?.includes("PHD") ||
+          selectedDegree?.code?.toUpperCase()?.includes("M.PHIL") ||
+          selectedDegree?.code?.toUpperCase()?.includes("MPHIL") ||
+          selectedDegree?.name?.toUpperCase()?.includes("DOCTOR OF PHILOSOPHY") ||
+          selectedDegree?.name?.toUpperCase()?.includes("PHILOSOPHY");
+
+        if (isResearchDegree && !formData.proposed_research_title) {
+          missing.push("Proposed Title of Research");
+        }
+
+        if (missing.length > 0) {
+          setError(`Please fill in: ${missing.join(", ")}`);
+          setSaving(false);
+          return false;
+        }
+      }
+
+      // Validate PG Referees step
+      if (step.type === "pg_referees") {
+        const missing = [];
+        if (!formData.referee_name1) missing.push("Referee 1 Name");
+        if (!formData.referee_address1) missing.push("Referee 1 Address");
+        if (!formData.referee_name2) missing.push("Referee 2 Name");
+        if (!formData.referee_address2) missing.push("Referee 2 Address");
+        if (!formData.referee_name3) missing.push("Referee 3 Name");
+        if (!formData.referee_address3) missing.push("Referee 3 Address");
+
+        if (missing.length > 0) {
+          setError(`Please fill in: ${missing.join(", ")}`);
           setSaving(false);
           return false;
         }
@@ -895,6 +975,13 @@ export default function ApplicationForm({
     }
   };
 
+  const advanceStep = () => {
+    const nextStep = currentStep + 1;
+    setCurrentStep(nextStep);
+    if (nextStep > maxStepReached) setMaxStepReached(nextStep);
+    window.scrollTo(0, 0);
+  };
+
   const handleNextStep = async () => {
     // Only save if there are changes OR if we are on the first step to ensure passport upload completes
     if (isDirty || currentStep === 0) {
@@ -902,10 +989,7 @@ export default function ApplicationForm({
       if (!success) return;
     }
 
-    const nextStep = currentStep + 1;
-    setCurrentStep(nextStep);
-    if (nextStep > maxStepReached) setMaxStepReached(nextStep);
-    window.scrollTo(0, 0);
+    advanceStep();
   };
 
   const handlePrevStep = async () => {
@@ -977,13 +1061,12 @@ export default function ApplicationForm({
           return (
             <div
               key={i}
-              className={`px-4 py-2 text-sm font-bold whitespace-nowrap border-b-2 transition-all ${
-                i === currentStep
+              className={`px-4 py-2 text-sm font-bold whitespace-nowrap border-b-2 transition-all ${i === currentStep
                   ? "border-primary text-primary"
                   : isClickable
                     ? "border-primary/30 text-slate-500 cursor-pointer hover:border-primary/60"
                     : "border-transparent text-slate-300"
-              }`}
+                }`}
               onClick={async () => {
                 if (isClickable && i !== currentStep) {
                   if (isDirty) {
@@ -1058,70 +1141,299 @@ export default function ApplicationForm({
 
           {step.type === "fields" && step.fields && (
             <div className="grid md:grid-cols-2 gap-4">
-              {step.fields.map((field) => (
-                <div key={field.name} className="space-y-2">
-                  <Label htmlFor={field.name}>
-                    {field.label}
-                    {field.required && (
-                      <span className="text-destructive">*</span>
-                    )}
-                  </Label>
-                  {field.type === "text" ||
-                  field.type === "email" ||
-                  field.type === "number" ? (
-                    <Input
-                      id={field.name}
-                      name={field.name}
-                      type={field.type}
-                      placeholder={field.label}
-                      value={formData[field.name] || ""}
-                      onChange={handleInputChange}
-                      disabled={saving || submitting || field.disabled}
-                    />
-                  ) : field.type === "date" ? (
-                    <Input
-                      id={field.name}
-                      name={field.name}
-                      type="date"
-                      value={formData[field.name] || ""}
-                      onChange={handleInputChange}
-                      disabled={saving || submitting || field.disabled}
-                    />
-                  ) : field.type === "select" ? (
-                    <Select
-                      value={formData[field.name] || undefined}
-                      onValueChange={(value) =>
-                        handleSelectChange(field.name, value)
-                      }
-                      disabled={saving || submitting || field.disabled}
-                    >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={field.placeholder || "--Select--"}
-                        />
-                      </SelectTrigger>
-                      <SelectContent position="popper" className="z-[9999]">
-                        {field.options?.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : field.type === "textarea" ? (
-                    <textarea
-                      id={field.name}
-                      name={field.name}
-                      placeholder={field.label}
-                      value={formData[field.name] || ""}
-                      onChange={handleInputChange}
-                      disabled={saving || submitting || field.disabled}
-                      rows={4}
-                      className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  ) : null}
+              {step.fields.map((field) => {
+                if (field.name === "physical_challenge_reason" && formData.physically_challenged !== "Yes") {
+                  return null;
+                }
+                return (
+                  <div key={field.name} className="space-y-2">
+                    <Label htmlFor={field.name}>
+                      {field.label}
+                      {field.required && (
+                        <span className="text-destructive">*</span>
+                      )}
+                    </Label>
+                    {field.type === "text" ||
+                      field.type === "email" ||
+                      field.type === "number" ? (
+                      <Input
+                        id={field.name}
+                        name={field.name}
+                        type={field.type}
+                        placeholder={field.label}
+                        value={formData[field.name] || ""}
+                        onChange={handleInputChange}
+                        disabled={saving || submitting || field.disabled}
+                      />
+                    ) : field.type === "date" ? (
+                      <Input
+                        id={field.name}
+                        name={field.name}
+                        type="date"
+                        value={formData[field.name] || ""}
+                        onChange={handleInputChange}
+                        disabled={saving || submitting || field.disabled}
+                      />
+                    ) : field.type === "select" ? (
+                      <Select
+                        value={formData[field.name] || undefined}
+                        onValueChange={(value) =>
+                          handleSelectChange(field.name, value)
+                        }
+                        disabled={saving || submitting || field.disabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={field.placeholder || "--Select--"}
+                          />
+                        </SelectTrigger>
+                        <SelectContent position="popper" className="z-[9999]">
+                          {field.options?.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : field.type === "textarea" ? (
+                      <textarea
+                        id={field.name}
+                        name={field.name}
+                        placeholder={field.label}
+                        value={formData[field.name] || ""}
+                        onChange={handleInputChange}
+                        disabled={saving || submitting || field.disabled}
+                        rows={4}
+                        className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {step.type === "pg_study" && (() => {
+            const selectedDegreeIdForFilter = parseInt(formData.degree_id || "0");
+            const filteredCourses = selectedDegreeIdForFilter
+              ? availableCourses.filter((c) => c.degree_id === selectedDegreeIdForFilter)
+              : [];
+            return (
+            <div className="space-y-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="degree_id">Degree in View*</Label>
+                  <Select
+                    value={formData.degree_id?.toString() || ""}
+                    onValueChange={(val) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        degree_id: val,
+                        proposed_course: "",
+                        proposed_faculty: "",
+                      }));
+                      setIsDirty(true);
+                    }}
+                  >
+                    <SelectTrigger className="h-12 border-slate-200">
+                      <SelectValue placeholder="--Select Degree--" />
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="z-[9999]">
+                      {availableDegrees.map((d) => (
+                        <SelectItem key={d.id} value={d.id.toString()}>
+                          {d.name} ({d.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              ))}
+
+                <div className="space-y-2">
+                  <Label htmlFor="proposed_course">Proposed Course of Study*</Label>
+                  <Select
+                    value={formData.proposed_course?.toString() || ""}
+                    onValueChange={(val) => {
+                      const courseId = parseInt(val);
+                      const course = availableCourses.find((c) => c.id === courseId);
+                      setFormData((prev) => ({
+                        ...prev,
+                        proposed_course: val,
+                        proposed_faculty: course?.faculty_id?.toString() || "",
+                      }));
+                      setIsDirty(true);
+                    }}
+                    disabled={!selectedDegreeIdForFilter}
+                  >
+                    <SelectTrigger className="h-12 border-slate-200">
+                      <SelectValue placeholder={selectedDegreeIdForFilter ? "--Select Proposed Course--" : "--Select Degree First--"} />
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="z-[9999]">
+                      {filteredCourses.map((c) => (
+                        <SelectItem key={c.id} value={c.id.toString()}>
+                          {c.course}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mode_of_study">Mode of Study*</Label>
+                  <Select
+                    value={formData.mode_of_study || ""}
+                    onValueChange={(val) => {
+                      setFormData((prev) => ({ ...prev, mode_of_study: val }));
+                      setIsDirty(true);
+                    }}
+                  >
+                    <SelectTrigger className="h-12 border-slate-200">
+                      <SelectValue placeholder="--Select Mode of Study--" />
+                    </SelectTrigger>
+                    <SelectContent position="popper" className="z-[9999]">
+                      <SelectItem value="Full-Time">Full-Time</SelectItem>
+                      <SelectItem value="Part-Time">Part-Time</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="area_of_specialisation">Area of Specialisation</Label>
+                  <Input
+                    id="area_of_specialisation"
+                    name="area_of_specialisation"
+                    placeholder="Area of Specialisation"
+                    value={formData.area_of_specialisation || ""}
+                    onChange={handleInputChange}
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                const selectedDegreeId = parseInt(formData.degree_id || "0");
+                const selectedDegree = availableDegrees.find((d) => d.id === selectedDegreeId);
+                const isResearchDegree =
+                  selectedDegree?.code?.toUpperCase()?.includes("PHD") ||
+                  selectedDegree?.code?.toUpperCase()?.includes("M.PHIL") ||
+                  selectedDegree?.code?.toUpperCase()?.includes("MPHIL") ||
+                  selectedDegree?.name?.toUpperCase()?.includes("DOCTOR OF PHILOSOPHY") ||
+                  selectedDegree?.name?.toUpperCase()?.includes("PHILOSOPHY");
+
+                if (isResearchDegree) {
+                  return (
+                    <div className="space-y-2">
+                      <Label htmlFor="proposed_research_title">Proposed Title of Research*</Label>
+                      <textarea
+                        id="proposed_research_title"
+                        name="proposed_research_title"
+                        placeholder="Proposed Title of Research (required for MPhil-PhD/PhD)"
+                        value={formData.proposed_research_title || ""}
+                        onChange={handleInputChange}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+            );
+          })()}
+
+          {step.type === "pg_referees" && (
+            <div className="space-y-6">
+              <p className="text-sm text-slate-500 font-medium">
+                Please provide the names and addresses of three referees.
+              </p>
+
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="bg-slate-50/50 rounded-xl p-6 border border-slate-100 space-y-4">
+                  <h3 className="font-medium text-slate-800 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                    Referee 1
+                  </h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="referee_name1">Name*</Label>
+                    <Input
+                      id="referee_name1"
+                      name="referee_name1"
+                      placeholder="Referee 1 Name"
+                      value={formData.referee_name1 || ""}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="referee_address1">Address*</Label>
+                    <textarea
+                      id="referee_address1"
+                      name="referee_address1"
+                      placeholder="Referee 1 Address"
+                      value={formData.referee_address1 || ""}
+                      onChange={handleInputChange}
+                      rows={3}
+                      className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-slate-50/50 rounded-xl p-6 border border-slate-100 space-y-4">
+                  <h3 className="font-medium text-slate-800 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                    Referee 2
+                  </h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="referee_name2">Name*</Label>
+                    <Input
+                      id="referee_name2"
+                      name="referee_name2"
+                      placeholder="Referee 2 Name"
+                      value={formData.referee_name2 || ""}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="referee_address2">Address*</Label>
+                    <textarea
+                      id="referee_address2"
+                      name="referee_address2"
+                      placeholder="Referee 2 Address"
+                      value={formData.referee_address2 || ""}
+                      onChange={handleInputChange}
+                      rows={3}
+                      className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-slate-50/50 rounded-xl p-6 border border-slate-100 space-y-4">
+                  <h3 className="font-medium text-slate-800 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                    Referee 3
+                  </h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="referee_name3">Name*</Label>
+                    <Input
+                      id="referee_name3"
+                      name="referee_name3"
+                      placeholder="Referee 3 Name"
+                      value={formData.referee_name3 || ""}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="referee_address3">Address*</Label>
+                    <textarea
+                      id="referee_address3"
+                      name="referee_address3"
+                      placeholder="Referee 3 Address"
+                      value={formData.referee_address3 || ""}
+                      onChange={handleInputChange}
+                      rows={3}
+                      className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1175,7 +1487,7 @@ export default function ApplicationForm({
             <div className="space-y-6">
               <div className="grid md:grid-cols-2 gap-8">
                 <div className="space-y-2">
-                  <Label>First Choice Course*</Label>
+                  <Label>First Choice Course</Label>
                   <Select
                     value={formData.first_choice_program_id?.toString() || ""}
                     onValueChange={(val) => {
@@ -1494,6 +1806,8 @@ export default function ApplicationForm({
           </>
         )}
       </div>
+
+
     </div>
   );
 }

@@ -54,7 +54,7 @@ def require_password_change(f):
     def decorated(payload, *args, **kwargs):
         if payload.get('role') == 'student' and is_student_password_change_required(payload['user_id']):
             return jsonify({
-                'message': 'Password change required before accessing student resources.',
+                'message': 'Password change required before accessing course reg.',
                 'require_password_change': True,
             }), 403
         return f(payload, *args, **kwargs)
@@ -185,7 +185,7 @@ def login():
     portal = data.get('portal', '')
     if role == 'student' and portal == 'student' and '@' in identifier:
         return jsonify({
-            'message': 'Student accounts must sign in with your matric number, not your email.'
+            'message': 'sign in with matric number.'
         }), 401
 
     student_auth: dict | None = None

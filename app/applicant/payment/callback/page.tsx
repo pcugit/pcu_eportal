@@ -1,15 +1,5 @@
 "use client";
 
-/**
- * /applicant/payment/callback
- *
- * Fallback page for mobile browsers where Interswitch may redirect instead of
- * calling onComplete in the inline modal. Reads the txnref from the URL,
- * verifies server-side, then shows the result.
- *
- * In the normal inline checkout flow this page is NOT visited — result is
- * handled entirely in-page via onComplete on payment/page.tsx.
- */
 
 import React, { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";

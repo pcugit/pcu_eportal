@@ -69,7 +69,7 @@ export default function StaffLogin() {
           />
         </div>
 
-        <form onSubmit={handleSubmit} className="staff-login-form">
+        <form noValidate onSubmit={handleSubmit} className="staff-login-form">
           <div className="sfield">
             <label htmlFor="staff-email">Email / Username</label>
             <input

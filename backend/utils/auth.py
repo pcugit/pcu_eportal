@@ -18,7 +18,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 # JWT utilities
 # -----------------------------
 def generate_token(user_id, role, expires_in=3600) -> str:
-    """Generate JWT token (default: 1 hour)"""
+    """Generate JWT token """
     payload = {
         'user_id': user_id,
         'role': role,
@@ -34,9 +34,9 @@ def verify_token(token):
         payload = jwt.decode(token, Config.JWT_SECRET, algorithms=['HS256'])
         return payload
     except jwt.ExpiredSignatureError:
-        return {'error': 'Token expired'}
+        return {'error': 'session expired'}
     except jwt.InvalidTokenError:
-        return {'error': 'Invalid token'}
+        return {'error': 'error'}
 
 def token_required(f):
     """Decorator to protect routes with JWT token"""
@@ -49,10 +49,10 @@ def token_required(f):
             try:
                 token = auth_header.split(" ")[1]
             except IndexError:
-                return jsonify({'message': 'Invalid token format'}), 401
+                return jsonify({'message': 'error'}), 401
 
         if not token:
-            return jsonify({'message': 'Token is missing'}), 401
+            return jsonify({'message': 'error'}), 401
 
         payload = verify_token(token)
         if 'error' in payload:
@@ -67,7 +67,7 @@ def admin_required(f):
     @wraps(f)
     def decorated(payload, *args, **kwargs):
         if payload.get('role') not in ['admin', 'ict_director']:
-            return jsonify({'message': 'Admin access required'}), 403
+            return jsonify({'message': 'Access denied'}), 403
         return f(payload, *args, **kwargs)
     return decorated
 
@@ -76,18 +76,12 @@ def admissions_officer_required(f):
     @wraps(f)
     def decorated(payload, *args, **kwargs):
         if payload.get('role') != 'admissionofficer':
-            return jsonify({'message': 'Admissions Officer access required'}), 403
+            return jsonify({'message': 'Access denied'}), 403
         return f(payload, *args, **kwargs)
     return decorated
 
 def roles_required(*roles):
-    """Restrict access to one or more roles. Must be stacked AFTER @token_required.
 
-    Usage:
-        @token_required
-        @roles_required('lecturer', 'deo', 'admin')
-        def my_view(payload): ...
-    """
     def decorator(f):
         @wraps(f)
         def decorated(payload, *args, **kwargs):

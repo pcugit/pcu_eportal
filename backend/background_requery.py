@@ -65,11 +65,9 @@ def requery_all_pending(dry_run: bool = False) -> dict:
     )
 
     if not pending:
-        logger.info('[requery_worker] No pending transactions.')
         return summary
 
     summary['total'] = len(pending)
-    logger.info(f'[requery_worker] Found {len(pending)} pending transaction(s).')
 
     for txn in pending:
         ref           = txn['reference_no']
@@ -79,12 +77,8 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         payment_type  = txn['tran_type']
         user_id       = txn['user_id']
 
-        # ── Stale/Expired Check (after STALE_THRESHOLD_MINUTES) ────────────────
+        
         if age_minutes > STALE_THRESHOLD_MINUTES:
-            logger.warning(
-                f'[requery_worker] EXPIRED: {ref} | type={payment_type} | '
-                f'age={age_minutes:.0f}m | requery_count={requery_count}. Marking failed.'
-            )
             if not dry_run:
                 Database.execute_update(
                     """UPDATE payment_transactions
@@ -118,13 +112,8 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         response_desc = isw_resp.get('ResponseDescription', '')
         tran_status   = classify_response(response_code, requery_count)
 
-        logger.info(
-            f'[requery_worker] {ref} → code={response_code!r} '
-            f'requery_count={requery_count} → {tran_status}'
-        )
 
         if dry_run:
-            logger.info(f'[requery_worker] DRY RUN — no DB write for {ref}')
             if tran_status == 'pending':
                 summary['still_pending'] += 1
             elif tran_status == 'successful':
@@ -142,8 +131,6 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         Database.execute_update(sql, params)
 
         if tran_status == 'successful':
-            # ✅ ATOMIC SETTLEMENT: Prevent race condition with callback handler
-            # Only apply downstream if we successfully acquire the lock
             from utils.payment_status import atomic_settle_payment
             if atomic_settle_payment(ref, user_id, payment_type):
                 logger.info(
@@ -151,7 +138,6 @@ def requery_all_pending(dry_run: bool = False) -> dict:
                 )
                 summary['resolved_success'] += 1
             else:
-                # Another process already settled it, that's fine
                 logger.info(f'[requery_worker] Already settled by another handler: {ref}')
                 summary['resolved_success'] += 1
 
@@ -162,7 +148,7 @@ def requery_all_pending(dry_run: bool = False) -> dict:
             )
             summary['resolved_failed'] += 1
 
-        else:  # still pending
+        else:  
             summary['still_pending'] += 1
 
     logger.info(f'[requery_worker] Run complete: {summary}')
@@ -174,10 +160,6 @@ def requery_all_pending(dry_run: bool = False) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _worker_loop():
-    """Runs forever in a daemon thread, sleeping POLL_INTERVAL_SECONDS between runs."""
-    logger.info(
-        f'[requery_worker] Starting. Poll interval: {POLL_INTERVAL_SECONDS}s.'
-    )
     while True:
         try:
             requery_all_pending()
@@ -187,10 +169,6 @@ def _worker_loop():
 
 
 def start_background_worker():
-    """
-    Launch the background requery thread once per process.
-    Safe to call multiple times — subsequent calls are no-ops.
-    """
     global _started
     with _lock:
         if _started:
@@ -198,4 +176,3 @@ def start_background_worker():
         thread = threading.Thread(target=_worker_loop, name='payment-requery', daemon=True)
         thread.start()
         _started = True
-        logger.info('[requery_worker] Background thread started.')

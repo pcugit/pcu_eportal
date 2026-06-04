@@ -81,7 +81,7 @@ export default function StaffChangePasswordPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+        <form noValidate onSubmit={handleSubmit} className="p-8 space-y-5">
           {message && (
             <div
               className={cn(

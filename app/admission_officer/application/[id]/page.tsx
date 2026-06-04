@@ -37,18 +37,17 @@ function ApplicantInfoTab({
   form: any;
   passportUrl: string | null;
 }) {
+  const isPG = applicant?.program_id === 2 || applicant?.prog_type === 2;
   const olevelResults = form?.olevel_results || [];
+  const hasUTMEData = !isPG && !!(form?.utme_reg_no || form?.utme_score || form?.utme_subject1 || form?.choice1);
+  const hasOLevelData = !isPG && olevelResults.length > 0;
 
-  // Check if actual JAMB/UTME data was submitted
-  const hasUTMEData = !!(
-    form?.utme_reg_no ||
-    form?.utme_score ||
-    form?.utme_subject1 ||
-    form?.choice1
+  const InfoCard = ({ label, value, colSpan = "" }: { label: string; value?: string | null; colSpan?: string }) => (
+    <div className={`p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl ${colSpan}`}>
+      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">{label}</span>
+      <span className="font-bold text-slate-800 text-sm">{value || "N/A"}</span>
+    </div>
   );
-
-  // Check if actual O'Level data was submitted
-  const hasOLevelData = olevelResults.length > 0;
 
   return (
     <div className="space-y-8 bg-white border border-slate-100 p-8 shadow-sm rounded-[24px]">
@@ -64,9 +63,7 @@ function ApplicantInfoTab({
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
               <User className="w-8 h-8 mb-1" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">
-                No Photo
-              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider">No Photo</span>
             </div>
           )}
         </div>
@@ -75,20 +72,20 @@ function ApplicantInfoTab({
             {form?.full_name || applicant?.name}
           </h2>
           <div className="flex flex-wrap items-center gap-6 text-sm text-slate-500 font-medium">
-            <p>
-              <strong>Email:</strong> {form?.email || applicant?.email}
-            </p>
-            <p>
-              <strong>Phone:</strong>{" "}
-              {form?.phone_number || applicant?.phone_number}
-            </p>
-            <p>
-              <strong>Gender:</strong> {form?.gender || "N/A"}
-            </p>
+            <p><strong>Email:</strong> {form?.email || applicant?.email}</p>
+            <p><strong>Phone:</strong> {form?.phone_number || applicant?.phone_number}</p>
+            {isPG && form?.secondary_phone_number && (
+              <p><strong>Alt Phone:</strong> {form.secondary_phone_number}</p>
+            )}
+            {!isPG && <p><strong>Gender:</strong> {form?.gender || "N/A"}</p>}
           </div>
           <div className="pt-2">
             <Badge className="bg-[#6b357d] hover:bg-[#6b357d] text-white font-bold rounded-lg px-3 py-1 text-xs">
-              {form?.first_choice_program_name || applicant?.program_name}
+              {isPG
+                ? (form?.proposed_course_name
+                    ? `${form?.degree_code || ""} ${form.proposed_course_name}`.trim()
+                    : (form?.degree_name || applicant?.program_name))
+                : (form?.first_choice_program_name || applicant?.program_name)}
             </Badge>
           </div>
         </div>
@@ -96,136 +93,160 @@ function ApplicantInfoTab({
 
       {/* Personal Details */}
       <div className="space-y-4 pt-4">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-          Personal Details
-        </h3>
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Personal Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {[
-            { label: "Date of Birth", value: form?.date_of_birth },
-            { label: "Place of Birth", value: form?.place_of_birth },
-            { label: "Nationality", value: form?.nationality },
-            { label: "State of Origin", value: form?.state },
-            { label: "LGA", value: form?.lga },
-            { label: "Religion", value: form?.religion },
-            { label: "Blood Group", value: form?.blood_group },
-            { label: "Genotype", value: form?.genotype },
-            {
-              label: "Contact Address",
-              value: form?.address || form?.contact_address,
-              colSpan: "md:col-span-2",
-            },
-          ].map((item, idx) => (
-            <div
-              key={idx}
-              className={`p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl ${item.colSpan || ""}`}
-            >
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
-                {item.label}
-              </span>
-              <span className="font-bold text-slate-800 text-sm">
-                {item.value || "N/A"}
-              </span>
-            </div>
-          ))}
+          <InfoCard label="Date of Birth" value={form?.date_of_birth} />
+          {isPG ? (
+            <>
+              <InfoCard label="Contact Address" value={form?.address} colSpan="md:col-span-2" />
+              <InfoCard
+                label="Physically Challenged"
+                value={
+                  !form?.physically_challenged || form.physically_challenged === "No"
+                    ? "No"
+                    : form.physical_challenge_reason || "Yes"
+                }
+                colSpan="md:col-span-3"
+              />
+            </>
+          ) : (
+            <>
+              <InfoCard label="Place of Birth" value={form?.place_of_birth} />
+              <InfoCard label="Nationality" value={form?.nationality} />
+              <InfoCard label="State of Origin" value={form?.state} />
+              <InfoCard label="LGA" value={form?.lga} />
+              <InfoCard label="Religion" value={form?.religion} />
+              <InfoCard label="Blood Group" value={form?.blood_group} />
+              <InfoCard label="Genotype" value={form?.genotype} />
+              <InfoCard label="Contact Address" value={form?.address || form?.contact_address} colSpan="md:col-span-2" />
+            </>
+          )}
         </div>
       </div>
 
-      {/* Sponsor & Kin info in a beautiful grid of cards */}
+      {/* PG: Academic History */}
+      {isPG && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Academic History</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <InfoCard label="Previous Institution" value={form?.previous_institution} colSpan="md:col-span-2" />
+            <InfoCard label="Department" value={form?.department} />
+            <InfoCard label="Previous Course of Study" value={form?.previous_course} colSpan="md:col-span-2" />
+            <InfoCard label="Class of First Degree" value={form?.class_of_degree} />
+          </div>
+        </div>
+      )}
+
+      {/* PG: Proposed Study */}
+      {isPG && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Proposed Study</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <InfoCard
+              label="Degree in View"
+              value={form?.degree_name ? `${form.degree_name}${form.degree_code ? ` (${form.degree_code})` : ""}` : undefined}
+            />
+            <InfoCard label="Proposed Course of Study" value={form?.proposed_course_name} colSpan="md:col-span-2" />
+            <InfoCard label="Proposed Faculty / Institute / Centre" value={form?.proposed_faculty_name} colSpan="md:col-span-2" />
+            <InfoCard label="Mode of Study" value={form?.mode_of_study} />
+            {form?.area_of_specialisation && (
+              <InfoCard label="Area of Specialisation" value={form.area_of_specialisation} colSpan="md:col-span-3" />
+            )}
+            {form?.proposed_research_title && (
+              <InfoCard label="Proposed Title of Research" value={form.proposed_research_title} colSpan="md:col-span-3" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* PG: Referees */}
+      {isPG && (form?.referee_name1 || form?.referee_name2 || form?.referee_name3) && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Referees</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { label: "Referee 1", name: form?.referee_name1, address: form?.referee_address1 },
+              { label: "Referee 2", name: form?.referee_name2, address: form?.referee_address2 },
+              { label: "Referee 3", name: form?.referee_name3, address: form?.referee_address3 },
+            ].filter((ref) => ref.name).map((ref, idx) => (
+              <div key={idx} className="bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5 space-y-3">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{ref.label}</p>
+                <div className="flex justify-between items-start text-sm border-b border-slate-100 pb-3">
+                  <span className="text-slate-400 font-semibold shrink-0">Name</span>
+                  <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">{ref.name}</span>
+                </div>
+                <div className="flex justify-between items-start text-sm">
+                  <span className="text-slate-400 font-semibold shrink-0">Address</span>
+                  <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">{ref.address || "N/A"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sponsor & Next of Kin */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
         <div className="space-y-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-            Sponsor Information
-          </h3>
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Sponsor Information</h3>
           <div className="bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5 space-y-4">
-            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold">Name</span>
-              <span className="font-bold text-slate-800 capitalize">
-                {form?.sponsor_name || "N/A"}
-              </span>
-            </div>
-            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold">Phone</span>
-              <span className="font-bold text-slate-800">
-                {form?.sponsor_phone_number || "N/A"}
-              </span>
-            </div>
-            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold">Relationship</span>
-              <span className="font-bold text-slate-800 capitalize">
-                {form?.sponsor_relationship || "N/A"}
-              </span>
-            </div>
-            <div className="flex justify-between items-start text-sm last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold shrink-0">
-                Address
-              </span>
-              <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">
-                {form?.sponsor_address || "N/A"}
-              </span>
-            </div>
+            {[
+              { label: "Name", value: form?.sponsor_name },
+              ...(!isPG ? [
+                { label: "Phone", value: form?.sponsor_phone_number },
+                { label: "Relationship", value: form?.sponsor_relationship },
+              ] : []),
+              { label: "Address", value: form?.sponsor_address },
+            ].map((item, idx) => (
+              <div key={idx} className="flex justify-between items-start text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                <span className="text-slate-400 font-semibold">{item.label}</span>
+                <span className="font-bold text-slate-800 capitalize text-right max-w-[200px] leading-snug">{item.value || "N/A"}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         <div className="space-y-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-            Next of Kin Information
-          </h3>
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Next of Kin Information</h3>
           <div className="bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5 space-y-4">
-            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold">Name</span>
-              <span className="font-bold text-slate-800 capitalize">
-                {form?.next_of_kin_name || "N/A"}
-              </span>
-            </div>
-            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold">Phone</span>
-              <span className="font-bold text-slate-800">
-                {form?.next_of_kin_phone_number || "N/A"}
-              </span>
-            </div>
-            <div className="flex justify-between items-start text-sm last:border-0 last:pb-0">
-              <span className="text-slate-400 font-semibold shrink-0">
-                Address
-              </span>
-              <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">
-                {form?.next_of_kin_address || "N/A"}
-              </span>
-            </div>
+            {[
+              { label: "Name", value: form?.next_of_kin_name },
+              { label: "Phone", value: form?.next_of_kin_phone_number },
+              ...(isPG && form?.next_of_kin_secondary_phone_number
+                ? [{ label: "Alt Phone", value: form.next_of_kin_secondary_phone_number }]
+                : []),
+              { label: "Address", value: form?.next_of_kin_address },
+            ].map((item, idx) => (
+              <div key={idx} className="flex justify-between items-start text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                <span className="text-slate-400 font-semibold shrink-0">{item.label}</span>
+                <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">{item.value || "N/A"}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Programme Choices */}
-      <div className="space-y-4 pt-4">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-          Programme Choices
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5">
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-              First Choice
-            </span>
-            <p className="font-black text-[#6b357d] text-sm uppercase">
-              {form?.first_choice_program_name || "N/A"}
-            </p>
-          </div>
-          <div className="space-y-1">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-              Second Choice
-            </span>
-            <p className="font-bold text-slate-600 text-sm uppercase">
-              {form?.second_choice_program_name || "N/A"}
-            </p>
+      {/* Programme Choices — UG only */}
+      {!isPG && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Programme Choices</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5">
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">First Choice</span>
+              <p className="font-black text-[#6b357d] text-sm uppercase">{form?.first_choice_program_name || "N/A"}</p>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Second Choice</span>
+              <p className="font-bold text-slate-600 text-sm uppercase">{form?.second_choice_program_name || "N/A"}</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* JAMB / UTME Details - Only if data was submitted */}
+      {/* JAMB / UTME — UG only */}
       {hasUTMEData && (
         <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-            JAMB / UTME Details
-          </h3>
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">JAMB / UTME Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
             {[
               { label: "JAMB Registration Number", value: form?.utme_reg_no },
@@ -234,36 +255,21 @@ function ApplicantInfoTab({
               { label: "Original First Choice (JAMB)", value: form?.choice1 },
               { label: "Original Second Choice (JAMB)", value: form?.choice2 },
             ].map((item, idx) => (
-              <div
-                key={idx}
-                className="p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl"
-              >
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
-                  {item.label}
-                </span>
-                <span className="font-bold text-slate-800 text-sm">
-                  {item.value || "N/A"}
-                </span>
+              <div key={idx} className="p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">{item.label}</span>
+                <span className="font-bold text-slate-800 text-sm">{item.value || "N/A"}</span>
               </div>
             ))}
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
             {[1, 2, 3, 4].map((num) => {
               const subject = form?.[`utme_subject${num}`];
               const score = form?.[`utme_score${num}`];
               if (!subject) return null;
               return (
-                <div
-                  key={num}
-                  className="p-3 bg-purple-50/30 border border-purple-100/40 rounded-xl"
-                >
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
-                    {subject}
-                  </span>
-                  <span className="font-black text-[#6b357d] text-base">
-                    {score || "0"}
-                  </span>
+                <div key={num} className="p-3 bg-purple-50/30 border border-purple-100/40 rounded-xl">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">{subject}</span>
+                  <span className="font-black text-[#6b357d] text-base">{score || "0"}</span>
                 </div>
               );
             })}
@@ -271,74 +277,44 @@ function ApplicantInfoTab({
         </div>
       )}
 
-      {/* O'Level Results - Only if data was submitted */}
+      {/* O'Level Results — UG only */}
       {hasOLevelData && (
         <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
-            O'Level Results
-          </h3>
-          {olevelResults.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {olevelResults.map((exam: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
-                      <h4 className="font-black text-[#6b357d] uppercase text-sm tracking-tight">
-                        {exam.name || "WAEC"} — Sitting {idx + 1}
-                      </h4>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
-                      <div>
-                        <span className="block text-[9px] text-slate-400">
-                          Reg Number
-                        </span>
-                        <span className="text-slate-700 font-mono">
-                          {exam.number}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-700">{exam.year}</span>
-                      </div>
-                    </div>
-                    <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-                      <table className="w-full text-left text-sm border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            <th className="p-3 font-bold">Subject</th>
-                            <th className="p-3 text-right font-bold">Grade</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {exam.subjects
-                            ?.filter((s: any) => s.subject)
-                            .map((s: any, sIdx: number) => (
-                              <tr
-                                key={sIdx}
-                                className="hover:bg-slate-50/50 transition-colors"
-                              >
-                                <td className="p-3 text-xs font-bold text-slate-600 uppercase">
-                                  {s.subject}
-                                </td>
-                                <td className="p-3 text-right font-black text-slate-800">
-                                  {s.grade || "-"}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">O'Level Results</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {olevelResults.map((exam: any, idx: number) => (
+              <div key={idx} className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-all duration-300">
+                <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+                  <h4 className="font-black text-[#6b357d] uppercase text-sm tracking-tight">{exam.name || "WAEC"} — Sitting {idx + 1}</h4>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-6 bg-slate-50 border border-dashed rounded-2xl text-center text-slate-400 font-medium">
-              No O'Level results uploaded.
-            </div>
-          )}
+                <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
+                  <div>
+                    <span className="block text-[9px] text-slate-400">Reg Number</span>
+                    <span className="text-slate-700 font-mono">{exam.number}</span>
+                  </div>
+                  <div><span className="text-slate-700">{exam.year}</span></div>
+                </div>
+                <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        <th className="p-3 font-bold">Subject</th>
+                        <th className="p-3 text-right font-bold">Grade</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {exam.subjects?.filter((s: any) => s.subject).map((s: any, sIdx: number) => (
+                        <tr key={sIdx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-3 text-xs font-bold text-slate-600 uppercase">{s.subject}</td>
+                          <td className="p-3 text-right font-black text-slate-800">{s.grade || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

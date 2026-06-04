@@ -48,7 +48,7 @@ export default function ChangePasswordPage() {
           <h2 className="font-bold">Reset Password</h2>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+        <form noValidate onSubmit={handleSubmit} className="p-8 space-y-5">
           {message && (
             <div
               className={cn(

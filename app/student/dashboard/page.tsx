@@ -32,14 +32,12 @@ import {
   DollarSign,
 } from "lucide-react";
 
-import FirstLoginPasswordChange from "@/components/FirstLoginPasswordChange";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 
 export default function StudentDashboard() {
   const router = useRouter();
   const { user, student, isAuthenticated, logout, isLoading } = useAuth();
   const isAdmitted = user?.role === "admitted"; // paid acceptance fee, not yet school fees
-  const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [regStatus, setRegStatus] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [applicantStatus, setApplicantStatus] = useState<any>(null);
@@ -150,11 +148,6 @@ export default function StudentDashboard() {
     }
   };
 
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && student?.is_first_login) {
-      setShowPasswordChange(true);
-    }
-  }, [isLoading, isAuthenticated, student]);
 
   const handlePayTuition = async () => {
     // Step 1 — open the fee breakdown modal before touching Interswitch
@@ -390,15 +383,6 @@ export default function StudentDashboard() {
     );
   }
 
-  if (showPasswordChange) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 px-4">
-        <FirstLoginPasswordChange
-          onComplete={() => setShowPasswordChange(false)}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">

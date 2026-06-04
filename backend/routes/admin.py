@@ -31,9 +31,12 @@ def get_admission_ref(applicant_id):
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def get_applications(payload):
-    """Get list of all applications with filtering options"""
+    """Get list of all applications with filtering, search, and pagination"""
     status = request.args.get('status', 'submitted')
     program_id = request.args.get('program_id')
+    search = request.args.get('search', '').strip()
+    page = max(int(request.args.get('page', 1)), 1)
+    per_page = max(int(request.args.get('per_page', 10)), 1)
 
     base_select = f'''SELECT app.id, app.user_id,
                              {USER_NAME_EXPR} AS name,
@@ -65,23 +68,49 @@ def get_applications(payload):
                       LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id'''
 
     if status == 'admitted':
-        # Show both admitted (awaiting fee) and accepted (fee paid)
-        query = base_select + " WHERE app.applicant_stage IN ('admitted', 'accepted')"
+        # Show both admitted (awaiting fee), accepted (fee paid), and enrolled (tuition paid)
+        where_clause = " WHERE app.applicant_stage IN ('admitted', 'accepted', 'enrolled')"
         params = []
     else:
-        query = base_select + " WHERE app.applicant_stage = %s"
+        where_clause = " WHERE app.applicant_stage = %s"
         params = [status]
 
     if program_id:
-        query += ' AND app.prog_type = %s'
+        where_clause += ' AND app.prog_type = %s'
         params.append(program_id)
 
-    query += ' ORDER BY app.updated_at DESC'
+    if search:
+        where_clause += f" AND (({USER_NAME_EXPR}) ILIKE %s OR app.form_no ILIKE %s)"
+        search_pattern = f'%{search}%'
+        params.extend([search_pattern, search_pattern])
+
+    # Count total matching rows for pagination metadata
+    count_query = f'''SELECT COUNT(*) AS total
+                      FROM applications app
+                      JOIN users u ON app.user_id = u.id
+                      LEFT JOIN program_types pt ON app.prog_type = pt.id
+                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+                      LEFT JOIN degrees dg ON app.degree_id = dg.id
+                      LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
+                      LEFT JOIN program_choice pc ON pc.application_id = app.id
+                      LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id''' + where_clause
+    count_result = Database.execute_query(count_query, tuple(params) if params else None)
+    total_count = int(count_result[0]['total']) if count_result else 0
+
+    import math
+    total_pages = math.ceil(total_count / per_page) if total_count > 0 else 1
+    offset = (page - 1) * per_page
+
+    query = base_select + where_clause + ' ORDER BY app.updated_at DESC LIMIT %s OFFSET %s'
+    params.extend([per_page, offset])
 
     applications = Database.execute_query(query, tuple(params) if params else None)
 
     return jsonify({
-        'count': len(applications) if applications else 0,
+        'count': total_count,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': total_pages,
         'applications': applications or []
     }), 200
 
@@ -133,109 +162,188 @@ def get_application_details(payload, applicant_id):
         return jsonify({'message': 'Applicant not found'}), 404
 
     application_id = applicant_id
-    pi_res      = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
-    nok_res     = Database.execute_query('SELECT * FROM next_of_kin WHERE application_id = %s', (application_id,))
-    sponsor_res = Database.execute_query('SELECT * FROM sponsor WHERE application_id = %s', (application_id,))
-
+    program_id = applicant[0]['program_id']
     form_data = {}
-    if pi_res:
-        form_data = dict(pi_res[0])
-        if 'surname' in form_data:
-            form_data['last_name'] = form_data['surname']
-        if form_data.get('date_of_birth'):
-            try:
-                from datetime import date, datetime as dt
-                dob = form_data['date_of_birth']
-                if isinstance(dob, (date, dt)):
-                    form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
-            except Exception:
-                pass
-        names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
-        form_data['full_name'] = ' '.join(filter(None, names))
 
-    if nok_res:
-        nok_data = dict(nok_res[0])
-        form_data['next_of_kin_name']         = nok_data.get('full_name')
-        form_data['next_of_kin_phone_number'] = nok_data.get('phone_number')
-        form_data['next_of_kin_address']      = nok_data.get('address')
-
-    if sponsor_res:
-        sponsor_data = dict(sponsor_res[0])
-        form_data['sponsor_name']         = sponsor_data.get('full_name')
-        form_data['sponsor_address']      = sponsor_data.get('address')
-        form_data['sponsor_phone_number'] = sponsor_data.get('phone_number')
-        form_data['sponsor_relationship'] = sponsor_data.get('relationship')
-        form_data['sponsor_email']        = sponsor_data.get('email')
-
-    aq_res = Database.execute_query(
-        'SELECT aq.* FROM academic_qualification aq JOIN applications a ON aq.user_id = a.user_id WHERE a.id = %s',
-        (application_id,)
-    )
-
-    if aq_res:
-        aq = aq_res[0]
-        olevel_exams = []
-
-        if aq.get('exam_type'):
-            subjects = []
-            for i in range(1, 6):
-                subj  = aq.get(f'subject{i}')
-                grade = aq.get(f'grade{i}')
-                if subj and grade:
-                    subjects.append({'subject_id': subj, 'grade_id': grade, 'subject': subj, 'grade': grade})
-            olevel_exams.append({'name': aq.get('exam_type'), 'number': aq.get('exam_no'), 'subjects': subjects})
-
-        if aq.get('exam_type1'):
-            subjects = []
-            for i in range(1, 6):
-                subj  = aq.get(f'second_subject{i}')
-                grade = aq.get(f'second_grade{i}')
-                if subj and grade:
-                    subjects.append({'subject_id': subj, 'grade_id': grade, 'subject': subj, 'grade': grade})
-            olevel_exams.append({'name': aq.get('exam_type1'), 'number': aq.get('exam_no1'), 'subjects': subjects})
-
-        if olevel_exams:
-            form_data['olevel_results'] = olevel_exams
-
-        # Load university choices from program_choice table
-        pc_res = Database.execute_query(
-            '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
-               FROM program_choice pc
-               LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
-               LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
-               WHERE pc.application_id = %s''',
+    if program_id == 2:
+        pg_app = Database.execute_query(
+            '''SELECT pg.*, 
+                      ns.name AS next_of_kin_name, ns.address AS next_of_kin_address, 
+                      ns.phone_number AS next_of_kin_phone_number, ns.secondary_number AS next_of_kin_secondary_phone_number,
+                      ns.sponsor_name, ns.sponsor_address,
+                      ref.name1 AS referee_name1, ref.address1 AS referee_address1,
+                      ref.name2 AS referee_name2, ref.address2 AS referee_address2,
+                      ref.name3 AS referee_name3, ref.address3 AS referee_address3,
+                      doc.signature AS document_signature, doc.transcript AS document_transcript
+               FROM pg_application pg
+               LEFT JOIN nextofkin_sponsor ns ON ns.id = pg.nextofkin_sponsor_id
+               LEFT JOIN pg_reference ref ON ref.id = pg.pg_reference_id
+               LEFT JOIN pg_document doc ON doc.pg_application_id = pg.uuid
+               WHERE pg.uuid = %s''',
             (application_id,)
         )
-        if pc_res:
-            pc_row = pc_res[0]
-            if pc_row.get('first_choice'):
-                form_data['first_choice_program_id'] = pc_row['first_choice']
-                form_data['first_choice_program_name'] = pc_row['first_choice_name']
-            if pc_row.get('second_choice'):
-                form_data['second_choice_program_id'] = pc_row['second_choice']
-                form_data['second_choice_program_name'] = pc_row['second_choice_name']
+        if pg_app:
+            row = pg_app[0]
+            form_data = {
+                'first_name': row['first_name'],
+                'last_name': row['surname'],
+                'middle_name': row['middle_name'],
+                'email': row['email'],
+                'gender': row['gender'],
+                'date_of_birth': row['date_of_birth'].strftime('%Y-%m-%d') if row['date_of_birth'] else None,
+                'phone_number': row['phone_number'],
+                'secondary_phone_number': row['secondary_phone_number'],
+                'address': row['address'],
+                'physically_challenged': row['physically_challenged'],
+                'previous_institution': row['previous_institution'],
+                'previous_course': row['previous_course'],
+                'department': row['department'],
+                'class_of_degree': row['class_of_degree'],
+                'proposed_course': row['proposed_course'],
+                'proposed_faculty': row['proposed_faculty_id'],
+                'degree_id': row['degree_id'],
+                'area_of_specialisation': row['area_of_specialisation'],
+                'proposed_research_title': row['proposed_research_title'],
+                'mode_of_study': row['mode_of_study'],
+                'sponsor_name': row['sponsor_name'],
+                'sponsor_address': row['sponsor_address'],
+                'next_of_kin_name': row['next_of_kin_name'],
+                'next_of_kin_address': row['next_of_kin_address'],
+                'next_of_kin_phone_number': row['next_of_kin_phone_number'],
+                'next_of_kin_secondary_phone_number': row['next_of_kin_secondary_phone_number'],
+                'referee_name1': row['referee_name1'],
+                'referee_address1': row['referee_address1'],
+                'referee_name2': row['referee_name2'],
+                'referee_address2': row['referee_address2'],
+                'referee_name3': row['referee_name3'],
+                'referee_address3': row['referee_address3'],
+            }
+            names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('last_name')]
+            form_data['full_name'] = ' '.join(filter(None, names))
+            
+            if form_data['physically_challenged'] and form_data['physically_challenged'] != 'No':
+                form_data['physical_challenge_reason'] = form_data['physically_challenged']
+                form_data['physically_challenged'] = 'Yes'
+            else:
+                form_data['physically_challenged'] = 'No'
+                form_data['physical_challenge_reason'] = ''
+            
+            if row['proposed_course']:
+                c_res = Database.execute_query('SELECT name FROM pg_program_setup WHERE id = %s', (row['proposed_course'],))
+                if c_res:
+                    form_data['proposed_course_name'] = c_res[0]['name']
+            if row['proposed_faculty_id']:
+                f_res = Database.execute_query('SELECT name FROM faculties WHERE id = %s', (row['proposed_faculty_id'],))
+                if f_res:
+                    form_data['proposed_faculty_name'] = f_res[0]['name']
+            if row['degree_id']:
+                d_res = Database.execute_query('SELECT name, code FROM degrees WHERE id = %s', (row['degree_id'],))
+                if d_res:
+                    form_data['degree_name'] = d_res[0]['name']
+                    form_data['degree_code'] = d_res[0]['code']
+    else:
+        pi_res      = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
+        nok_res     = Database.execute_query('SELECT * FROM next_of_kin WHERE application_id = %s', (application_id,))
+        sponsor_res = Database.execute_query('SELECT * FROM sponsor WHERE application_id = %s', (application_id,))
 
-        # Load original JAMB choices (manually typed) & other UTME details
-        utme_fields = [
-            'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
-            'utme_subject1', 'utme_score1',
-            'utme_subject2', 'utme_score2',
-            'utme_subject3', 'utme_score3',
-            'utme_subject4', 'utme_score4'
-        ]
-        for f in utme_fields:
-            if aq.get(f) is not None:
-                form_data[f] = aq.get(f)
+        if pi_res:
+            form_data = dict(pi_res[0])
+            if 'surname' in form_data:
+                form_data['last_name'] = form_data['surname']
+            if form_data.get('date_of_birth'):
+                try:
+                    from datetime import date, datetime as dt
+                    dob = form_data['date_of_birth']
+                    if isinstance(dob, (date, dt)):
+                        form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
+                except Exception:
+                    pass
+            names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
+            form_data['full_name'] = ' '.join(filter(None, names))
 
-    import json as _json
-    if form_data.get('additional_info'):
-        try:
-            ai = form_data['additional_info']
-            if isinstance(ai, str):
-                additional_info_data = _json.loads(ai)
-                form_data = {**additional_info_data, **form_data}
-        except (_json.JSONDecodeError, TypeError):
-            pass
+        if nok_res:
+            nok_data = dict(nok_res[0])
+            form_data['next_of_kin_name']         = nok_data.get('full_name')
+            form_data['next_of_kin_phone_number'] = nok_data.get('phone_number')
+            form_data['next_of_kin_address']      = nok_data.get('address')
+
+        if sponsor_res:
+            sponsor_data = dict(sponsor_res[0])
+            form_data['sponsor_name']         = sponsor_data.get('full_name')
+            form_data['sponsor_address']      = sponsor_data.get('address')
+            form_data['sponsor_phone_number'] = sponsor_data.get('phone_number')
+            form_data['sponsor_relationship'] = sponsor_data.get('relationship')
+            form_data['sponsor_email']        = sponsor_data.get('email')
+
+        aq_res = Database.execute_query(
+            'SELECT aq.* FROM academic_qualification aq JOIN applications a ON aq.user_id = a.user_id WHERE a.id = %s',
+            (application_id,)
+        )
+
+        if aq_res:
+            aq = aq_res[0]
+            olevel_exams = []
+
+            if aq.get('exam_type'):
+                subjects = []
+                for i in range(1, 6):
+                    subj  = aq.get(f'subject{i}')
+                    grade = aq.get(f'grade{i}')
+                    if subj and grade:
+                        subjects.append({'subject_id': subj, 'grade_id': grade, 'subject': subj, 'grade': grade})
+                olevel_exams.append({'name': aq.get('exam_type'), 'number': aq.get('exam_no'), 'subjects': subjects})
+
+            if aq.get('exam_type1'):
+                subjects = []
+                for i in range(1, 6):
+                    subj  = aq.get(f'second_subject{i}')
+                    grade = aq.get(f'second_grade{i}')
+                    if subj and grade:
+                        subjects.append({'subject_id': subj, 'grade_id': grade, 'subject': subj, 'grade': grade})
+                olevel_exams.append({'name': aq.get('exam_type1'), 'number': aq.get('exam_no1'), 'subjects': subjects})
+
+            if olevel_exams:
+                form_data['olevel_results'] = olevel_exams
+
+            # Load university choices from program_choice table
+            pc_res = Database.execute_query(
+                '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
+                   FROM program_choice pc
+                   LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
+                   LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
+                   WHERE pc.application_id = %s''',
+                (application_id,)
+            )
+            if pc_res:
+                pc_row = pc_res[0]
+                if pc_row.get('first_choice'):
+                    form_data['first_choice_program_id'] = pc_row['first_choice']
+                    form_data['first_choice_program_name'] = pc_row['first_choice_name']
+                if pc_row.get('second_choice'):
+                    form_data['second_choice_program_id'] = pc_row['second_choice']
+                    form_data['second_choice_program_name'] = pc_row['second_choice_name']
+
+            # Load original JAMB choices (manually typed) & other UTME details
+            utme_fields = [
+                'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
+                'utme_subject1', 'utme_score1',
+                'utme_subject2', 'utme_score2',
+                'utme_subject3', 'utme_score3',
+                'utme_subject4', 'utme_score4'
+            ]
+            for f in utme_fields:
+                if aq.get(f) is not None:
+                    form_data[f] = aq.get(f)
+
+        import json as _json
+        if form_data.get('additional_info'):
+            try:
+                ai = form_data['additional_info']
+                if isinstance(ai, str):
+                    additional_info_data = _json.loads(ai)
+                    form_data = {**additional_info_data, **form_data}
+            except (_json.JSONDecodeError, TypeError):
+                pass
 
     documents = Database.execute_query(
         '''SELECT id, document_type, file_type, file_name AS original_filename,
@@ -703,8 +811,8 @@ def get_dashboard(payload):
     counts = Database.execute_query(
         '''SELECT
                COUNT(*)                                                          AS total_applications,
-               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted')) AS total_admitted,
-               COUNT(*) FILTER (WHERE applicant_stage = 'in_progress')           AS pending_submission,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))           AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')             AS review_applications,
                COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
            FROM applications'''
@@ -876,8 +984,8 @@ def get_statistics(payload):
     counts = Database.execute_query(
         '''SELECT
                COUNT(*)                                                          AS total_applications,
-               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted')) AS total_admitted,
-               COUNT(*) FILTER (WHERE applicant_stage = 'in_progress')           AS pending_submission,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))           AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')             AS review_applications,
                COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
            FROM applications'''

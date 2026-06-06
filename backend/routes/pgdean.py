@@ -35,73 +35,65 @@ def dashboard(payload):
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')                        AS new_applications,
                COUNT(*) FILTER (WHERE applicant_stage = 'screening')                        AS under_review,
                COUNT(*) FILTER (WHERE applicant_stage = 'rejected')                         AS total_rejected
-           FROM applications
-           WHERE prog_type = %s''',
-        (PG_PROG_TYPE,)
+           FROM pg_application''',
+        ()
     )
     row = counts[0] if counts else {}
 
     # Status breakdown
     by_status = Database.execute_query(
         '''SELECT applicant_stage AS application_status, COUNT(*) AS count
-           FROM applications
-           WHERE prog_type = %s
+           FROM pg_application
            GROUP BY applicant_stage
            ORDER BY count DESC''',
-        (PG_PROG_TYPE,)
+        ()
     )
 
     # Program breakdown (PG programmes)
     by_program = Database.execute_query(
-        '''SELECT COALESCE(dg.code || ' ', '') || COALESCE(ps1.name, pt.name, 'Unknown') AS name,
+        '''SELECT COALESCE(dg.code || ' ', '') || COALESCE(pgps.name, 'Unknown') AS name,
                   COUNT(*) AS count
-           FROM applications app
-           LEFT JOIN program_types pt ON app.prog_type = pt.id
-           LEFT JOIN degrees dg ON app.degree_id = dg.id
-           LEFT JOIN program_choice pc ON pc.application_id = app.id
-           LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
-           WHERE app.prog_type = %s
+           FROM pg_application pg
+           LEFT JOIN degrees dg ON pg.degree_id = dg.id
+           LEFT JOIN pg_program_setup pgps ON pg.proposed_course = pgps.id
            GROUP BY 1
            ORDER BY count DESC
            LIMIT 10''',
-        (PG_PROG_TYPE,)
+        ()
     )
 
     # Recent activity — PG only
     activity_rows = Database.execute_query(
         f'''SELECT event_type, form_no, applicant_name, event_time
             FROM (
-                SELECT app.decision          AS event_type,
-                       app.form_no,
+                SELECT pg.decision          AS event_type,
+                       pg.form_no,
                        {USER_NAME_EXPR}      AS applicant_name,
-                       app.decision_date     AS event_time
-                FROM applications app
-                JOIN users u ON app.user_id = u.id
-                WHERE app.prog_type = {PG_PROG_TYPE}
-                  AND app.decision IS NOT NULL
-                  AND app.decision_date IS NOT NULL
+                       pg.decision_date     AS event_time
+                FROM pg_application pg
+                JOIN users u ON pg.user_id = u.id
+                WHERE pg.decision IS NOT NULL
+                  AND pg.decision_date IS NOT NULL
 
                 UNION ALL
 
                 SELECT 'submitted'           AS event_type,
-                       app.form_no,
+                       pg.form_no,
                        {USER_NAME_EXPR}      AS applicant_name,
-                       app.updated_at        AS event_time
-                FROM applications app
-                JOIN users u ON app.user_id = u.id
-                WHERE app.prog_type = {PG_PROG_TYPE}
-                  AND app.applicant_stage = 'submitted'
+                       pg.updated_date        AS event_time
+                FROM pg_application pg
+                JOIN users u ON pg.user_id = u.id
+                WHERE pg.applicant_stage = 'submitted'
 
                 UNION ALL
 
                 SELECT 'pg_evaluated'        AS event_type,
-                       app.form_no,
+                       pg.form_no,
                        {USER_NAME_EXPR}      AS applicant_name,
                        pde.evaluated_at      AS event_time
-                FROM applications app
-                JOIN users u ON app.user_id = u.id
-                JOIN pg_dean_evaluation pde ON pde.application_id = app.id
-                WHERE app.prog_type = {PG_PROG_TYPE}
+                FROM pg_application pg
+                JOIN users u ON pg.user_id = u.id
+                JOIN pg_dean_evaluation pde ON pde.application_id = pg.uuid
             ) combined
             ORDER BY event_time DESC NULLS LAST
             LIMIT %s''',
@@ -154,56 +146,50 @@ def get_applications(payload):
     page     = max(int(request.args.get('page', 1)), 1)
     per_page = max(int(request.args.get('per_page', 10)), 1)
 
-    base_select = f'''SELECT app.id, app.user_id,
+    base_select = f'''SELECT pg.uuid AS id, pg.user_id,
                              {USER_NAME_EXPR} AS name,
                              u.email, u.phone_number,
-                             app.prog_type AS program_id,
+                             2 AS program_id,
                              COALESCE(dg.code || ' ', '') ||
-                             COALESCE(ps1.name, pgps.name, '') AS program_name,
-                             app.applicant_stage AS application_status,
-                             app.updated_at AS submitted_at,
-                             app.form_no,
-                             COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS session,
+                             COALESCE(pgps.name, '') AS program_name,
+                             pg.applicant_stage AS application_status,
+                             pg.updated_date AS submitted_at,
+                             pg.form_no,
+                             COALESCE(asess.name, CAST(pg.academic_session_id AS TEXT)) AS session,
                              pde.id IS NOT NULL AS has_evaluation
-                      FROM applications app
-                      JOIN users u ON app.user_id = u.id
-                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-                      LEFT JOIN degrees dg ON app.degree_id = dg.id
-                      LEFT JOIN program_choice pc ON pc.application_id = app.id
-                      LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
-                      LEFT JOIN pg_application pga ON pga.uuid = app.id
-                      LEFT JOIN pg_program_setup pgps ON pgps.id = pga.proposed_course
-                      LEFT JOIN pg_dean_evaluation pde ON pde.application_id = app.id'''
+                      FROM pg_application pg
+                      JOIN users u ON pg.user_id = u.id
+                      LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+                      LEFT JOIN degrees dg ON pg.degree_id = dg.id
+                      LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+                      LEFT JOIN pg_dean_evaluation pde ON pde.application_id = pg.uuid'''
 
     if status == 'admitted':
-        where_clause = " WHERE app.prog_type = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')"
-        params = [PG_PROG_TYPE]
+        where_clause = " WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')"
+        params = []
     else:
-        where_clause = " WHERE app.prog_type = %s AND app.applicant_stage = %s"
-        params = [PG_PROG_TYPE, status]
+        where_clause = " WHERE pg.applicant_stage = %s"
+        params = [status]
 
     if search:
-        where_clause += f" AND (({USER_NAME_EXPR}) ILIKE %s OR app.form_no ILIKE %s)"
+        where_clause += f" AND (({USER_NAME_EXPR}) ILIKE %s OR pg.form_no ILIKE %s)"
         pat = f'%{search}%'
         params.extend([pat, pat])
 
     count_query = f'''SELECT COUNT(*) AS total
-                      FROM applications app
-                      JOIN users u ON app.user_id = u.id
-                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-                      LEFT JOIN degrees dg ON app.degree_id = dg.id
-                      LEFT JOIN program_choice pc ON pc.application_id = app.id
-                      LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
-                      LEFT JOIN pg_application pga ON pga.uuid = app.id
-                      LEFT JOIN pg_program_setup pgps ON pgps.id = pga.proposed_course
-                      LEFT JOIN pg_dean_evaluation pde ON pde.application_id = app.id''' + where_clause
+                      FROM pg_application pg
+                      JOIN users u ON pg.user_id = u.id
+                      LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+                      LEFT JOIN degrees dg ON pg.degree_id = dg.id
+                      LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+                      LEFT JOIN pg_dean_evaluation pde ON pde.application_id = pg.uuid''' + where_clause
 
     count_result = Database.execute_query(count_query, tuple(params))
     total_count  = int(count_result[0]['total']) if count_result else 0
     total_pages  = math.ceil(total_count / per_page) if total_count > 0 else 1
     offset       = (page - 1) * per_page
 
-    query = base_select + where_clause + ' ORDER BY app.updated_at DESC LIMIT %s OFFSET %s'
+    query = base_select + where_clause + ' ORDER BY pg.updated_date DESC LIMIT %s OFFSET %s'
     params.extend([per_page, offset])
 
     applications = Database.execute_query(query, tuple(params))
@@ -227,27 +213,26 @@ def get_application_detail(payload, application_id):
     _ensure_evaluation_table()
 
     applicant = Database.execute_query(
-        f'''SELECT app.id, app.user_id,
+        f'''SELECT pg.uuid AS id, pg.user_id,
                    {USER_NAME_EXPR} AS name,
                    u.email, u.phone_number,
-                   app.prog_type AS program_id,
-                   COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, ps1.name, '') AS program_name,
-                   app.applicant_stage AS application_status,
-                   app.updated_at AS submitted_at,
-                   app.form_no,
-                   app.decision,
-                   app.decision_date,
-                   app.approved_course,
-                   app.finalised_course,
+                   2 AS program_id,
+                   COALESCE(dg.code || ' ', '') || COALESCE(pg.approved_course, pgps.name, '') AS program_name,
+                   pg.applicant_stage AS application_status,
+                   pg.updated_date AS submitted_at,
+                   pg.form_no,
+                   pg.decision,
+                   pg.decision_date,
+                   pg.approved_course,
+                   pg.finalised_course,
                    COALESCE(asess.name, '') AS session
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            LEFT JOIN degrees dg ON app.degree_id = dg.id
-            LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-            LEFT JOIN program_choice pc ON pc.application_id = app.id
-            LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
-            WHERE app.id = %s AND app.prog_type = %s''',
-        (application_id, PG_PROG_TYPE)
+            FROM pg_application pg
+            JOIN users u ON pg.user_id = u.id
+            LEFT JOIN degrees dg ON pg.degree_id = dg.id
+            LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+            LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+            WHERE pg.uuid = %s''',
+        (application_id,)
     )
 
     if not applicant:
@@ -411,8 +396,8 @@ def save_evaluation(payload, application_id):
 
     # Make sure this is a real PG application
     app_check = Database.execute_query(
-        'SELECT id FROM applications WHERE id = %s AND prog_type = %s',
-        (application_id, PG_PROG_TYPE)
+        'SELECT uuid FROM pg_application WHERE uuid = %s',
+        (application_id,)
     )
     if not app_check:
         return jsonify({'message': 'PG application not found'}), 404
@@ -455,9 +440,9 @@ def save_evaluation(payload, application_id):
 
     # After Dean evaluates, move application to 'screening' so admission officer can see it
     Database.execute_update(
-        '''UPDATE applications
-           SET applicant_stage = 'screening', updated_at = NOW()
-           WHERE id = %s AND applicant_stage = 'submitted' ''',
+        '''UPDATE pg_application
+           SET applicant_stage = 'screening', updated_date = NOW()
+           WHERE uuid = %s AND applicant_stage = 'submitted' ''',
         (application_id,)
     )
 
@@ -477,15 +462,15 @@ def print_application(payload, application_id):
     _ensure_evaluation_table()
 
     app_row = Database.execute_query(
-        f'''SELECT app.id, app.user_id,
+        f'''SELECT pg.uuid AS id, pg.user_id,
                    {USER_NAME_EXPR} AS name, u.email, u.phone_number,
-                   app.form_no, app.applicant_stage,
+                   pg.form_no, pg.applicant_stage,
                    COALESCE(asess.name, '') AS session
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-            WHERE app.id = %s AND app.prog_type = %s''',
-        (application_id, PG_PROG_TYPE)
+            FROM pg_application pg
+            JOIN users u ON pg.user_id = u.id
+            LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+            WHERE pg.uuid = %s''',
+        (application_id,)
     )
     if not app_row:
         return jsonify({'message': 'PG application not found'}), 404

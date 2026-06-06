@@ -151,6 +151,44 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
     if not program_type_id or not session_id:
         return
 
+    if program_type_id == 2:
+        # Check if a row already exists in pg_application for this user + session
+        existing = Database.execute_query(
+            '''SELECT uuid, application_payment_reference
+               FROM pg_application
+               WHERE user_id = %s AND academic_session_id = %s''',
+            (user_id, session_id)
+        )
+        if existing:
+            # Row already exists — update the reference so it stays linked
+            Database.execute_update(
+                '''UPDATE pg_application
+                   SET application_payment_reference = %s, updated_date = NOW()
+                   WHERE uuid = %s''',
+                (reference_no, existing[0]['uuid'])
+            )
+            return
+
+        # Generate a unique form_no
+        year = datetime.now().year
+        code = _prog_code_from_id(program_type_id)
+        while True:
+            suffix  = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+            form_no = f"PCU/{year}/{code}{suffix}"
+            if not Database.execute_query(
+                'SELECT uuid FROM pg_application WHERE form_no = %s', (form_no,)
+            ):
+                break
+
+        Database.execute_update(
+            '''INSERT INTO pg_application
+                   (user_id, form_no, academic_session_id,
+                    applicant_stage, application_payment_reference)
+               VALUES (%s, %s, %s, %s, %s)''',
+            (user_id, form_no, session_id, 'started', reference_no)
+        )
+        return
+
     # Check if a row already exists for this user + prog_type + session
     existing = Database.execute_query(
         '''SELECT id, application_payment_reference
@@ -205,6 +243,8 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                          INSERT into students with current_level_id resolved from
                          degree_program → program_types → level_id
     """
+    is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+
     if payment_type == 'application_fee':
         # ── Create the application row (form_no) only on confirmed success ────
         if reference_no is not None:
@@ -217,12 +257,20 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
 
     elif payment_type == 'acceptance_fee':
         # Mark application as accepted
-        Database.execute_update(
-            """UPDATE applications
-               SET applicant_stage = 'accepted', updated_at = NOW()
-               WHERE user_id = %s AND applicant_stage = 'admitted'""",
-            (user_id,)
-        )
+        if is_pg:
+            Database.execute_update(
+                """UPDATE pg_application
+                   SET applicant_stage = 'accepted', acceptance_payment_reference = %s, updated_date = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'admitted'""",
+                (reference_no, user_id)
+            )
+        else:
+            Database.execute_update(
+                """UPDATE applications
+                   SET applicant_stage = 'accepted', updated_at = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'admitted'""",
+                (user_id,)
+            )
         # Promote user to 'admitted' role (id=13) — stays on applicant portal
         Database.execute_update(
             "UPDATE users SET user_type_id = 13, updated_at = NOW() WHERE id = %s",
@@ -231,12 +279,20 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
 
     elif payment_type == 'tuition':
         # Mark application as enrolled
-        Database.execute_update(
-            """UPDATE applications
-               SET applicant_stage = 'enrolled', updated_at = NOW()
-               WHERE user_id = %s AND applicant_stage = 'accepted'""",
-            (user_id,)
-        )
+        if is_pg:
+            Database.execute_update(
+                """UPDATE pg_application
+                   SET applicant_stage = 'enrolled', updated_date = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'accepted'""",
+                (user_id,)
+            )
+        else:
+            Database.execute_update(
+                """UPDATE applications
+                   SET applicant_stage = 'enrolled', updated_at = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'accepted'""",
+                (user_id,)
+            )
         # Promote to full student role (user_type_id = 7)
         Database.execute_update(
             "UPDATE users SET user_type_id = 7, updated_at = NOW() WHERE id = %s",
@@ -244,18 +300,33 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
         )
 
         # ── Fetch user + application + biodata ───────────────────────────────
-        user_data = Database.execute_query(
-            '''SELECT u.surname, u.firstname, u.email, u.phone_number,
-                      a.degree_id, a.prog_type, a.program_setup_id, a.level_id,
-                      b.middle_name, b.address, b.gender, b.date_of_birth,
-                      b.marital_status, b.nationality, b.state, b.lga
-               FROM users u
-               LEFT JOIN applications a ON a.user_id = u.id AND a.applicant_stage = 'enrolled'
-               LEFT JOIN biodata b ON b.id = a.bio_data_id
-               WHERE u.id = %s
-               ORDER BY a.updated_at DESC LIMIT 1''',
-            (user_id,)
-        )
+        if is_pg:
+            user_data = Database.execute_query(
+                '''SELECT u.surname, u.firstname, u.email, u.phone_number,
+                          pg.degree_id, 2 AS prog_type, pg.proposed_course AS program_setup_id,
+                          pt.level_id,
+                          pg.middle_name, pg.address, pg.gender, pg.date_of_birth,
+                          'Single' AS marital_status, 'Nigerian' AS nationality, '' AS state, '' AS lga
+                   FROM users u
+                   LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage = 'enrolled'
+                   LEFT JOIN program_types pt ON pt.id = 2
+                   WHERE u.id = %s
+                   ORDER BY pg.updated_date DESC LIMIT 1''',
+                (user_id,)
+            )
+        else:
+            user_data = Database.execute_query(
+                '''SELECT u.surname, u.firstname, u.email, u.phone_number,
+                          a.degree_id, a.prog_type, a.program_setup_id, a.level_id,
+                          b.middle_name, b.address, b.gender, b.date_of_birth,
+                          b.marital_status, b.nationality, b.state, b.lga
+                   FROM users u
+                   LEFT JOIN applications a ON a.user_id = u.id AND a.applicant_stage = 'enrolled'
+                   LEFT JOIN biodata b ON b.id = a.bio_data_id
+                   WHERE u.id = %s
+                   ORDER BY a.updated_at DESC LIMIT 1''',
+                (user_id,)
+            )
 
         if user_data:
             ud = user_data[0]
@@ -288,12 +359,20 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                 department_name = None
                 ps_id = ud.get('program_setup_id')
                 if ps_id:
-                    dept_res = Database.execute_query(
-                        '''SELECT d.name FROM program_setup ps
-                           JOIN departments d ON d.id = ps.department_id
-                           WHERE ps.id = %s''',
-                        (ps_id,)
-                    )
+                    if is_pg:
+                        dept_res = Database.execute_query(
+                            '''SELECT d.name FROM pg_program_setup ps
+                               JOIN departments d ON d.id = ps.department_id
+                               WHERE ps.id = %s''',
+                            (ps_id,)
+                        )
+                    else:
+                        dept_res = Database.execute_query(
+                            '''SELECT d.name FROM program_setup ps
+                               JOIN departments d ON d.id = ps.department_id
+                               WHERE ps.id = %s''',
+                            (ps_id,)
+                        )
                     if dept_res:
                         department_name = dept_res[0]['name']
 
@@ -486,22 +565,38 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     
     # Get current student level AND program context (program_type, faculty_id)
     # Uses SAME query as frontend's _get_applicant_fee_context()
-    student_res = Database.execute_query(
-        '''SELECT s.current_level_id,
-                  app.prog_type,
-                  ps.faculty_id
-           FROM students s
-           JOIN users u ON u.id = s."UserId"
-           LEFT JOIN applications app ON app.user_id = u.id 
-              AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
-              AND app.created_at = (
-                SELECT MAX(created_at) FROM applications WHERE user_id = u.id
-              )
-           LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
-           WHERE s."UserId" = %s
-           ORDER BY s."CreatedDate" DESC LIMIT 1''',
-        (user_id,)
-    )
+    is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+
+    student_res = None
+    if is_pg:
+        student_res = Database.execute_query(
+            '''SELECT s.current_level_id,
+                      2 AS prog_type,
+                      pg.proposed_faculty_id AS faculty_id
+               FROM students s
+               JOIN users u ON u.id = s."UserId"
+               LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+               WHERE s."UserId" = %s
+               ORDER BY s."CreatedDate" DESC LIMIT 1''',
+            (user_id,)
+        )
+    else:
+        student_res = Database.execute_query(
+            '''SELECT s.current_level_id,
+                      app.prog_type,
+                      ps.faculty_id
+               FROM students s
+               JOIN users u ON u.id = s."UserId"
+               LEFT JOIN applications app ON app.user_id = u.id 
+                  AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                  AND app.created_at = (
+                    SELECT MAX(created_at) FROM applications WHERE user_id = u.id
+                  )
+               LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
+               WHERE s."UserId" = %s
+               ORDER BY s."CreatedDate" DESC LIMIT 1''',
+            (user_id,)
+        )
     
     current_level_id = None
     program_type = None
@@ -514,44 +609,60 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     else:
         # Fallback for new students who don't have a record in `students` yet
         try:
-            app_res = Database.execute_query(
-                '''SELECT app.prog_type,
-                          pt.level_id,
-                          app.finalised_course,
-                          app.approved_course,
-                          app.program_setup_id
-                   FROM applications app
-                   JOIN program_types pt ON app.prog_type = pt.id
-                   WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
-                   ORDER BY app.created_at DESC LIMIT 1''',
-                (user_id,)
-            )
-            if app_res:
-                app_row = app_res[0]
-                program_type = app_row['prog_type']
-                current_level_id = app_row['level_id']
-                
-                finalised_course = (app_row.get('finalised_course') or '').strip()
-                if not finalised_course:
-                    finalised_course = (app_row.get('approved_course') or '').strip()
-                if not finalised_course and app_row.get('program_setup_id'):
-                    ps_res = Database.execute_query(
-                        'SELECT name FROM program_setup WHERE id = %s',
-                        (app_row['program_setup_id'],)
-                    )
-                    if ps_res:
-                        finalised_course = ps_res[0]['name']
-                
-                if finalised_course:
-                    faculty_res = Database.execute_query(
-                        '''SELECT faculty_id
-                           FROM program_setup
-                           WHERE LOWER(name) = LOWER(%s)
-                           LIMIT 1''',
-                        (finalised_course,)
-                    )
-                    if faculty_res:
-                        faculty_id = faculty_res[0].get('faculty_id')
+            if is_pg:
+                pg_res = Database.execute_query(
+                    '''SELECT pg.uuid, 2 AS prog_type, pg.proposed_course, pg.proposed_faculty_id, pt.level_id,
+                              pg.finalised_course, pg.approved_course
+                       FROM pg_application pg
+                       LEFT JOIN program_types pt ON pt.id = 2
+                       WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                       ORDER BY pg.updated_date DESC LIMIT 1''',
+                    (user_id,)
+                )
+                if pg_res:
+                    app_row = pg_res[0]
+                    program_type = 2
+                    current_level_id = app_row['level_id'] or 5
+                    faculty_id = app_row['proposed_faculty_id']
+            else:
+                app_res = Database.execute_query(
+                    '''SELECT app.prog_type,
+                              pt.level_id,
+                              app.finalised_course,
+                              app.approved_course,
+                              app.program_setup_id
+                       FROM applications app
+                       JOIN program_types pt ON app.prog_type = pt.id
+                       WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                       ORDER BY app.created_at DESC LIMIT 1''',
+                    (user_id,)
+                )
+                if app_res:
+                    app_row = app_res[0]
+                    program_type = app_row['prog_type']
+                    current_level_id = app_row['level_id']
+                    
+                    finalised_course = (app_row.get('finalised_course') or '').strip()
+                    if not finalised_course:
+                        finalised_course = (app_row.get('approved_course') or '').strip()
+                    if not finalised_course and app_row.get('program_setup_id'):
+                        ps_res = Database.execute_query(
+                            'SELECT name FROM program_setup WHERE id = %s',
+                            (app_row['program_setup_id'],)
+                        )
+                        if ps_res:
+                            finalised_course = ps_res[0]['name']
+                    
+                    if finalised_course:
+                        faculty_res = Database.execute_query(
+                            '''SELECT faculty_id
+                               FROM program_setup
+                               WHERE LOWER(name) = LOWER(%s)
+                               LIMIT 1''',
+                            (finalised_course,)
+                        )
+                        if faculty_res:
+                            faculty_id = faculty_res[0].get('faculty_id')
         except Exception as e:
             print(f"[update_session_payment_status] Fallback lookup failed: {e}")
 
@@ -665,22 +776,38 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
       }
     """
     # Get student's current level, program_type, and faculty_id
-    student_res = Database.execute_query(
-        '''SELECT s.current_level_id,
-                  app.prog_type,
-                  ps.faculty_id
-           FROM students s
-           JOIN users u ON u.id = s."UserId"
-           LEFT JOIN applications app ON app.user_id = u.id 
-              AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
-              AND app.created_at = (
-                SELECT MAX(created_at) FROM applications WHERE user_id = u.id
-              )
-           LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
-           WHERE s."UserId" = %s
-           ORDER BY s."CreatedDate" DESC LIMIT 1''',
-        (user_id,)
-    )
+    is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+
+    student_res = None
+    if is_pg:
+        student_res = Database.execute_query(
+            '''SELECT s.current_level_id,
+                      2 AS prog_type,
+                      pg.proposed_faculty_id AS faculty_id
+               FROM students s
+               JOIN users u ON u.id = s."UserId"
+               LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+               WHERE s."UserId" = %s
+               ORDER BY s."CreatedDate" DESC LIMIT 1''',
+            (user_id,)
+        )
+    else:
+        student_res = Database.execute_query(
+            '''SELECT s.current_level_id,
+                      app.prog_type,
+                      ps.faculty_id
+               FROM students s
+               JOIN users u ON u.id = s."UserId"
+               LEFT JOIN applications app ON app.user_id = u.id 
+                  AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                  AND app.created_at = (
+                    SELECT MAX(created_at) FROM applications WHERE user_id = u.id
+                  )
+               LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
+               WHERE s."UserId" = %s
+               ORDER BY s."CreatedDate" DESC LIMIT 1''',
+            (user_id,)
+        )
     
     current_level_id = None
     program_type = None
@@ -693,44 +820,60 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
     else:
         # Fallback for new students who don't have a record in `students` yet
         try:
-            app_res = Database.execute_query(
-                '''SELECT app.prog_type,
-                          pt.level_id,
-                          app.finalised_course,
-                          app.approved_course,
-                          app.program_setup_id
-                   FROM applications app
-                   JOIN program_types pt ON app.prog_type = pt.id
-                   WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
-                   ORDER BY app.created_at DESC LIMIT 1''',
-                (user_id,)
-            )
-            if app_res:
-                app_row = app_res[0]
-                program_type = app_row['prog_type']
-                current_level_id = app_row['level_id']
-                
-                finalised_course = (app_row.get('finalised_course') or '').strip()
-                if not finalised_course:
-                    finalised_course = (app_row.get('approved_course') or '').strip()
-                if not finalised_course and app_row.get('program_setup_id'):
-                    ps_res = Database.execute_query(
-                        'SELECT name FROM program_setup WHERE id = %s',
-                        (app_row['program_setup_id'],)
-                    )
-                    if ps_res:
-                        finalised_course = ps_res[0]['name']
-                
-                if finalised_course:
-                    faculty_res = Database.execute_query(
-                        '''SELECT faculty_id
-                           FROM program_setup
-                           WHERE LOWER(name) = LOWER(%s)
-                           LIMIT 1''',
-                        (finalised_course,)
-                    )
-                    if faculty_res:
-                        faculty_id = faculty_res[0].get('faculty_id')
+            if is_pg:
+                pg_res = Database.execute_query(
+                    '''SELECT pg.uuid, 2 AS prog_type, pg.proposed_course, pg.proposed_faculty_id, pt.level_id,
+                              pg.finalised_course, pg.approved_course
+                       FROM pg_application pg
+                       LEFT JOIN program_types pt ON pt.id = 2
+                       WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                       ORDER BY pg.updated_date DESC LIMIT 1''',
+                    (user_id,)
+                )
+                if pg_res:
+                    app_row = pg_res[0]
+                    program_type = 2
+                    current_level_id = app_row['level_id'] or 5
+                    faculty_id = app_row['proposed_faculty_id']
+            else:
+                app_res = Database.execute_query(
+                    '''SELECT app.prog_type,
+                              pt.level_id,
+                              app.finalised_course,
+                              app.approved_course,
+                              app.program_setup_id
+                       FROM applications app
+                       JOIN program_types pt ON app.prog_type = pt.id
+                       WHERE app.user_id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                       ORDER BY app.created_at DESC LIMIT 1''',
+                    (user_id,)
+                )
+                if app_res:
+                    app_row = app_res[0]
+                    program_type = app_row['prog_type']
+                    current_level_id = app_row['level_id']
+                    
+                    finalised_course = (app_row.get('finalised_course') or '').strip()
+                    if not finalised_course:
+                        finalised_course = (app_row.get('approved_course') or '').strip()
+                    if not finalised_course and app_row.get('program_setup_id'):
+                        ps_res = Database.execute_query(
+                            'SELECT name FROM program_setup WHERE id = %s',
+                            (app_row['program_setup_id'],)
+                        )
+                        if ps_res:
+                            finalised_course = ps_res[0]['name']
+                    
+                    if finalised_course:
+                        faculty_res = Database.execute_query(
+                            '''SELECT faculty_id
+                               FROM program_setup
+                               WHERE LOWER(name) = LOWER(%s)
+                               LIMIT 1''',
+                            (finalised_course,)
+                        )
+                        if faculty_res:
+                            faculty_id = faculty_res[0].get('faculty_id')
         except Exception as e:
             print(f"[get_session_payment_summary] Fallback lookup failed: {e}")
 

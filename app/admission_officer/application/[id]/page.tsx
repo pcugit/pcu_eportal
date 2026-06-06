@@ -17,6 +17,7 @@ import {
   ArrowRight,
   FileText,
   GraduationCap,
+  Loader2,
 } from "lucide-react";
 import {
   Select,
@@ -475,6 +476,7 @@ function ReviewsTab({
   // admin.py returns prog_type (the program_types.id FK)
   const programTypeId: number | null =
     application.applicant.prog_type ?? application.applicant.program_id ?? null;
+  const isPgApplication = programTypeId === 2;
 
   // Fetch all available programs for this applicant's program type
   useEffect(() => {
@@ -514,16 +516,18 @@ function ReviewsTab({
         reject: "Rejected",
         recommend: "Recommended",
       };
+
+      // Await the callback to ensure data is refreshed before closing loading state
+      await Promise.resolve(onReviewSuccess());
+      // Add a small delay to ensure state updates propagate
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
       setReviewSuccess(
         `Application ${labels[decision] || "reviewed"} successfully.`,
       );
       setApprovedCourse("");
       setDecision("accept");
       window.dispatchEvent(new Event("application-reviewed"));
-      // Await the callback to ensure data is refreshed before closing
-      await Promise.resolve(onReviewSuccess());
-      // Add a small delay to ensure state updates propagate
-      await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit review");
     } finally {
@@ -544,6 +548,18 @@ function ReviewsTab({
   const canReview =
     application.applicant.application_status === "submitted" ||
     application.applicant.application_status === "screening";
+
+  if (reviewing) {
+    return (
+      <Card className="border-slate-100 shadow-xl bg-white rounded-3xl overflow-hidden p-12 text-center animate-in fade-in duration-300">
+        <CardContent className="flex flex-col items-center justify-center space-y-4 py-8">
+          <Loader2 className="h-10 w-10 animate-spin text-[#6b357d]" />
+          <h3 className="text-lg font-bold text-slate-800">Processing Decision...</h3>
+          <p className="text-xs text-slate-500 font-semibold">Updating application status and reloading details.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -652,7 +668,12 @@ function ReviewsTab({
                     disabled={reviewing}
                     onClick={() => {
                       setDecision(opt.value);
-                      setApprovedCourse("");
+                      if (opt.value === "accept" && isPgApplication && application.form?.proposed_course_name) {
+                        const pgCourse = `${application.form.degree_code || ''} ${application.form.proposed_course_name}`.trim();
+                        setApprovedCourse(pgCourse);
+                      } else {
+                        setApprovedCourse("");
+                      }
                     }}
                     className={`flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 font-bold text-xs uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
                       decision === opt.value
@@ -669,7 +690,7 @@ function ReviewsTab({
               })}
             </div>
 
-            {/* Accept — choose from applicant's 1st / 2nd choice */}
+            {/* Accept — choose from applicant's 1st / 2nd choice (UG) or Proposed Course (PG) */}
             {decision === "accept" && (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -681,33 +702,55 @@ function ReviewsTab({
                   disabled={reviewing}
                 >
                   <SelectTrigger className="h-11 bg-white border-slate-200/80 shadow-sm rounded-xl font-bold">
-                    <SelectValue placeholder="Select applicant's 1st or 2nd choice" />
+                    <SelectValue placeholder={isPgApplication ? "Select course" : "Select applicant's 1st or 2nd choice"} />
                   </SelectTrigger>
                   <SelectContent className="bg-white/95 backdrop-blur-md rounded-xl border-slate-100 shadow-xl">
-                    {application.form?.first_choice_program_name && (
-                      <SelectItem
-                        value={application.form.first_choice_program_name}
-                        className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
-                      >
-                        1st Choice —{" "}
-                        {application.form.first_choice_program_name}
-                      </SelectItem>
-                    )}
-                    {application.form?.second_choice_program_name && (
-                      <SelectItem
-                        value={application.form.second_choice_program_name}
-                        className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
-                      >
-                        2nd Choice —{" "}
-                        {application.form.second_choice_program_name}
-                      </SelectItem>
-                    )}
-                    {!application.form?.first_choice_program_name &&
-                      !application.form?.second_choice_program_name && (
+                    {isPgApplication ? (
+                      application.form?.proposed_course_name ? (
+                        (() => {
+                          const pgCourse = `${application.form.degree_code || ''} ${application.form.proposed_course_name}`.trim();
+                          return (
+                            <SelectItem
+                              value={pgCourse}
+                              className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
+                            >
+                              {pgCourse}
+                            </SelectItem>
+                          );
+                        })()
+                      ) : (
                         <SelectItem value="__none__" disabled>
-                          No choices on record
+                          No proposed course on record
                         </SelectItem>
-                      )}
+                      )
+                    ) : (
+                      <>
+                        {application.form?.first_choice_program_name && (
+                          <SelectItem
+                            value={application.form.first_choice_program_name}
+                            className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
+                          >
+                            1st Choice —{" "}
+                            {application.form.first_choice_program_name}
+                          </SelectItem>
+                        )}
+                        {application.form?.second_choice_program_name && (
+                          <SelectItem
+                            value={application.form.second_choice_program_name}
+                            className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
+                          >
+                            2nd Choice —{" "}
+                            {application.form.second_choice_program_name}
+                          </SelectItem>
+                        )}
+                        {!application.form?.first_choice_program_name &&
+                          !application.form?.second_choice_program_name && (
+                            <SelectItem value="__none__" disabled>
+                              No choices on record
+                            </SelectItem>
+                          )}
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -739,7 +782,7 @@ function ReviewsTab({
                         className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
                       >
                         {p.program}
-                        {p.department ? (
+                        {!isPgApplication && p.department ? (
                           <span className="text-[10px] text-slate-400 font-medium ml-1">
                             ({p.department})
                           </span>

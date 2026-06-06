@@ -234,36 +234,64 @@ def login():
     extra_data = {}
     if role in ('applicant', 'admitted'):
         # Both applicants and admitted users (user_type_id=13) carry applicant data
-        applications = Database.execute_query(
-            'SELECT id, applicant_stage FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+        pg_app = Database.execute_query(
+            'SELECT uuid AS id, applicant_stage FROM pg_application WHERE user_id = %s ORDER BY created_date DESC LIMIT 1',
             (user['id'],)
         )
-        if applications:
-            extra_data['applicant'] = applications[0]
-            
-            # Pull academic session from academic_sessions table
+        if pg_app:
+            extra_data['applicant'] = pg_app[0]
             session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
             if session_res:
                 extra_data['applicant']['session'] = session_res[0]['value']
+        else:
+            applications = Database.execute_query(
+                'SELECT id, applicant_stage FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+                (user['id'],)
+            )
+            if applications:
+                extra_data['applicant'] = applications[0]
+                session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+                if session_res:
+                    extra_data['applicant']['session'] = session_res[0]['value']
             
     elif role == 'student':
-        students = Database.execute_query(
-            '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
-                      COALESCE(a.program_setup_id, 0) as program_id,
-                      l.name as current_level, acs.name as session, 
-                      COALESCE(sa.is_first_login, FALSE) as is_first_login,
-                      ps.name as program_name 
-               FROM students s 
-               JOIN users u ON s."UserId" = u.id
-               LEFT JOIN student_auth sa ON sa.userid = u.id
-               LEFT JOIN applications a ON a.user_id = u.id
-               LEFT JOIN level l ON s.current_level_id = l.id
-               LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
-               LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
-               WHERE s."UserId" = %s
-               ORDER BY a.updated_at DESC LIMIT 1''',
-            (user['id'],)
-        )
+        is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user['id'],)))
+        if is_pg:
+            students = Database.execute_query(
+                '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                          COALESCE(pg.proposed_course, 0) as program_id,
+                          l.name as current_level, acs.name as session, 
+                          COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          ps.name as program_name 
+                   FROM students s 
+                   JOIN users u ON s."UserId" = u.id
+                   LEFT JOIN student_auth sa ON sa.userid = u.id
+                   LEFT JOIN pg_application pg ON pg.user_id = u.id
+                   LEFT JOIN level l ON s.current_level_id = l.id
+                   LEFT JOIN academic_sessions acs ON pg.academic_session_id = acs.id
+                   LEFT JOIN pg_program_setup ps ON pg.proposed_course = ps.id
+                   WHERE s."UserId" = %s
+                   ORDER BY pg.updated_date DESC LIMIT 1''',
+                (user['id'],)
+            )
+        else:
+            students = Database.execute_query(
+                '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                          COALESCE(a.program_setup_id, 0) as program_id,
+                          l.name as current_level, acs.name as session, 
+                          COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          ps.name as program_name 
+                   FROM students s 
+                   JOIN users u ON s."UserId" = u.id
+                   LEFT JOIN student_auth sa ON sa.userid = u.id
+                   LEFT JOIN applications a ON a.user_id = u.id
+                   LEFT JOIN level l ON s.current_level_id = l.id
+                   LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+                   LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+                   WHERE s."UserId" = %s
+                   ORDER BY a.updated_at DESC LIMIT 1''',
+                (user['id'],)
+            )
         if students:
             extra_data['student'] = students[0]
     
@@ -329,36 +357,64 @@ def verify_token(payload):
     extra_data = {}
     if role in ('applicant', 'admitted'):
         # Both applicants and admitted users (user_type_id=13) carry applicant data
-        applications = Database.execute_query(
-            'SELECT id, applicant_stage FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+        pg_app = Database.execute_query(
+            'SELECT uuid AS id, applicant_stage FROM pg_application WHERE user_id = %s ORDER BY created_date DESC LIMIT 1',
             (user_id,)
         )
-        if applications:
-            extra_data['applicant'] = applications[0]
-            
-            # Pull academic session from academic_sessions table
+        if pg_app:
+            extra_data['applicant'] = pg_app[0]
             session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
             if session_res:
                 extra_data['applicant']['session'] = session_res[0]['value']
+        else:
+            applications = Database.execute_query(
+                'SELECT id, applicant_stage FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+                (user_id,)
+            )
+            if applications:
+                extra_data['applicant'] = applications[0]
+                session_res = Database.execute_query("SELECT name as value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+                if session_res:
+                    extra_data['applicant']['session'] = session_res[0]['value']
             
     elif role == 'student':
-        students = Database.execute_query(
-            '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
-                      COALESCE(a.program_setup_id, 0) as program_id,
-                      l.name as current_level, acs.name as session, 
-                      COALESCE(sa.is_first_login, FALSE) as is_first_login,
-                      ps.name as program_name 
-               FROM students s 
-               JOIN users u ON s."UserId" = u.id
-               LEFT JOIN student_auth sa ON sa.userid = u.id
-               LEFT JOIN applications a ON a.user_id = u.id
-               LEFT JOIN level l ON s.current_level_id = l.id
-               LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
-               LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
-               WHERE s."UserId" = %s
-               ORDER BY a.updated_at DESC LIMIT 1''',
-            (user_id,)
-        )
+        is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+        if is_pg:
+            students = Database.execute_query(
+                '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                          COALESCE(pg.proposed_course, 0) as program_id,
+                          l.name as current_level, acs.name as session, 
+                          COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          ps.name as program_name 
+                   FROM students s 
+                   JOIN users u ON s."UserId" = u.id
+                   LEFT JOIN student_auth sa ON sa.userid = u.id
+                   LEFT JOIN pg_application pg ON pg.user_id = u.id
+                   LEFT JOIN level l ON s.current_level_id = l.id
+                   LEFT JOIN academic_sessions acs ON pg.academic_session_id = acs.id
+                   LEFT JOIN pg_program_setup ps ON pg.proposed_course = ps.id
+                   WHERE s."UserId" = %s
+                   ORDER BY pg.updated_date DESC LIMIT 1''',
+                (user_id,)
+            )
+        else:
+            students = Database.execute_query(
+                '''SELECT s."Id" as id, s."MatricNo" as matric_number, 
+                          COALESCE(a.program_setup_id, 0) as program_id,
+                          l.name as current_level, acs.name as session, 
+                          COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          ps.name as program_name 
+                   FROM students s 
+                   JOIN users u ON s."UserId" = u.id
+                   LEFT JOIN student_auth sa ON sa.userid = u.id
+                   LEFT JOIN applications a ON a.user_id = u.id
+                   LEFT JOIN level l ON s.current_level_id = l.id
+                   LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
+                   LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+                   WHERE s."UserId" = %s
+                   ORDER BY a.updated_at DESC LIMIT 1''',
+                (user_id,)
+            )
         if students:
             extra_data['student'] = students[0]
             

@@ -161,8 +161,8 @@ export default function PgApplicationsPage() {
             >
               ← Back to Dashboard
             </Link>
-            <h1 className="text-2xl font-bold text-slate-800">PG Admin — Applications</h1>
-            <p className="text-slate-500 text-sm mt-0.5">Review postgraduate applications and complete Section B evaluations</p>
+            <h1 className="text-2xl font-bold text-slate-800">Applications</h1>
+            <p className="text-slate-500 text-sm mt-0.5">Review applications and complete evaluations</p>
           </div>
 
           <Select value={status} onValueChange={setStatus}>
@@ -315,8 +315,8 @@ export default function PgApplicationsPage() {
                       key={p}
                       onClick={() => setCurrentPage(p)}
                       className={`min-w-[36px] h-9 rounded-lg text-sm font-semibold transition-all ${p === currentPage
-                          ? "bg-slate-800 text-white"
-                          : "bg-white text-slate-500 border border-gray-200 hover:bg-gray-50"
+                        ? "bg-slate-800 text-white"
+                        : "bg-white text-slate-500 border border-gray-200 hover:bg-gray-50"
                         }`}
                     >
                       {p}

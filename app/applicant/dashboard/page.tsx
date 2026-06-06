@@ -1143,7 +1143,9 @@ function ApplicantDashboardInner() {
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-100"
                                 : app.admission_status === "rejected"
                                   ? "bg-red-50 text-red-700 border-red-100"
-                                  : "bg-slate-50 text-slate-600 border-slate-100",
+                                  : app.admission_status === "screening"
+                                    ? "bg-purple-50 text-purple-700 border-purple-200/60 shadow-sm shadow-purple-500/5"
+                                    : "bg-slate-50 text-slate-600 border-slate-100",
                             )}
                           >
                             {app.admission_status.replace("_", " ")}
@@ -1158,6 +1160,7 @@ function ApplicantDashboardInner() {
                               onClick={async () => {
                                 const isApplyAction = ![
                                   "submitted",
+                                  "screening",
                                   "admitted",
                                   "accepted",
                                   "enrolled",
@@ -1174,6 +1177,7 @@ function ApplicantDashboardInner() {
                             >
                               {[
                                 "submitted",
+                                "screening",
                                 "admitted",
                                 "accepted",
                                 "enrolled",
@@ -1226,7 +1230,7 @@ function ApplicantDashboardInner() {
           </Button>
 
           {currentApp &&
-          ["submitted", "admitted", "accepted", "enrolled"].includes(
+          ["submitted", "screening", "admitted", "accepted", "enrolled"].includes(
             currentApp.application_status,
           ) ? (
             <div className="space-y-10">

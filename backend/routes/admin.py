@@ -38,11 +38,19 @@ def _get_pg_evaluation(application_id):
 def get_admission_ref(applicant_id):
     res = Database.execute_query(
         '''SELECT asess.name AS session_name
-           FROM applications app
-           LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-           WHERE app.id = %s''',
+           FROM pg_application pg
+           LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+           WHERE pg.uuid = %s''',
         (applicant_id,)
     )
+    if not res:
+        res = Database.execute_query(
+            '''SELECT asess.name AS session_name
+               FROM applications app
+               LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+               WHERE app.id = %s''',
+            (applicant_id,)
+        )
     session_name = res[0]['session_name'] if res and res[0]['session_name'] else '2025/2026'
     session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
     return f"PCU/ADM/{session_year}"
@@ -60,95 +68,46 @@ def get_applications(payload):
     page = max(int(request.args.get('page', 1)), 1)
     per_page = max(int(request.args.get('per_page', 10)), 1)
 
-    base_select = f'''SELECT app.id, app.user_id,
-                             {USER_NAME_EXPR} AS name,
-                             u.email, u.phone_number,
-                             app.prog_type AS program_id,
-                             (
-                                 CASE 
-                                     WHEN app.applicant_stage = 'submitted' THEN 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(ps1.name, '')
-                                     WHEN app.applicant_stage = 'screening' THEN 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, ps1.name, '')
-                                     WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
-                                     ELSE 
-                                         COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
-                                 END
-                             ) AS program_name,
-                             app.applicant_stage AS application_status,
-                             app.updated_at AS submitted_at,
-                             app.form_no,
-                             COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS session
-                      FROM applications app
-                      JOIN users u ON app.user_id = u.id
-                      LEFT JOIN program_types pt ON app.prog_type = pt.id
-                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-                      LEFT JOIN degrees dg ON app.degree_id = dg.id
-                      LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
-                      LEFT JOIN program_choice pc ON pc.application_id = app.id
-                      LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id'''
-
-    if status == 'admitted':
-        # Show both admitted (awaiting fee), accepted (fee paid), and enrolled (tuition paid)
-        where_clause = " WHERE app.applicant_stage IN ('admitted', 'accepted', 'enrolled')"
-        params = []
-    elif status == 'submitted':
-        # Exclude PG applications from AO submitted inbox — they must go through the Dean first
-        where_clause = " WHERE app.applicant_stage = %s AND (app.prog_type != 2 OR app.prog_type IS NULL)"
-        params = [status]
-    else:
-        where_clause = " WHERE app.applicant_stage = %s"
-        params = [status]
+    include_pg = True
+    include_non_pg = True
 
     if program_id:
-        where_clause += ' AND app.prog_type = %s'
-        params.append(program_id)
+        if int(program_id) == 2:
+            include_non_pg = False
+        else:
+            include_pg = False
 
-    if search:
-        where_clause += f" AND (({USER_NAME_EXPR}) ILIKE %s OR app.form_no ILIKE %s)"
-        search_pattern = f'%{search}%'
-        params.extend([search_pattern, search_pattern])
+    if status == 'submitted':
+        include_pg = False
 
-    # Count total matching rows for pagination metadata
-    count_query = f'''SELECT COUNT(*) AS total
-                      FROM applications app
-                      JOIN users u ON app.user_id = u.id
-                      LEFT JOIN program_types pt ON app.prog_type = pt.id
-                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-                      LEFT JOIN degrees dg ON app.degree_id = dg.id
-                      LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
-                      LEFT JOIN program_choice pc ON pc.application_id = app.id
-                      LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id''' + where_clause
-    count_result = Database.execute_query(count_query, tuple(params) if params else None)
-    total_count = int(count_result[0]['total']) if count_result else 0
+    queries = []
+    combined_params = []
 
-    import math
-    total_pages = math.ceil(total_count / per_page) if total_count > 0 else 1
-    offset = (page - 1) * per_page
+    if include_non_pg:
+        non_pg_where = []
+        non_pg_params = []
+        if status == 'admitted':
+            non_pg_where.append("app.applicant_stage IN ('admitted', 'accepted', 'enrolled')")
+        elif status == 'submitted':
+            non_pg_where.append("app.applicant_stage = 'submitted' AND (app.prog_type != 2 OR app.prog_type IS NULL)")
+        else:
+            non_pg_where.append("app.applicant_stage = %s")
+            non_pg_params.append(status)
 
-    query = base_select + where_clause + ' ORDER BY app.updated_at DESC LIMIT %s OFFSET %s'
-    params.extend([per_page, offset])
+        if program_id:
+            non_pg_where.append("app.prog_type = %s")
+            non_pg_params.append(program_id)
 
-    applications = Database.execute_query(query, tuple(params) if params else None)
+        if search:
+            non_pg_where.append(f"(({USER_NAME_EXPR}) ILIKE %s OR app.form_no ILIKE %s)")
+            non_pg_params.extend([f'%{search}%', f'%{search}%'])
 
-    return jsonify({
-        'count': total_count,
-        'page': page,
-        'per_page': per_page,
-        'total_pages': total_pages,
-        'applications': applications or []
-    }), 200
+        where_str = " AND ".join(non_pg_where)
+        if where_str:
+            where_str = " WHERE " + where_str
 
-
-@admin_bp.route('/application/<applicant_id>', methods=['GET'])
-@AuthHandler.token_required
-@AuthHandler.admissions_officer_required
-def get_application_details(payload, applicant_id):
-    """Get detailed application information"""
-
-    applicant = Database.execute_query(
-        f'''SELECT app.id, app.user_id,
+        q_non_pg = f'''
+            SELECT app.id, app.user_id,
                    {USER_NAME_EXPR} AS name,
                    u.email, u.phone_number,
                    app.prog_type AS program_id,
@@ -167,22 +126,151 @@ def get_application_details(payload, applicant_id):
                    app.applicant_stage AS application_status,
                    app.updated_at AS submitted_at,
                    app.form_no,
-                   app.decision,
-                   app.decision_date,
-                   app.approved_course,
-                   app.finalised_course,
-                   app.admission_letter_sent,
-                   (app.applicant_stage = 'accepted') AS has_paid_acceptance_fee
+                   COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS session
             FROM applications app
             JOIN users u ON app.user_id = u.id
-            LEFT JOIN program_types pt ON app.prog_type = pt.id
+            LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
             LEFT JOIN degrees dg ON app.degree_id = dg.id
-            LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
             LEFT JOIN program_choice pc ON pc.application_id = app.id
             LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
-            WHERE app.id = %s''',
-        (applicant_id,)
+            {where_str}
+        '''
+        queries.append((q_non_pg, non_pg_params))
+
+    if include_pg:
+        pg_where = []
+        pg_params = []
+        if status == 'admitted':
+            pg_where.append("pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')")
+        else:
+            pg_where.append("pg.applicant_stage = %s")
+            pg_params.append(status)
+
+        if search:
+            pg_where.append(f"(({USER_NAME_EXPR}) ILIKE %s OR pg.form_no ILIKE %s)")
+            pg_params.extend([f'%{search}%', f'%{search}%'])
+
+        where_str = " AND ".join(pg_where)
+        if where_str:
+            where_str = " WHERE " + where_str
+
+        q_pg = f'''
+            SELECT pg.uuid AS id, pg.user_id,
+                   {USER_NAME_EXPR} AS name,
+                   u.email, u.phone_number,
+                   2 AS program_id,
+                   COALESCE(dg.code || ' ', '') || COALESCE(pg.finalised_course, pg.approved_course, pgps.name, '') AS program_name,
+                   pg.applicant_stage AS application_status,
+                   pg.updated_date AS submitted_at,
+                   pg.form_no,
+                   COALESCE(asess.name, CAST(pg.academic_session_id AS TEXT)) AS session
+            FROM pg_application pg
+            JOIN users u ON pg.user_id = u.id
+            LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+            LEFT JOIN degrees dg ON pg.degree_id = dg.id
+            LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+            {where_str}
+        '''
+        queries.append((q_pg, pg_params))
+
+    if len(queries) == 2:
+        combined_query = f"({queries[0][0]}) UNION ALL ({queries[1][0]})"
+        combined_params = queries[0][1] + queries[1][1]
+    else:
+        combined_query = queries[0][0]
+        combined_params = queries[0][1]
+
+    count_query = f"SELECT COUNT(*) AS total FROM ({combined_query}) AS count_t"
+    count_result = Database.execute_query(count_query, tuple(combined_params) if combined_params else None)
+    total_count = int(count_result[0]['total']) if count_result else 0
+
+    import math
+    total_pages = math.ceil(total_count / per_page) if total_count > 0 else 1
+    offset = (page - 1) * per_page
+
+    final_query = f"SELECT * FROM ({combined_query}) AS final_t ORDER BY submitted_at DESC LIMIT %s OFFSET %s"
+    final_params = combined_params + [per_page, offset]
+
+    applications = Database.execute_query(final_query, tuple(final_params))
+
+    return jsonify({
+        'count': total_count,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': total_pages,
+        'applications': applications or []
+    }), 200
+
+
+@admin_bp.route('/application/<applicant_id>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_application_details(payload, applicant_id):
+    """Get detailed application information"""
+
+    pg_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,)
     )
+    if pg_check:
+        applicant = Database.execute_query(
+            f'''SELECT pg.uuid AS id, pg.user_id,
+                       {USER_NAME_EXPR} AS name,
+                       u.email, u.phone_number,
+                       2 AS program_id,
+                       COALESCE(dg.code || ' ', '') || COALESCE(pg.finalised_course, pg.approved_course, pgps.name, '') AS program_name,
+                       pg.applicant_stage AS application_status,
+                       pg.updated_date AS submitted_at,
+                       pg.form_no,
+                       pg.decision,
+                       pg.decision_date,
+                       pg.approved_course,
+                       pg.finalised_course,
+                       pg.admission_letter_sent,
+                       (pg.applicant_stage = 'accepted') AS has_paid_acceptance_fee
+                FROM pg_application pg
+                JOIN users u ON pg.user_id = u.id
+                LEFT JOIN degrees dg ON pg.degree_id = dg.id
+                LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+                WHERE pg.uuid = %s''',
+            (applicant_id,)
+        )
+    else:
+        applicant = Database.execute_query(
+            f'''SELECT app.id, app.user_id,
+                       {USER_NAME_EXPR} AS name,
+                       u.email, u.phone_number,
+                       app.prog_type AS program_id,
+                       (
+                           CASE 
+                               WHEN app.applicant_stage = 'submitted' THEN 
+                                   COALESCE(dg.code || ' ', '') || COALESCE(ps1.name, '')
+                               WHEN app.applicant_stage = 'screening' THEN 
+                                   COALESCE(dg.code || ' ', '') || COALESCE(app.approved_course, ps1.name, '')
+                               WHEN app.applicant_stage IN ('admitted', 'accepted') THEN 
+                                   COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
+                               ELSE 
+                                   COALESCE(dg.code || ' ', '') || COALESCE(app.finalised_course, app.approved_course, ps1.name, '')
+                           END
+                       ) AS program_name,
+                       app.applicant_stage AS application_status,
+                       app.updated_at AS submitted_at,
+                       app.form_no,
+                       app.decision,
+                       app.decision_date,
+                       app.approved_course,
+                       app.finalised_course,
+                       app.admission_letter_sent,
+                       (app.applicant_stage = 'accepted') AS has_paid_acceptance_fee
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                LEFT JOIN program_types pt ON app.prog_type = pt.id
+                LEFT JOIN degrees dg ON app.degree_id = dg.id
+                LEFT JOIN academic_qualification aq ON aq.user_id = app.user_id
+                LEFT JOIN program_choice pc ON pc.application_id = app.id
+                LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
+                WHERE app.id = %s''',
+            (applicant_id,)
+        )
 
     if not applicant:
         return jsonify({'message': 'Applicant not found'}), 404
@@ -416,36 +504,66 @@ def review_application(payload):
     stage_map  = {'accept': 'admitted', 'reject': 'rejected', 'recommend': 'screening'}
     new_status = stage_map[decision]
 
+    pg_app = Database.execute_query('SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,))
+    is_pg = bool(pg_app)
+
     ps_id = None
     department_id = None
     degree_id = None
     if approved_course:
-        ps_res = Database.execute_query(
-            '''SELECT ps.id, ps.department_id, ps.degree_id
-               FROM program_setup ps
-               WHERE LOWER(ps.name) = LOWER(%s)
-               LIMIT 1''',
-            (approved_course,)
-        )
+        if is_pg:
+            ps_res = Database.execute_query(
+                '''SELECT ps.id, ps.department_id, ps.degree_id
+                   FROM pg_program_setup ps
+                   LEFT JOIN degrees dg ON ps.degree_id = dg.id
+                   WHERE LOWER(ps.name) = LOWER(%s)
+                      OR LOWER(COALESCE(dg.code || ' ', '') || ps.name) = LOWER(%s)
+                   LIMIT 1''',
+                (approved_course, approved_course)
+            )
+        else:
+            ps_res = Database.execute_query(
+                '''SELECT ps.id, ps.department_id, ps.degree_id
+                   FROM program_setup ps
+                   WHERE LOWER(ps.name) = LOWER(%s)
+                   LIMIT 1''',
+                (approved_course,)
+            )
         if ps_res:
             ps_id = ps_res[0]['id']
             department_id = ps_res[0]['department_id']
             degree_id = ps_res[0]['degree_id']
 
-    success = Database.execute_update(
-        '''UPDATE applications
-           SET applicant_stage         = %s,
-               decision                = %s,
-               decision_date           = NOW(),
-               approved_course         = %s,
-               finalised_course        = %s,
-               program_setup_id        = COALESCE(%s, program_setup_id),
-               degree_id               = COALESCE(%s, degree_id),
-               decision_maker_user_id  = %s,
-               updated_at              = NOW()
-           WHERE id = %s''',
-        (new_status, decision, approved_course, approved_course, ps_id, degree_id, officer_user_id, applicant_id)
-    )
+    if is_pg:
+        success = Database.execute_update(
+            '''UPDATE pg_application
+               SET applicant_stage         = %s,
+                   decision                = %s,
+                   decision_date           = NOW(),
+                   approved_course         = %s,
+                   finalised_course        = %s,
+                   proposed_course         = COALESCE(%s, proposed_course),
+                   degree_id               = COALESCE(%s, degree_id),
+                   decision_maker_user_id  = %s,
+                   updated_date            = NOW()
+               WHERE uuid = %s''',
+            (new_status, decision, approved_course, approved_course, ps_id, degree_id, officer_user_id, applicant_id)
+        )
+    else:
+        success = Database.execute_update(
+            '''UPDATE applications
+               SET applicant_stage         = %s,
+                   decision                = %s,
+                   decision_date           = NOW(),
+                   approved_course         = %s,
+                   finalised_course        = %s,
+                   program_setup_id        = COALESCE(%s, program_setup_id),
+                   degree_id               = COALESCE(%s, degree_id),
+                   decision_maker_user_id  = %s,
+                   updated_at              = NOW()
+               WHERE id = %s''',
+            (new_status, decision, approved_course, approved_course, ps_id, degree_id, officer_user_id, applicant_id)
+        )
 
     if not success:
         return jsonify({'message': 'Failed to save review'}), 500
@@ -476,21 +594,41 @@ def send_admission_letter(payload):
 
     ref_no = get_admission_ref(applicant_id)
 
-    applicant = Database.execute_query(
-        f'''SELECT u.id,
-                   {USER_NAME_EXPR} AS name,
-                   u.email,
-                   app.prog_type AS program_id,
-                   pt.name AS program_name,
-                   '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                   pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date,
-                   app.applicant_stage
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            LEFT JOIN program_types pt ON app.prog_type = pt.id
-            WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted')''',
-        (applicant_id,)
+    pg_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,)
     )
+    is_pg = bool(pg_check)
+    if is_pg:
+        applicant = Database.execute_query(
+            f'''SELECT u.id,
+                       {USER_NAME_EXPR} AS name,
+                       u.email,
+                       2 AS program_id,
+                       'Postgraduate' AS program_name,
+                       '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
+                       'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date,
+                       pg.applicant_stage
+                FROM pg_application pg
+                JOIN users u ON pg.user_id = u.id
+                WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted')''',
+            (applicant_id,)
+        )
+    else:
+        applicant = Database.execute_query(
+            f'''SELECT u.id,
+                       {USER_NAME_EXPR} AS name,
+                       u.email,
+                       app.prog_type AS program_id,
+                       pt.name AS program_name,
+                       '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
+                       pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date,
+                       app.applicant_stage
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                LEFT JOIN program_types pt ON app.prog_type = pt.id
+                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted')''',
+            (applicant_id,)
+        )
 
     if not applicant:
         return jsonify({'message': 'Applicant not found or application not admitted'}), 404
@@ -540,10 +678,16 @@ def send_admission_letter(payload):
         body_html=''
     )
 
-    Database.execute_update(
-        'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
-        (applicant_id,)
-    )
+    if is_pg:
+        Database.execute_update(
+            'UPDATE pg_application SET admission_letter_sent = TRUE, updated_date = NOW() WHERE uuid = %s',
+            (applicant_id,)
+        )
+    else:
+        Database.execute_update(
+            'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+            (applicant_id,)
+        )
 
     body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your admission letter.\n\nBest regards,\nAdmissions Office"
     email_sent = send_email(
@@ -578,20 +722,39 @@ def preview_admission_letter(payload):
  
     ref_no = get_admission_ref(applicant_id)
  
-    applicant = Database.execute_query(
-        f'''SELECT u.id,
-                   {USER_NAME_EXPR} AS name,
-                   u.email,
-                   app.prog_type AS program_id,
-                   pt.name AS program_name,
-                   '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                   pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            LEFT JOIN program_types pt ON app.prog_type = pt.id
-            WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted') ''',
-        (applicant_id,)
+    pg_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,)
     )
+    is_pg = bool(pg_check)
+    if is_pg:
+        applicant = Database.execute_query(
+            f'''SELECT u.id,
+                       {USER_NAME_EXPR} AS name,
+                       u.email,
+                       2 AS program_id,
+                       'Postgraduate' AS program_name,
+                       '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
+                       'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date
+                FROM pg_application pg
+                JOIN users u ON pg.user_id = u.id
+                WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted') ''',
+            (applicant_id,)
+        )
+    else:
+        applicant = Database.execute_query(
+            f'''SELECT u.id,
+                       {USER_NAME_EXPR} AS name,
+                       u.email,
+                       app.prog_type AS program_id,
+                       pt.name AS program_name,
+                       '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
+                       pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                LEFT JOIN program_types pt ON app.prog_type = pt.id
+                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted') ''',
+            (applicant_id,)
+        )
  
     if not applicant:
         return jsonify({'message': 'Applicant not found or application not admitted'}), 404
@@ -669,20 +832,39 @@ def send_batch_letters(payload):
         try:
             ref_no = get_admission_ref(applicant_id)
 
-            applicant = Database.execute_query(
-                f'''SELECT u.id,
-                           {USER_NAME_EXPR} AS name,
-                           u.email,
-                           app.prog_type AS program_id,
-                           pt.name AS program_name,
-                           '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                           pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
-                    FROM applications app
-                    JOIN users u ON app.user_id = u.id
-                    LEFT JOIN program_types pt ON app.prog_type = pt.id
-                    WHERE app.id = %s AND app.applicant_stage = 'accepted' ''',
-                (applicant_id,)
+            pg_check = Database.execute_query(
+                'SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,)
             )
+            is_pg = bool(pg_check)
+            if is_pg:
+                applicant = Database.execute_query(
+                    f'''SELECT u.id,
+                               {USER_NAME_EXPR} AS name,
+                               u.email,
+                               2 AS program_id,
+                               'Postgraduate' AS program_name,
+                               '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
+                               'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date
+                        FROM pg_application pg
+                        JOIN users u ON pg.user_id = u.id
+                        WHERE pg.uuid = %s AND pg.applicant_stage = 'accepted' ''',
+                    (applicant_id,)
+                )
+            else:
+                applicant = Database.execute_query(
+                    f'''SELECT u.id,
+                               {USER_NAME_EXPR} AS name,
+                               u.email,
+                               app.prog_type AS program_id,
+                               pt.name AS program_name,
+                               '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
+                               pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                        FROM applications app
+                        JOIN users u ON app.user_id = u.id
+                        LEFT JOIN program_types pt ON app.prog_type = pt.id
+                        WHERE app.id = %s AND app.applicant_stage = 'accepted' ''',
+                    (applicant_id,)
+                )
 
             if not applicant:
                 errors.append({'applicant_id': applicant_id, 'error': 'Not found or not accepted'})
@@ -727,10 +909,16 @@ def send_batch_letters(payload):
                 body_html=''
             )
 
-            Database.execute_update(
-                'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
-                (applicant_id,)
-            )
+            if is_pg:
+                Database.execute_update(
+                    'UPDATE pg_application SET admission_letter_sent = TRUE, updated_date = NOW() WHERE uuid = %s',
+                    (applicant_id,)
+                )
+            else:
+                Database.execute_update(
+                    'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+                    (applicant_id,)
+                )
 
             applicants_with_pdfs.append({
                 'email':        applicant_data['email'],

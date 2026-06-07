@@ -30,8 +30,9 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isAuthenticated, isLoading } = useAuth();
 
-  const isPortalLoginPage =
+  const isPortalAuthPage =
     pathname === "/auth/login" ||
+    pathname === "/auth/signup" ||
     pathname === "/staff/login" ||
     pathname === "/student/login" ||
     pathname === "/pgstudents/login" ||
@@ -41,7 +42,7 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     return <main className="min-h-screen">{children}</main>;
   }
 
-  if (isPortalLoginPage) {
+  if (isPortalAuthPage) {
     return (
       <>
         <PortalNavbar />

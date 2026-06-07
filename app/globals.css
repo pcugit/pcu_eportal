@@ -225,6 +225,7 @@ body {
   color: #fff !important;
 }
 
+
 @media (min-width: 1024px) {
   :root {
     --sidebar-width: 80px;

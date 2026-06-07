@@ -18,7 +18,8 @@ const STAFF_DASHBOARD_PATHS: Record<string, string> = {
   deo: "/deo/dashboard",
   hod: "/hod/dashboard",
   dean: "/dean/dashboard",
-  pgdean: "/pgdean/dashboard",
+  pgdean: "/pgadmin/dashboard",
+  pgadmin: "/pgadmin/dashboard",
 };
 
 export default function StaffChangePasswordPage() {

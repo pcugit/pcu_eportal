@@ -10,6 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Download,
   User,
   FileText,
@@ -18,6 +25,9 @@ import {
   Save,
   ClipboardCheck,
   Printer,
+  Check,
+  X,
+  ArrowRight,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -563,7 +573,7 @@ function SectionBTab({
           <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
           <div>
             <p className="text-emerald-700 font-semibold text-sm">
-              Section B previously completed
+              Evaluation previously completed
             </p>
             <p className="text-emerald-600/70 text-xs mt-0.5">
               By {evaluation.dean_name || "Dean"} on{" "}
@@ -583,7 +593,7 @@ function SectionBTab({
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-2">
           <CheckCircle className="h-4 w-4 text-emerald-600" />
           <p className="text-emerald-700 font-semibold text-sm">
-            Section B saved. Application sent to Admissions Officer.
+            Evaluation saved.
           </p>
         </div>
       )}
@@ -784,13 +794,304 @@ function SectionBTab({
               ) : (
                 <>
                   <Save className="h-4 w-4" />
-                  {evaluation ? "Update Section B" : "Submit Evaluation"}
+                  {evaluation ? "Update" : "Submit Evaluation"}
                 </>
               )}
             </Button>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewTab({
+  application,
+  onReviewSuccess,
+}: {
+  application: ApplicationDetail;
+  onReviewSuccess: () => void;
+}) {
+  const [reviewing, setReviewing] = useState(false);
+  const [decision, setDecision] = useState<
+    "accept" | "reject" | "recommend" | ""
+  >("");
+  const [approvedCourse, setApprovedCourse] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [pgPrograms, setPgPrograms] = useState<any[]>([]);
+
+  const currentDecision = application?.applicant?.decision;
+  const proposedCourse = application?.form?.proposed_course_name;
+  const applicationStatus = application?.applicant?.application_status;
+
+  // Fetch PG programs for recommendation
+  useEffect(() => {
+    const fetchPgPrograms = async () => {
+      try {
+        const programs = await ApiClient.getPgPrograms();
+        setPgPrograms(programs || []);
+      } catch (err) {
+        console.error("Failed to fetch PG programs:", err);
+      }
+    };
+    fetchPgPrograms();
+  }, []);
+
+  const handleReview = async () => {
+    if (!decision) {
+      setError("Please select a decision");
+      return;
+    }
+
+    const needsCourse = decision === "accept" || decision === "recommend";
+    if (needsCourse && !approvedCourse) {
+      setError("Please select a course for this decision");
+      return;
+    }
+
+    setReviewing(true);
+    setError(null);
+    setReviewSuccess(false);
+
+    try {
+      await ApiClient.pgReviewApplication(
+        application.applicant.id,
+        decision,
+        approvedCourse || undefined,
+      );
+      setReviewSuccess(true);
+      setTimeout(() => onReviewSuccess(), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit review");
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const canReview = applicationStatus === "screening" && !currentDecision;
+
+  const getDecisionBadge = (decisionValue: string) => {
+    const badges: {
+      [key: string]: { color: string; icon: any; label: string };
+    } = {
+      accept: {
+        color: "bg-emerald-50 text-emerald-700",
+        icon: Check,
+        label: "Accepted",
+      },
+      reject: { color: "bg-red-50 text-red-700", icon: X, label: "Rejected" },
+      recommend: {
+        color: "bg-blue-50 text-blue-700",
+        icon: ArrowRight,
+        label: "Recommended",
+      },
+    };
+    const badge = badges[decisionValue];
+    const Icon = badge?.icon;
+    return (
+      <div
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${badge?.color}`}
+      >
+        {Icon && <Icon className="h-3.5 w-3.5" />}
+        {badge?.label}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Current decision summary */}
+      {currentDecision && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2.5">
+          <p className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
+            Current Decision
+          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              {getDecisionBadge(currentDecision)}
+              {(currentDecision === "accept" ||
+                currentDecision === "recommend") && (
+                <p className="text-sm text-slate-600 mt-2.5">
+                  {currentDecision === "accept" ? "Approved Course" : "Course"}:{" "}
+                  <span className="font-semibold">
+                    {application.applicant.accepted_recommended_program_name ||
+                      "—"}
+                  </span>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reviewSuccess && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-emerald-700 font-semibold text-sm">
+              Decision submitted successfully!
+            </p>
+            <p className="text-emerald-600/70 text-xs mt-0.5">
+              The applicant has been notified of the review decision.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-700 font-semibold text-sm">Error</p>
+            <p className="text-red-600/70 text-xs mt-0.5">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Review form */}
+      {canReview && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <p className="text-sm font-semibold text-slate-700">
+            Decision on {application.form?.full_name}
+          </p>
+
+          {/* Decision buttons */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              {
+                value: "accept",
+                label: "Accept",
+                icon: Check,
+                color:
+                  decision === "accept"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-gray-100 text-slate-600 hover:bg-gray-200",
+              },
+              {
+                value: "recommend",
+                label: "Recommend",
+                icon: ArrowRight,
+                color:
+                  decision === "recommend"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-slate-600 hover:bg-gray-200",
+              },
+              {
+                value: "reject",
+                label: "Reject",
+                icon: X,
+                color:
+                  decision === "reject"
+                    ? "bg-red-600 text-white"
+                    : "bg-gray-100 text-slate-600 hover:bg-gray-200",
+              },
+            ].map(({ value, label, icon: Icon, color }) => (
+              <Button
+                key={value}
+                onClick={() => {
+                  setDecision(value as "accept" | "reject" | "recommend");
+                  setApprovedCourse("");
+                }}
+                className={`gap-1.5 h-10 font-semibold text-sm rounded-lg transition-colors ${color}`}
+                variant="ghost"
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </Button>
+            ))}
+          </div>
+
+          {/* Course selection */}
+          {(decision === "accept" || decision === "recommend") && (
+            <div className="space-y-2.5">
+              <label className="text-sm font-semibold text-slate-700">
+                {decision === "accept"
+                  ? "Approved Course"
+                  : "Recommended Course"}
+              </label>
+              {decision === "accept" ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+                  <p className="text-slate-600 font-semibold">
+                    {proposedCourse}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Applicant's proposed course
+                  </p>
+                </div>
+              ) : (
+                <Select
+                  value={approvedCourse}
+                  onValueChange={setApprovedCourse}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a program to recommend" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pgPrograms.map((prog) => (
+                      <SelectItem
+                        key={prog.id}
+                        value={String(prog.id)}
+                      >
+                        {prog.full_name || prog.program_name || prog.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+
+          {/* Submit button */}
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={handleReview}
+              disabled={reviewing || !decision}
+              className="gap-2 min-w-[140px] h-10 text-sm font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+            >
+              {reviewing ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4" />
+                  Submit Review
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!canReview && !currentDecision && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="h-4 w-4 text-yellow-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-yellow-700 font-semibold text-sm">
+              Review not available
+            </p>
+            <p className="text-yellow-600/70 text-xs mt-0.5">
+              This application is not in "Screening" status.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {currentDecision && !canReview && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-blue-700 font-semibold text-sm">
+              Decision already made
+            </p>
+            <p className="text-blue-600/70 text-xs mt-0.5">
+              This application has already been reviewed.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -812,7 +1113,7 @@ export default function PgApplicationDetailPage() {
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "pgdean") {
+    if (!isAuthenticated || user?.role !== "pgadmin") {
       router.replace("/staff/login");
     }
   }, [isAuthenticated, user, router]);
@@ -869,7 +1170,7 @@ export default function PgApplicationDetailPage() {
       const baseUrl =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
       const res = await fetch(
-        `${baseUrl}/pgdean/print-application/${applicationId}`,
+        `${baseUrl}/pgadmin/print-application/${applicationId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -917,7 +1218,7 @@ export default function PgApplicationDetailPage() {
           </p>
           <p className="text-slate-400 text-sm mb-4">{error}</p>
           <Link
-            href="/pgdean/applications"
+            href="/pgadmin/applications"
             className="text-slate-500 hover:text-slate-700 font-semibold transition-colors text-sm"
           >
             ← Back to Applications
@@ -936,7 +1237,7 @@ export default function PgApplicationDetailPage() {
         {/* Breadcrumb + Print */}
         <div className="flex items-center justify-between mb-5">
           <Link
-            href="/pgdean/applications"
+            href="/pgadmin/applications"
             className="text-slate-400 hover:text-slate-600 text-sm transition-colors"
           >
             ← Back to Applications
@@ -967,11 +1268,7 @@ export default function PgApplicationDetailPage() {
               >
                 {appStatus.replace("_", " ")}
               </Badge>
-              {evaluation && (
-                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <CheckCircle className="w-3 h-3" /> Section B Done
-                </span>
-              )}
+
             </div>
             <div className="flex flex-wrap gap-4 text-sm text-slate-500">
               <span>
@@ -1005,10 +1302,11 @@ export default function PgApplicationDetailPage() {
               { value: "info", label: "Applicant Info", icon: User },
               { value: "documents", label: "Documents", icon: FileText },
               {
-                value: "section-b",
-                label: "Section B Eval.",
+                value: "evaluation",
+                label: "Evaluation",
                 icon: ClipboardCheck,
               },
+              { value: "review", label: "Review", icon: CheckCircle },
             ].map(({ value, label, icon: Icon }) => (
               <TabsTrigger
                 key={value}
@@ -1037,8 +1335,12 @@ export default function PgApplicationDetailPage() {
             />
           </TabsContent>
 
-          <TabsContent value="section-b">
+          <TabsContent value="evaluation">
             <SectionBTab application={application} onSaveSuccess={loadDetail} />
+          </TabsContent>
+
+          <TabsContent value="review">
+            <ReviewTab application={application} onReviewSuccess={loadDetail} />
           </TabsContent>
         </Tabs>
       </div>

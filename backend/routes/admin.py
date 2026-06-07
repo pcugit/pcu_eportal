@@ -68,7 +68,7 @@ def get_applications(payload):
     page = max(int(request.args.get('page', 1)), 1)
     per_page = max(int(request.args.get('per_page', 10)), 1)
 
-    include_pg = True
+    include_pg = False
     include_non_pg = True
 
     if program_id:
@@ -513,6 +513,8 @@ def review_application(payload):
 
     pg_app = Database.execute_query('SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,))
     is_pg = bool(pg_app)
+    if is_pg:
+        return jsonify({'message': 'PG applications are managed by the PG Admin'}), 403
 
     ps_id = None
     department_id = None

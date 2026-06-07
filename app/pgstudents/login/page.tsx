@@ -7,15 +7,17 @@ export default function PgStudentsLoginPage() {
     <div className="portal-login-root">
       <div className="portal-login-card">
         <div className="portal-login-header">
-          <Image
-            src="/e-portal/images/logo new.png"
-            alt="PCU Logo"
-            width={120}
-            height={120}
-            className="portal-login-logo"
-          />
+          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
+            <Image
+              src="/e-portal/images/logo new.png"
+              alt="University Logo"
+              width={120}
+              height={120}
+              className="portal-login-logo"
+            />
+          </div>
           <div>
-            <h1 className="portal-login-title">Postgraduate Student Portal</h1>
+            <h1 className="portal-login-title">Postgraduate Portal</h1>
             <p className="portal-login-subtitle">
               Precious Cornerstone University
             </p>
@@ -24,9 +26,7 @@ export default function PgStudentsLoginPage() {
 
         <form className="portal-login-form">
           <div className="portal-login-field">
-            <label className="portal-login-label">
-                Matric Number
-            </label>
+            <label className="portal-login-label">Matric Number</label>
             <div className="relative">
               <UserRound className="portal-login-input-icon absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
               <input
@@ -38,9 +38,7 @@ export default function PgStudentsLoginPage() {
           </div>
 
           <div className="portal-login-field">
-            <label className="portal-login-label">
-                Password
-            </label>
+            <label className="portal-login-label">Password</label>
             <div className="relative">
               <Lock className="portal-login-input-icon absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
               <input
@@ -51,7 +49,10 @@ export default function PgStudentsLoginPage() {
             </div>
           </div>
 
-          <Link href="/pgstudents/dashboard" className="portal-login-btn text-center">
+          <Link
+            href="/pgstudents/dashboard"
+            className="portal-login-btn text-center"
+          >
             Sign In
           </Link>
         </form>

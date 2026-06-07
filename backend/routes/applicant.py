@@ -1225,7 +1225,7 @@ def delete_document(payload, document_id):
                FROM pg_document d
                LEFT JOIN pg_application pg ON d.pg_application_id = pg.uuid
                WHERE d.id = %s AND pg.user_id = %s''',
-            (document_id, user_id)
+        (document_id, user_id)
         )
         if doc:
             is_pg_doc = True
@@ -1268,7 +1268,7 @@ def download_document(payload, document_id):
             '''SELECT d.file_url AS file_path, d.file_type AS mime_type, d.file_name AS original_filename
                FROM pg_document d
                LEFT JOIN pg_application pg ON d.pg_application_id = pg.uuid
-               WHERE d.id = %s AND (pg.user_id = %s OR pg.user_id = %s OR %s IN ('admin','ict_director','admissionofficer','pgdean'))''',
+               WHERE d.id = %s AND (pg.user_id = %s OR pg.user_id = %s OR %s IN ('admin','ict_director','admissionofficer','pgadmin','pgdean'))''',
             (document_id, user_id, user_id, role)
         )
 

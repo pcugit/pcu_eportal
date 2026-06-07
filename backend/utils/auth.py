@@ -127,10 +127,20 @@ def admissions_officer_required(f):
 
 
 def pgdean_required(f):
-    """Decorator: restrict to PG Dean and admin."""
+    """Decorator: restrict to PG Dean/Admin and admin."""
     @wraps(f)
     def decorated(payload, *args, **kwargs):
-        if payload.get("role") not in ("pgdean", "admin"):
+        if payload.get("role") not in ("pgdean", "pgadmin", "admin"):
+            return jsonify({"message": "Access denied"}), 403
+        return f(payload, *args, **kwargs)
+    return decorated
+
+
+def pgadmin_required(f):
+    """Decorator: restrict to PG Admin/Dean and admin."""
+    @wraps(f)
+    def decorated(payload, *args, **kwargs):
+        if payload.get("role") not in ("pgadmin", "pgdean", "admin"):
             return jsonify({"message": "Access denied"}), 403
         return f(payload, *args, **kwargs)
     return decorated
@@ -179,5 +189,6 @@ class AuthHandler:
     admin_required              = staticmethod(admin_required)
     admissions_officer_required = staticmethod(admissions_officer_required)
     pgdean_required             = staticmethod(pgdean_required)
+    pgadmin_required            = staticmethod(pgadmin_required)
     roles_required              = staticmethod(roles_required)
     require_password_change     = staticmethod(require_password_change)

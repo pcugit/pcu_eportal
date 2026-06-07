@@ -82,6 +82,7 @@ export default function LoginPage() {
       "dean",
       "registrar",
       "pgdean",
+      "pgadmin",
     ];
     if (staffRoles.includes(role)) {
       setAccessDenied(true);
@@ -263,7 +264,7 @@ export default function LoginPage() {
         ) : null}
 
         <CardHeader className="portal-login-header p-0">
-          <div className="flex justify-center">
+          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"

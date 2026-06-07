@@ -90,15 +90,15 @@ const ADMIN_NAV_ITEMS = [
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
-const PGDEAN_NAV_ITEMS = [
+const PGADMIN_NAV_ITEMS = [
   {
     label: "Dashboard",
-    href: "/pgdean/dashboard",
+    href: "/pgadmin/dashboard",
     icon: LayoutDashboard,
   },
   {
     label: "Applications",
-    href: "/pgdean/applications",
+    href: "/pgadmin/applications",
     icon: FileText,
   },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
@@ -206,7 +206,7 @@ export function GlobalNav() {
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
     if (isLecturerPortal) return LECTURER_NAV_ITEMS;
     if (isIctPortal) return ICT_NAV_ITEMS;
-    if (user?.role === "pgdean") return PGDEAN_NAV_ITEMS;
+    if (user?.role === "pgadmin" || user?.role === "pgdean") return PGADMIN_NAV_ITEMS;
     if (isManagementPortal)
       return [
         {
@@ -249,13 +249,6 @@ export function GlobalNav() {
     <>
       {/* Top Header - "Only the name of the authenticated user" */}
       <header
-        className={cn(
-          "fixed top-0 right-0 h-16 backdrop-blur-md border-b z-[90] transition-all duration-300 ease-in-out flex items-center px-8",
-          isOfficialPortalSection
-            ? "bg-[#f8f3ea]/95 border-[#e7dbc9]"
-            : "bg-slate-50/90 border-slate-200",
-        )}
-        style={{ left: "var(--sidebar-width)" }}
       >
         {/* Mobile Hamburger Toggle */}
         <button
@@ -282,69 +275,6 @@ export function GlobalNav() {
           )}
         ></div>
 
-        {/* Right Side - Apply Button or User Profile */}
-        <div className="flex-1 flex justify-end items-center gap-4 shrink-0">
-          {isLoading ? null : isAuthenticated ? (
-            <div className="flex items-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex items-center gap-2 rounded-full px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2",
-                      isOfficialPortalSection
-                        ? "text-slate-800 hover:bg-[#ead6aa]/50 focus-visible:ring-[#c99b45]/40"
-                        : "text-slate-700 hover:bg-slate-100 focus-visible:ring-purple-200",
-                    )}
-                    aria-label="Open user menu"
-                  >
-                    <span className="max-w-[180px] truncate text-sm font-bold">
-                      {user?.username}
-                    </span>
-                    <div
-                      className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center border",
-                        isOfficialPortalSection
-                          ? "bg-[#ead6aa] border-[#d5b875]"
-                          : "bg-purple-50 border-purple-100",
-                      )}
-                    >
-                      <User
-                        size={14}
-                        className={cn(
-                          isOfficialPortalSection
-                            ? "text-slate-700"
-                            : "text-[#6b21a8]",
-                        )}
-                      />
-                    </div>
-                    <ChevronDown
-                      size={14}
-                      className={cn(
-                        isOfficialPortalSection ? "text-slate-500" : "text-slate-400",
-                      )}
-                    />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem
-                    onSelect={handleLogout}
-                    className="cursor-pointer text-red-600 focus:text-red-600"
-                  >
-                    <LogOut size={16} className="mr-2" />
-                    Sign Out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ) : (
-            <Link href="/auth/signup">
-              <Button className="bg-[#d9251b] hover:bg-red-800 text-white rounded-full px-6 h-9 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-red-500/10">
-                Apply Now
-              </Button>
-            </Link>
-          )}
-        </div>
       </header>
 
       {/* Mobile Backdrop Overlay */}

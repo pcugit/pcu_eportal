@@ -16,6 +16,7 @@ type StaffRole =
   | "hod"
   | "dean"
   | "pgdean"
+  | "pgadmin"
   | "registrar"
   | "admissionofficer"
   | "ictdirector"
@@ -40,6 +41,7 @@ export const STAFF_ROLES: string[] = [
   "hod",
   "dean",
   "pgdean",
+  "pgadmin",
   "registrar",
   "freshapplicant",
   "admissionofficer",
@@ -365,6 +367,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           "/admission_officer",
           "/dean",
           "/pgdean",
+          "/pgadmin",
           "/deo",
           "/hod",
           "/ict",

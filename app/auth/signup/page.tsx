@@ -262,15 +262,15 @@ export default function SignupPage() {
           ) : null}
 
           <CardHeader className="portal-login-header p-0">
-            <div className="flex justify-center">
-              <Image
-                src="/e-portal/images/logo new.png"
-                alt="University Logo"
-                width={120}
-                height={120}
-                className="portal-login-logo"
-              />
-            </div>
+            <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
+                        <Image
+                          src="/e-portal/images/logo new.png"
+                          alt="University Logo"
+                          width={120}
+                          height={120}
+                          className="portal-login-logo"
+                        />
+                      </div>  
             <CardTitle className="portal-login-title">Create Account</CardTitle>
             <CardDescription className="portal-login-subtitle">
               Join the admission portal to start your application

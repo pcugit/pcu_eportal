@@ -12,7 +12,8 @@ const ROLE_REDIRECTS: Record<string, string> = {
   hod: "/e-portal/hod/dashboard",
   dean: "/e-portal/dean/dashboard",
   registrar: "/e-portal/registrar/dashboard",
-  pgdean: "/e-portal/pgdean/dashboard",
+  pgdean: "/e-portal/pgadmin/dashboard",
+  pgadmin: "/e-portal/pgadmin/dashboard",
 };
 
 // Roles that must NOT use this portal
@@ -59,15 +60,22 @@ export default function StaffLogin() {
   return (
     <div className="staff-login-root">
       <div className="staff-login-card">
-        {/* Logo / Header */}
-        <div className="staff-login-header flex justify-center">
-          <Image
-            src="/e-portal/images/logo new.png"
-            alt="PCU Logo"
-            width={120}
-            height={120}
-            className="object-contain rounded-3xl mix-blend-multiply drop-shadow-lg"
-          />
+        <div className="portal-login-header">
+          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
+            <Image
+              src="/e-portal/images/logo new.png"
+              alt="University Logo"
+              width={120}
+              height={120}
+              className="portal-login-logo"
+            />
+          </div>
+          <div>
+            <h1 className="portal-login-title">Staff Portal</h1>
+            <p className="portal-login-subtitle">
+              Precious Cornerstone University
+            </p>
+          </div>
         </div>
 
         <form noValidate onSubmit={handleSubmit} className="staff-login-form">

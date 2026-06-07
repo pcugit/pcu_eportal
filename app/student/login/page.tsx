@@ -91,9 +91,7 @@ export default function StudentLoginPage() {
         err instanceof Error ? err.message : "Login failed. Please try again.";
       const responseData = err?.response;
       if (responseData?.locked_until) {
-        const unlockTime = new Date(
-          responseData.locked_until,
-        ).toLocaleString();
+        const unlockTime = new Date(responseData.locked_until).toLocaleString();
         setLocalError(
           `Account locked due to too many failed attempts. Try again after ${unlockTime}.`,
         );
@@ -169,7 +167,7 @@ export default function StudentLoginPage() {
 
       <Card className="portal-login-card relative">
         <CardHeader className="portal-login-header p-0">
-          <div className="flex justify-center">
+          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"
@@ -183,16 +181,21 @@ export default function StudentLoginPage() {
               Undergraduate Student Portal
             </CardTitle>
             <CardDescription className="portal-login-subtitle">
-              Log in to your student portal account using your matric
-              number.
+              Log in to your student portal account using your matric number.
             </CardDescription>
           </div>
         </CardHeader>
 
         <CardContent className="p-0">
-          <form noValidate onSubmit={handleSubmit} className="portal-login-form">
+          <form
+            noValidate
+            onSubmit={handleSubmit}
+            className="portal-login-form"
+          >
             <div className="portal-login-field">
-              <Label htmlFor="email" className="portal-login-label">Matric Number</Label>
+              <Label htmlFor="email" className="portal-login-label">
+                Matric Number
+              </Label>
               <Input
                 id="email"
                 name="email"
@@ -207,7 +210,9 @@ export default function StudentLoginPage() {
 
             <div className="portal-login-field">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="portal-login-label">Password</Label>
+                <Label htmlFor="password" className="portal-login-label">
+                  Password
+                </Label>
                 {/*
                 <Link
                   href="/auth/forgot-password"

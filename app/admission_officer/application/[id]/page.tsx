@@ -284,7 +284,15 @@ function ApplicantInfoTab({
   );
 }
 
-function DocumentsTab({ documents }: { documents: any[] }) {
+function DocumentsTab({
+  documents,
+  applicantName,
+}: {
+  documents: any[];
+  applicantName: string;
+}) {
+  const [downloading, setDownloading] = useState(false);
+
   const handleDownload = async (doc: any) => {
     try {
       const token = localStorage.getItem("auth_token");
@@ -309,13 +317,90 @@ function DocumentsTab({ documents }: { documents: any[] }) {
     }
   };
 
+  const handleDownloadAll = async () => {
+    if (documents.length === 0) return;
+    setDownloading(true);
+    try {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const sanitizedName = applicantName.replace(/[^a-z0-9_\-]/gi, "_");
+      const folder = zip.folder(sanitizedName);
+
+      if (!folder) throw new Error("Failed to create zip folder");
+
+      for (const doc of documents) {
+        try {
+          const token = localStorage.getItem("auth_token");
+          const baseUrl =
+            process.env.NEXT_PUBLIC_API_URL ||
+            "http://localhost:5000/e-portal/api";
+          const res = await fetch(
+            `${baseUrl}/applicant/download-document/${doc.document_id || doc.id}`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (res.ok) {
+            const blob = await res.blob();
+            folder.file(
+              doc.original_filename || `document_${doc.document_id || doc.id}`,
+              blob,
+            );
+          }
+        } catch (err) {
+          console.error(
+            `Failed to download document ${doc.original_filename}:`,
+            err,
+          );
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizedName}_documents.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Download all failed", e);
+      alert("Failed to download all documents. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Uploaded Documents</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {documents?.length || 0} document(s) uploaded
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Uploaded Documents</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {documents?.length || 0} document(s) uploaded
+            </p>
+          </div>
+          {documents.length > 0 && (
+            <Button
+              onClick={handleDownloadAll}
+              disabled={downloading}
+              size="sm"
+              className="gap-2"
+            >
+              {downloading ? (
+                <>
+                  <span className="h-4 w-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  Download All
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {documents && documents.length > 0 ? (
@@ -760,7 +845,9 @@ function ApplicationDetailContent() {
   const [sendingLetter, setSendingLetter] = useState(false);
   const [letterSent, setLetterSent] = useState(false);
   const [passportUrl, setPassportUrl] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "documents" | "reviews">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "documents" | "reviews">(
+    "info",
+  );
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
@@ -905,12 +992,10 @@ function ApplicationDetailContent() {
             </div>
             <Badge
               data-status={application.applicant.application_status}
-              className={
-                `admission-status-badge ${
-                  statusColors[application.applicant.application_status] ||
-                  "bg-slate-100 text-slate-700"
-                }`
-              }
+              className={`admission-status-badge ${
+                statusColors[application.applicant.application_status] ||
+                "bg-slate-100 text-slate-700"
+              }`}
             >
               {application.applicant.application_status.replace(/_/g, " ")}
             </Badge>
@@ -961,12 +1046,17 @@ function ApplicationDetailContent() {
                   </TabsList>
                 </div>
               </div>
-              <div className="mt-2 flex justify-center gap-1.5 sm:hidden" aria-hidden="true">
+              <div
+                className="mt-2 flex justify-center gap-1.5 sm:hidden"
+                aria-hidden="true"
+              >
                 {(["info", "documents", "reviews"] as const).map((tab) => (
                   <span
                     key={tab}
                     className={`h-1.5 rounded-full transition-all ${
-                      activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
+                      activeTab === tab
+                        ? "w-5 bg-[#c99b45]"
+                        : "w-1.5 bg-[#d8c9b6]"
                     }`}
                   />
                 ))}
@@ -983,7 +1073,10 @@ function ApplicationDetailContent() {
             </TabsContent>
 
             <TabsContent value="documents">
-              <DocumentsTab documents={application.documents} />
+              <DocumentsTab
+                documents={application.documents}
+                applicantName={application.applicant.name}
+              />
             </TabsContent>
 
             <TabsContent value="reviews">

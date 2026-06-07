@@ -90,14 +90,22 @@ const ADMIN_NAV_ITEMS = [
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
-const REGISTRAR_NAV_ITEMS = [
-  { label: "Dashboard", href: "/registrar/dashboard", icon: LayoutDashboard },
+const PGDEAN_NAV_ITEMS = [
+  {
+    label: "Dashboard",
+    href: "/pgdean/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    label: "Applications",
+    href: "/pgdean/applications",
+    icon: FileText,
+  },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
-const PGDEAN_NAV_ITEMS = [
-  { label: "Dashboard", href: "/pgdean/dashboard", icon: LayoutDashboard },
-  { label: "Applications", href: "/pgdean/applications", icon: FileText },
+const REGISTRAR_NAV_ITEMS = [
+  { label: "Dashboard", href: "/registrar/dashboard", icon: LayoutDashboard },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
@@ -142,9 +150,13 @@ export function GlobalNav() {
   const isRegistrarPortal = isAuthenticated && user?.role === "registrar";
   const isLecturerPortal = isAuthenticated && user?.role === "lecturer";
   const isIctPortal = isAuthenticated && user?.role === "ictdirector";
-  const isPgDeanPortal = isAuthenticated && user?.role === "pgdean";
   const isManagementPortal =
     isAuthenticated && ["hod", "dean"].includes(user?.role || "");
+  const isAdmissionOfficerSection = pathname?.startsWith("/admission_officer");
+  const isApplicantSection = pathname?.startsWith("/applicant");
+  const isStudentSection = pathname?.startsWith("/student");
+  const isOfficialPortalSection =
+    isAdmissionOfficerSection || isApplicantSection || isStudentSection;
 
   React.useEffect(() => {
     const fetchCount = () => {
@@ -194,7 +206,7 @@ export function GlobalNav() {
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
     if (isLecturerPortal) return LECTURER_NAV_ITEMS;
     if (isIctPortal) return ICT_NAV_ITEMS;
-    if (isPgDeanPortal) return PGDEAN_NAV_ITEMS;
+    if (user?.role === "pgdean") return PGDEAN_NAV_ITEMS;
     if (isManagementPortal)
       return [
         {
@@ -217,8 +229,6 @@ export function GlobalNav() {
         return "/lecturer/dashboard";
       case "ictdirector":
         return "/ict/dashboard";
-      case "pgdean":
-        return "/pgdean/dashboard";
       default:
         return "/";
     }
@@ -239,13 +249,23 @@ export function GlobalNav() {
     <>
       {/* Top Header - "Only the name of the authenticated user" */}
       <header
-        className="fixed top-0 right-0 h-16 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 z-[90] transition-all duration-300 ease-in-out flex items-center px-8"
+        className={cn(
+          "fixed top-0 right-0 h-16 backdrop-blur-md border-b z-[90] transition-all duration-300 ease-in-out flex items-center px-8",
+          isOfficialPortalSection
+            ? "bg-[#f8f3ea]/95 border-[#e7dbc9]"
+            : "bg-slate-50/90 border-slate-200",
+        )}
         style={{ left: "var(--sidebar-width)" }}
       >
         {/* Mobile Hamburger Toggle */}
         <button
           onClick={toggle}
-          className="lg:hidden p-2 -ml-4 mr-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors shrink-0"
+          className={cn(
+            "lg:hidden p-2 -ml-4 mr-2 rounded-lg transition-colors shrink-0",
+            isOfficialPortalSection
+              ? "text-slate-700 hover:bg-[#ead6aa] hover:text-[#15110a]"
+              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+          )}
           aria-label="Toggle Sidebar"
         >
           <Menu size={24} />
@@ -266,16 +286,56 @@ export function GlobalNav() {
         <div className="flex-1 flex justify-end items-center gap-4 shrink-0">
           {isLoading ? null : isAuthenticated ? (
             <div className="flex items-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
-              <div className="flex flex-col items-end">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-700">
-                    {user?.username}
-                  </span>
-                  <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center border border-purple-100">
-                    <User size={14} className="text-[#6b21a8]" />
-                  </div>
-                </div>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-2 rounded-full px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2",
+                      isOfficialPortalSection
+                        ? "text-slate-800 hover:bg-[#ead6aa]/50 focus-visible:ring-[#c99b45]/40"
+                        : "text-slate-700 hover:bg-slate-100 focus-visible:ring-purple-200",
+                    )}
+                    aria-label="Open user menu"
+                  >
+                    <span className="max-w-[180px] truncate text-sm font-bold">
+                      {user?.username}
+                    </span>
+                    <div
+                      className={cn(
+                        "w-8 h-8 rounded-full flex items-center justify-center border",
+                        isOfficialPortalSection
+                          ? "bg-[#ead6aa] border-[#d5b875]"
+                          : "bg-purple-50 border-purple-100",
+                      )}
+                    >
+                      <User
+                        size={14}
+                        className={cn(
+                          isOfficialPortalSection
+                            ? "text-slate-700"
+                            : "text-[#6b21a8]",
+                        )}
+                      />
+                    </div>
+                    <ChevronDown
+                      size={14}
+                      className={cn(
+                        isOfficialPortalSection ? "text-slate-500" : "text-slate-400",
+                      )}
+                    />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={handleLogout}
+                    className="cursor-pointer text-red-600 focus:text-red-600"
+                  >
+                    <LogOut size={16} className="mr-2" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ) : (
             <Link href="/auth/signup">
@@ -298,7 +358,10 @@ export function GlobalNav() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-slate-100 border-r border-slate-200 z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col justify-between",
+          "fixed left-0 top-0 h-full border-r z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col justify-between",
+          isOfficialPortalSection
+            ? "bg-[#151515] border-[#26211a]"
+            : "bg-slate-100 border-slate-200",
           "w-[280px] lg:w-auto",
           isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           isOpen ? "lg:w-[280px]" : "lg:w-[80px]",
@@ -306,19 +369,32 @@ export function GlobalNav() {
       >
         <div>
           {/* Logo Area */}
-          <div className="flex items-center h-16 px-4 border-b border-slate-200/50 relative bg-slate-100/50">
-            <Link href="/" className="flex items-center gap-3 shrink-0">
+          <div
+            className={cn(
+              "flex items-center h-16 border-b relative",
+              isOpen ? "px-4 pr-16" : "px-3",
+              isOfficialPortalSection
+                ? "bg-[#151515] border-white/10"
+                : "bg-slate-100/50 border-slate-200/50",
+            )}
+          >
+            <Link href="/" className="flex min-w-0 items-center gap-3 shrink-0">
               <Image
                 src="/e-portal/images/logo new.png"
                 alt="PCU Logo"
                 width={35}
                 height={35}
-                className="object-contain"
+                className={cn(
+                  "object-contain shrink-0",
+                  isOpen ? "h-10 w-10" : "h-9 w-9",
+                )}
               />
               <span
                 className={cn(
-                  "font-black text-sm text-slate-800 tracking-tighter uppercase transition-all duration-300 overflow-hidden",
-                  isOpen ? "opacity-100 w-auto ml-2" : "opacity-0 w-0",
+                  "font-black text-slate-800 uppercase transition-all duration-300 overflow-hidden whitespace-nowrap leading-none",
+                  isOpen ? "text-base" : "text-sm",
+                  isOfficialPortalSection && "text-white",
+                  isOpen ? "opacity-100 max-w-[150px]" : "opacity-0 max-w-0",
                 )}
               >
                 PCU Portal
@@ -328,7 +404,10 @@ export function GlobalNav() {
             <button
               onClick={toggle}
               className={cn(
-                "absolute top-1/2 -translate-y-1/2 bg-white border border-slate-100 shadow-lg rounded-xl p-1.5 text-slate-500 hover:text-purple-600 hover:border-purple-100 transition-all z-[110]",
+                "absolute top-1/2 -translate-y-1/2 border shadow-lg rounded-xl p-1.5 transition-all z-[110]",
+                isOfficialPortalSection
+                  ? "bg-[#f8f3ea] border-[#d5b875] text-[#15110a] hover:bg-[#ead6aa]"
+                  : "bg-white border-slate-100 text-slate-500 hover:text-purple-600 hover:border-purple-100",
                 isOpen ? "right-4" : "-right-4 hidden lg:block",
               )}
             >
@@ -350,6 +429,10 @@ export function GlobalNav() {
                       ? "px-4 py-2 rounded-xl"
                       : "justify-center py-2 rounded-2xl mx-1",
                     !isActive && "text-slate-500 hover:text-slate-900",
+                    isOfficialPortalSection &&
+                      (isActive
+                        ? "text-[#15110a]"
+                        : "text-[#d8d1c6] hover:text-white hover:bg-white/5"),
                   )}
                 >
                   <div className="relative shrink-0">
@@ -357,9 +440,13 @@ export function GlobalNav() {
                       className={cn(
                         "flex items-center justify-center transition-all duration-300",
                         "w-11 h-11 rounded-xl border shadow-sm",
-                        isActive
+                        isOfficialPortalSection && isActive
+                          ? "bg-[#c99b45] border-[#c99b45] text-[#15110a] shadow-[#c99b45]/20"
+                          : isActive
                           ? "bg-[#6b21a8] border-[#6b21a8] text-white shadow-[#6b21a8]/20"
-                          : "bg-white border-slate-100 text-slate-500 group-hover:border-purple-200 group-hover:scale-105",
+                          : isOfficialPortalSection
+                            ? "bg-[#202020] border-white/10 text-[#d8d1c6] group-hover:border-[#c99b45]/60 group-hover:text-white group-hover:scale-105"
+                            : "bg-white border-slate-100 text-slate-500 group-hover:border-purple-200 group-hover:scale-105",
                       )}
                     >
                       <item.icon
@@ -378,7 +465,11 @@ export function GlobalNav() {
                     className={cn(
                       "font-bold text-[12px] tracking-tight whitespace-nowrap transition-all duration-300 overflow-hidden",
                       isOpen ? "opacity-100 w-auto ml-4" : "opacity-0 w-0",
-                      isActive
+                      isOfficialPortalSection
+                        ? isActive
+                          ? "text-[#f4e9d0]"
+                          : "text-[#d8d1c6] group-hover:text-white"
+                        : isActive
                         ? "text-[#6b21a8]"
                         : "text-slate-500 group-hover:text-slate-900",
                     )}
@@ -403,15 +494,20 @@ export function GlobalNav() {
             <button
               onClick={handleLogout}
               className={cn(
-                "w-full flex items-center transition-all duration-200 text-slate-500 hover:text-red-600 rounded-xl group relative",
+                "w-full flex items-center transition-all duration-200 rounded-xl group relative",
+                isOfficialPortalSection
+                  ? "text-[#d8d1c6] hover:text-white hover:bg-white/5"
+                  : "text-slate-500 hover:text-red-600",
                 isOpen ? "px-4 py-2" : "justify-center py-2",
               )}
             >
               <div
                 className={cn(
                   "flex items-center justify-center transition-all duration-300 shrink-0",
-                  "w-11 h-11 rounded-xl border border-slate-100 bg-white shadow-sm",
-                  "group-hover:border-red-200 group-hover:bg-red-50 group-hover:scale-105 group-hover:text-red-600",
+                  "w-11 h-11 rounded-xl border shadow-sm",
+                  isOfficialPortalSection
+                    ? "border-white/10 bg-[#202020] group-hover:border-[#c99b45]/60 group-hover:bg-[#2a2a2a] group-hover:scale-105 group-hover:text-white"
+                    : "border-slate-100 bg-white group-hover:border-red-200 group-hover:bg-red-50 group-hover:scale-105 group-hover:text-red-600",
                 )}
               >
                 <LogOut size={20} />
@@ -431,17 +527,6 @@ export function GlobalNav() {
               )}
             </button>
           )}
-
-          <div className="px-1">
-            <div
-              className={cn(
-                "bg-slate-200/50 rounded-2xl p-4 transition-all duration-300 border border-slate-200",
-                isOpen
-                  ? "opacity-100"
-                  : "sr-only opacity-0 pointer-events-none",
-              )}
-            ></div>
-          </div>
         </div>
       </aside>
     </>

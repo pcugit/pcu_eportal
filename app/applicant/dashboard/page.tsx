@@ -47,13 +47,12 @@ import { Recommendation } from "@/lib/api";
 import ApplicationFormComponent from "@/components/ApplicationForm";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 import ApplicantProfile from "@/components/ApplicantProfile";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 const TYPE_STYLES: Record<number, { color: string; border: string }> = {
   1: { color: "from-blue-500/10 to-blue-600/5", border: "border-blue-200" },
   2: {
-    color: "from-purple-500/10 to-purple-600/5",
-    border: "border-purple-200",
+    color: "from-amber-500/10 to-amber-600/5",
+    border: "border-amber-200",
   },
   3: { color: "from-amber-500/10 to-amber-600/5", border: "border-amber-200" },
   4: { color: "from-pink-500/10 to-pink-600/5", border: "border-pink-200" },
@@ -94,13 +93,7 @@ export default function ApplicantDashboard() {
 function ApplicantDashboardInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const {
-    user,
-    isAuthenticated,
-    logout,
-    refreshStatus,
-    isLoading: authLoading,
-  } = useAuth();
+  const { user, isAuthenticated, logout, refreshStatus } = useAuth();
   const [status, setStatus] = useState<ApplicantStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [admissionLetter, setAdmissionLetter] =
@@ -119,24 +112,16 @@ function ApplicantDashboardInner() {
   const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([]);
   const [feeTotal, setFeeTotal] = useState(0);
   const [tuitionProcessingFee, setTuitionProcessingFee] = useState(300);
-  const [paymentMode, setPaymentMode] = useState<"full" | "installment">(
-    "full",
-  );
+  const [paymentMode, setPaymentMode] = useState<"full" | "installment">("full");
   const [installmentPlans, setInstallmentPlans] = useState<any[]>([]);
-  const [selectedInstallmentPlanId, setSelectedInstallmentPlanId] = useState<
-    number | null
-  >(null);
-  const [installmentAmount, setInstallmentAmount] = useState<number | null>(
-    null,
-  );
+  const [selectedInstallmentPlanId, setSelectedInstallmentPlanId] = useState<number | null>(null);
+  const [installmentAmount, setInstallmentAmount] = useState<number | null>(null);
   const [remainingPercentage, setRemainingPercentage] = useState<number>(100);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
   const [printLoading, setPrintLoading] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
-  const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>(
-    [],
-  );
+  const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
 
   const [applicants, setApplicants] = useState<ApplicantStatus[]>([]);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -158,11 +143,6 @@ function ApplicantDashboardInner() {
     Record<number, any>
   >({}); // keyed by program_type_id
 
-  // PG Notice modal states triggered inside Apply button click
-  const [showPGNotice, setShowPGNotice] = useState(false);
-  const [pendingApplyApp, setPendingApplyApp] = useState<ApplicantStatus | null>(null);
-  const [preloadedPassportUrls, setPreloadedPassportUrls] = useState<Record<number, string>>({});
-
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(
     null,
@@ -176,37 +156,103 @@ function ApplicantDashboardInner() {
   const [processingFee, setProcessingFee] = useState<number>(0);
   const [isRedirecting, setIsRedirecting] = useState(false);
 
-  // Check if tuition fees are fully paid
-  const isFullyPaid = (() => {
-    // 1. Did they make a successful full tuition payment (installment_plan_id is null/undefined)?
-    const hasFullPayment = (paymentHistory || []).some(
-      (p) =>
-        p.payment_type === "tuition" &&
-        p.is_successful &&
-        !p.installment_plan_id,
-    );
-    if (hasFullPayment) return true;
+  const getAdmissionModalSessionKey = (applicant?: any) =>
+    `pcu-admission-offer-modal:${applicant?.id ?? user?.username ?? "applicant"}`;
 
-    // 2. If installment plans exist, have they paid ALL of them successfully?
-    if (installmentPlans && installmentPlans.length > 0) {
-      const paidPlanIds = new Set(
-        (paymentHistory || [])
-          .filter(
-            (p) =>
-              p.payment_type === "tuition" &&
-              p.is_successful &&
-              p.installment_plan_id,
-          )
-          .map((p) => p.installment_plan_id),
-      );
-      const allPaid = installmentPlans.every((plan) =>
-        paidPlanIds.has(plan.id),
-      );
-      return allPaid;
+  const openApplicantProfile = async (app: ApplicantStatus) => {
+    setViewingFormId(app.id);
+
+    const cachedTemplate = preloadedTemplates[app.program_type_id];
+    const cachedForm = preloadedForms[app.id];
+
+    if (cachedTemplate) setFormTemplate(cachedTemplate);
+    if (cachedForm) {
+      setSubmittedFormData(cachedForm.form);
+      setSubmittedDocuments(cachedForm.documents);
     }
 
-    return false;
-  })();
+    const fullyReady = !!cachedTemplate && !!cachedForm;
+    if (!fullyReady) setProfileLoading(true);
+
+    try {
+      const [templateResult, formResult] = await Promise.all([
+        cachedTemplate
+          ? Promise.resolve(cachedTemplate)
+          : ApiClient.getFormTemplate(app.program_type_id),
+        cachedForm
+          ? Promise.resolve(cachedForm)
+          : ApiClient.getForm(app.id)
+              .then((r) => ({
+                form: r.form ?? r,
+                documents: r.documents ?? [],
+              }))
+              .catch(() => ({
+                form: null,
+                documents: [],
+              })),
+      ]);
+
+      if (!cachedTemplate) {
+        setFormTemplate(templateResult);
+        setPreloadedTemplates((prev) => ({
+          ...prev,
+          [app.program_type_id]: templateResult,
+        }));
+      }
+
+      if (!cachedForm) {
+        const resolvedForm = formResult as any;
+        setSubmittedFormData(resolvedForm.form);
+        setSubmittedDocuments(resolvedForm.documents ?? []);
+        setPreloadedForms((prev) => ({
+          ...prev,
+          [app.id]: {
+            form: resolvedForm.form,
+            documents: resolvedForm.documents ?? [],
+          },
+        }));
+      }
+
+      if (["admitted", "accepted"].includes(app.application_status)) {
+        try {
+          const feeData = await ApiClient.getAcceptanceFee();
+          setAcceptanceFeeData({
+            amount: feeData.acceptance_fee + feeData.processing_fee,
+            feeName: feeData.fee_name,
+            paid: app.has_paid_acceptance_fee,
+          });
+        } catch (e) {
+          console.error("Failed to load acceptance fee", e);
+        }
+      } else {
+        setAcceptanceFeeData(null);
+      }
+    } catch (e) {
+      console.error("Failed to load form data", e);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const openAdmissionOfferProfile = async () => {
+    const admittedApp = applicants.find(
+      (app) =>
+        app.has_paid_application_fee &&
+        ["admitted", "accepted"].includes(app.application_status),
+    );
+
+    if (!admittedApp) {
+      setShowAdmissionModal(false);
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(getAdmissionModalSessionKey(status), "seen");
+    }
+
+    setShowAdmissionModal(false);
+    await openApplicantProfile(admittedApp);
+  };
 
   const loadStatus = async () => {
     try {
@@ -217,7 +263,14 @@ function ApplicantDashboardInner() {
 
       if (response.applicant?.admission_status === "admitted") {
         if (!response.applicant.has_paid_acceptance_fee) {
-          setShowAdmissionModal(true);
+          const modalSeen =
+            typeof window !== "undefined" &&
+            sessionStorage.getItem(
+              getAdmissionModalSessionKey(response.applicant),
+            ) === "seen";
+          setShowAdmissionModal(!modalSeen);
+        } else {
+          setShowAdmissionModal(false);
         }
         try {
           const letterResponse = await ApiClient.getAdmissionLetter();
@@ -245,13 +298,9 @@ function ApplicantDashboardInner() {
         const admittedApp = apps.find(
           (a: ApplicantStatus) =>
             a.has_paid_application_fee &&
-            [
-              "admitted",
-              "accepted",
-              "submitted",
-              "screening",
-              "enrolled",
-            ].includes(a.application_status),
+            ["admitted", "accepted", "submitted", "screening", "enrolled"].includes(
+              a.application_status,
+            ),
         );
         if (admittedApp) {
           setViewingFormId(admittedApp.id);
@@ -325,15 +374,6 @@ function ApplicantDashboardInner() {
         console.error("Error loading program types:", err);
       }
 
-      try {
-        const pfData = await ApiClient.getProcessingFee();
-        if (typeof pfData.processing_fee === "number") {
-          setProcessingFee(pfData.processing_fee);
-        }
-      } catch (err) {
-        console.error("Error loading processing fee:", err);
-      }
-
       // Form data is loaded lazily when the user opens a specific application
       // (see the "Apply / Profile" onClick handler in ApplicationsTable).
       // We do NOT preload all N forms upfront to avoid N parallel API requests
@@ -349,25 +389,6 @@ function ApplicantDashboardInner() {
     if (!isAuthenticated) return;
     loadStatus();
   }, [isAuthenticated]);
-
-  // Refetch payment history when user returns from payment gateway
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === "visible" && isAdmitted) {
-        try {
-          const pHistory = await ApiClient.getPaymentHistory();
-          setPaymentHistory(pHistory.payment_history || []);
-        } catch (err) {
-          console.error("Failed to refetch payment history:", err);
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [isAdmitted]);
 
   /**
    * Initiates a redirect-based payment for the application fee.
@@ -385,14 +406,13 @@ function ApplicantDashboardInner() {
       if (typeof init.processing_fee === "number") {
         setProcessingFee(init.processing_fee);
       }
-
+      
       const url = new URL(init.redirect_url);
       const params = Object.fromEntries(url.searchParams.entries());
 
       const form = document.createElement("form");
       form.method = "POST";
-      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay
-      form.action = `${url.origin}${url.pathname}`;
+      form.action = `${url.origin}/collections/w/pay`;
 
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");
@@ -414,133 +434,6 @@ function ApplicantDashboardInner() {
   const handleLogout = async () => {
     await logout();
     router.replace("/auth/login");
-  };
-
-  const prefetchApplicationData = async (app: ApplicantStatus) => {
-    try {
-      const [templateResult, formResult] = await Promise.all([
-        preloadedTemplates[app.program_type_id]
-          ? Promise.resolve(preloadedTemplates[app.program_type_id])
-          : ApiClient.getFormTemplate(app.program_type_id),
-        preloadedForms[app.id]
-          ? Promise.resolve(preloadedForms[app.id])
-          : ApiClient.getForm(app.id)
-              .then((r) => ({
-                form: r.form ?? r,
-                documents: r.documents ?? [],
-              }))
-              .catch(() => ({
-                form: null,
-                documents: [],
-              })),
-      ]);
-
-      setPreloadedTemplates((prev) => ({
-        ...prev,
-        [app.program_type_id]: templateResult,
-      }));
-      setPreloadedForms((prev) => ({
-        ...prev,
-        [app.id]: {
-          form: (formResult as any).form,
-          documents: (formResult as any).documents ?? [],
-        },
-      }));
-
-      const passportDoc = (formResult as any).documents?.find(
-        (d: any) =>
-          d.document_type === "passport" ||
-          d.document_type?.toLowerCase().includes("passport") ||
-          d.original_filename?.toLowerCase().includes("passport"),
-      );
-
-      if (passportDoc?.document_id) {
-        const baseUrl = ApiClient.getBaseUrl();
-        const response = await fetch(
-          `${baseUrl}/applicant/download-document/${passportDoc.document_id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${ApiClient.getToken()}`,
-            },
-          },
-        );
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          setPreloadedPassportUrls((prev) => {
-            if (prev[app.id]) {
-              URL.revokeObjectURL(prev[app.id]);
-            }
-            return {
-              ...prev,
-              [app.id]: url,
-            };
-          });
-        }
-      }
-    } catch (e) {
-      console.error("Failed to prefetch application data", e);
-    }
-  };
-
-  const handleOpenApplicationForm = async (app: ApplicantStatus) => {
-    setViewingFormId(app.id);
-
-    const cachedTemplate = preloadedTemplates[app.program_type_id];
-    const cachedForm = preloadedForms[app.id];
-
-    if (cachedTemplate) setFormTemplate(cachedTemplate);
-    if (cachedForm) {
-      setSubmittedFormData(cachedForm.form);
-      setSubmittedDocuments(cachedForm.documents);
-    }
-
-    const fullyReady = !!cachedTemplate && !!cachedForm;
-    if (!fullyReady) setProfileLoading(true);
-
-    try {
-      const [templateResult, formResult] = await Promise.all([
-        cachedTemplate
-          ? Promise.resolve(cachedTemplate)
-          : ApiClient.getFormTemplate(app.program_type_id),
-        cachedForm
-          ? Promise.resolve(cachedForm)
-          : ApiClient.getForm(app.id)
-              .then((r) => ({
-                form: r.form ?? r,
-                documents: r.documents ?? [],
-              }))
-              .catch(() => ({
-                form: null,
-                documents: [],
-              })),
-      ]);
-
-      if (!cachedTemplate) setFormTemplate(templateResult);
-      if (!cachedForm) {
-        setSubmittedFormData((formResult as any).form);
-        setSubmittedDocuments((formResult as any).documents ?? []);
-      }
-
-      if (["admitted", "accepted"].includes(app.application_status)) {
-        try {
-          const feeData = await ApiClient.getAcceptanceFee();
-          setAcceptanceFeeData({
-            amount: feeData.acceptance_fee + feeData.processing_fee,
-            feeName: feeData.fee_name,
-            paid: app.has_paid_acceptance_fee,
-          });
-        } catch (e) {
-          console.error("Failed to load acceptance fee", e);
-        }
-      } else {
-        setAcceptanceFeeData(null);
-      }
-    } catch (e) {
-      console.error("Failed to load form data", e);
-    } finally {
-      setProfileLoading(false);
-    }
   };
 
   // ── Admitted student handlers ──────────────────────────────────────────────
@@ -578,9 +471,7 @@ function ApplicantDashboardInner() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Error downloading medical form:", err);
-      alert(
-        err instanceof Error ? err.message : "Failed to download medical form",
-      );
+      alert(err instanceof Error ? err.message : "Failed to download medical form");
     } finally {
       setDownloading(null);
     }
@@ -659,60 +550,27 @@ function ApplicantDashboardInner() {
       setFeeComponents(breakdown.components);
       setFeeTotal(breakdown.total);
       setTuitionProcessingFee(
-        typeof breakdown.processing_fee === "number"
-          ? breakdown.processing_fee
-          : 300,
+        typeof breakdown.processing_fee === "number" ? breakdown.processing_fee : 300,
       );
-
-      // Store fee breakdown agreement in localStorage for callback verification
-      const feeAgreement = {
-        timestamp: new Date().toISOString(),
-        components: breakdown.components,
-        total: breakdown.total,
-        processingFee:
-          typeof breakdown.processing_fee === "number"
-            ? breakdown.processing_fee
-            : 300,
-        sessionId: (status as any)?.current_session_id,
-      };
-      localStorage.setItem(
-        "tuition_fee_agreement",
-        JSON.stringify(feeAgreement),
-      );
-      console.log("[Fee Agreement Stored]", feeAgreement);
-
       const plans = plansRes.installment_plans || [];
       setInstallmentPlans(plans);
 
       const paidPlanIds = new Set<number>();
       (paymentHistory || []).forEach((p: any) => {
-        if (
-          p.payment_type === "tuition" &&
-          p.is_successful &&
-          p.installment_plan_id
-        ) {
+        if (p.payment_type === "tuition" && p.is_successful && p.installment_plan_id) {
           paidPlanIds.add(p.installment_plan_id);
         }
       });
       const unpaidPlans = plans.filter((pl: any) => !paidPlanIds.has(pl.id));
-      const remPct =
-        unpaidPlans.length > 0
-          ? unpaidPlans.reduce(
-              (sum: number, pl: any) => sum + parseFloat(pl.percentage || 0),
-              0,
-            )
-          : 100;
+      const remPct = unpaidPlans.length > 0 ? unpaidPlans.reduce((sum: number, pl: any) => sum + parseFloat(pl.percentage || 0), 0) : 100;
       setRemainingPercentage(remPct);
 
       if (plans.length > 0) {
-        const next =
-          plans.find((pl: any) => !paidPlanIds.has(pl.id)) || plans[0];
+        const next = plans.find((pl: any) => !paidPlanIds.has(pl.id)) || plans[0];
         if (next) {
           setSelectedInstallmentPlanId(next.id);
           setInstallmentAmount(
-            parseFloat(
-              (breakdown.total * (next.percentage / 100) || 0).toFixed(2),
-            ),
+            parseFloat((breakdown.total * (next.percentage / 100) || 0).toFixed(2)),
           );
         } else {
           setSelectedInstallmentPlanId(null);
@@ -738,39 +596,14 @@ function ApplicantDashboardInner() {
         "tuition",
         undefined,
         undefined,
-        paymentMode === "installment"
-          ? (selectedInstallmentPlanId ?? undefined)
-          : undefined,
+        paymentMode === "installment" ? (selectedInstallmentPlanId ?? undefined) : undefined,
       );
-
-      // Store payment intent in localStorage for callback verification
-      const paymentIntent = {
-        timestamp: new Date().toISOString(),
-        paymentType: "tuition",
-        paymentMode,
-        amountPaid: paymentMode === "full" ? feeTotal : installmentAmount,
-        installmentPlanId:
-          paymentMode === "installment" ? selectedInstallmentPlanId : null,
-        reference:
-          init.reference_no ||
-          init.redirect_url
-            ?.split("&")
-            .find((p) => p.includes("ref"))
-            ?.split("=")[1],
-      };
-      localStorage.setItem(
-        "tuition_payment_intent",
-        JSON.stringify(paymentIntent),
-      );
-      console.log("[Payment Intent Stored]", paymentIntent);
-
       setShowBreakdownModal(false);
       const url = new URL(init.redirect_url);
       const params = Object.fromEntries(url.searchParams.entries());
       const form = document.createElement("form");
       form.method = "POST";
-      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay
-      form.action = `${url.origin}${url.pathname}`;
+      form.action = `${url.origin}/collections/w/pay`;
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");
         input.type = "hidden";
@@ -788,9 +621,7 @@ function ApplicantDashboardInner() {
       document.body.appendChild(form);
       form.submit();
     } catch (err: any) {
-      setTuitionPayError(
-        err.message || "Failed to start payment. Please try again.",
-      );
+      setTuitionPayError(err.message || "Failed to start payment. Please try again.");
       setIsPayingTuition(false);
     }
   };
@@ -798,11 +629,11 @@ function ApplicantDashboardInner() {
   // Admitted student documents section rendered both on dashboard and profile page
   const renderOfficialDocuments = () => {
     return (
-      <Card className="overflow-hidden border border-slate-100 shadow-xl bg-white animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="bg-gradient-to-r from-[#6b21a8]/5 via-[#881337]/5 to-transparent p-6 border-b border-slate-100">
+      <Card className="overflow-hidden border border-[#e8dfd2] shadow-sm bg-[#fffefa] animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="bg-[#fbfaf7] p-5 sm:p-6 border-b border-[#eee5d8]">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-xl font-bold text-slate-800">
+              <CardTitle className="text-lg sm:text-xl font-semibold text-slate-900">
                 Official Admission Documents
               </CardTitle>
               <CardDescription className="text-sm mt-1 text-slate-500">
@@ -812,27 +643,23 @@ function ApplicantDashboardInner() {
           </div>
         </div>
 
-        <CardContent className="p-6">
+        <CardContent className="p-5 sm:p-6">
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Admission Letter */}
-            <div className="bg-gradient-to-br from-[#6b21a8]/[0.02] to-transparent border border-[#6b21a8]/10 hover:border-[#6b21a8]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+            <div className="bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
               <div>
-                <div className="bg-[#6b21a8]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                <div className="bg-[#f3eee6] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#9a6614] border border-[#e2d6c3]">
                   <FileText className="h-6 w-6" />
                 </div>
-                <h4 className="font-bold text-base text-slate-800 mb-1">
-                  Provisional Admission Letter
-                </h4>
-                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                  Your official letter of admission for your program.
-                </p>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Provisional Admission Letter</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Your official letter of admission for your program.</p>
               </div>
               <div className="flex gap-2">
                 <Button
                   onClick={() => setShowLetter(!showLetter)}
                   variant="outline"
                   size="sm"
-                  className="flex-1 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4"
+                  className="flex-1 border-[#d8bd82] text-[#7a4f10] hover:bg-[#fff7e8] text-xs font-semibold py-4"
                   disabled={!admissionLetter}
                 >
                   {showLetter ? "Hide" : "Preview"}
@@ -840,7 +667,7 @@ function ApplicantDashboardInner() {
                 <Button
                   onClick={handlePrintPDF}
                   size="sm"
-                  className="flex-1 gap-2 bg-[#6b21a8] hover:bg-[#581c87] text-white shadow-md shadow-purple-500/10 text-xs font-semibold py-4"
+                  className="flex-1 gap-2 bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm text-xs font-semibold py-4"
                   disabled={printLoading || !admissionLetter}
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -850,42 +677,32 @@ function ApplicantDashboardInner() {
             </div>
 
             {/* Medical Form */}
-            <div className="bg-gradient-to-br from-[#881337]/[0.02] to-transparent border border-[#881337]/10 hover:border-[#881337]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+            <div className="bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
               <div>
-                <div className="bg-[#881337]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#881337]">
+                <div className="bg-[#f3eee6] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#9a6614] border border-[#e2d6c3]">
                   <FileText className="h-6 w-6" />
                 </div>
-                <h4 className="font-bold text-base text-slate-800 mb-1">
-                  Medical Examination Form
-                </h4>
-                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                  Print and take to a certified hospital for examination.
-                </p>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Medical Examination Form</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Print and take to a certified hospital for examination.</p>
               </div>
               <Button
                 onClick={handleDownloadMedicalForm}
                 disabled={downloading === "medical_form"}
-                className="w-full gap-2 bg-[#881337] hover:bg-[#70112c] text-white shadow-md shadow-rose-900/10 text-xs font-semibold py-4"
+                className="w-full gap-2 bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm text-xs font-semibold py-4"
               >
                 <Download className="h-3.5 w-3.5" />
-                {downloading === "medical_form"
-                  ? "Downloading..."
-                  : "Download PDF"}
+                {downloading === "medical_form" ? "Downloading..." : "Download PDF"}
               </Button>
             </div>
 
             {/* Notice & Affidavit */}
-            <div className="bg-gradient-to-br from-[#6b21a8]/[0.01] to-[#881337]/[0.01] border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
+            <div className="bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
               <div>
-                <div className="bg-purple-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                <div className="bg-[#f3eee6] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#9a6614] border border-[#e2d6c3]">
                   <Settings className="h-6 w-6" />
                 </div>
-                <h4 className="font-bold text-base text-slate-800 mb-1">
-                  Notice & Affidavit
-                </h4>
-                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                  Official resumption notice and good conduct affidavit.
-                </p>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Notice & Affidavit</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Official resumption notice and good conduct affidavit.</p>
               </div>
               <div className="space-y-2">
                 <Button
@@ -893,19 +710,17 @@ function ApplicantDashboardInner() {
                   variant="outline"
                   size="sm"
                   disabled={downloading === "admission_notice"}
-                  className="w-full gap-2 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4 justify-center"
+                  className="w-full gap-2 border-[#d8bd82] text-[#7a4f10] hover:bg-[#fff7e8] text-xs font-semibold py-4 justify-center"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  {downloading === "admission_notice"
-                    ? "..."
-                    : "Admission Notice"}
+                  {downloading === "admission_notice" ? "..." : "Admission Notice"}
                 </Button>
                 <Button
                   onClick={handleDownloadAffidavit}
                   variant="outline"
                   size="sm"
                   disabled={downloading === "affidavit"}
-                  className="w-full gap-2 border-[#881337]/25 text-[#881337] hover:bg-[#881337]/5 text-xs font-semibold py-4 justify-center"
+                  className="w-full gap-2 border-[#d8bd82] text-[#7a4f10] hover:bg-[#fff7e8] text-xs font-semibold py-4 justify-center"
                 >
                   <Download className="h-3.5 w-3.5" />
                   {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
@@ -916,15 +731,11 @@ function ApplicantDashboardInner() {
             {/* Payment Receipts */}
             <div className="bg-gradient-to-br from-slate-50/50 to-transparent border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
               <div>
-                <div className="bg-rose-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#881337]">
+                <div className="bg-[#f3eee6] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#9a6614] border border-[#e2d6c3]">
                   <DollarSign className="h-6 w-6" />
                 </div>
-                <h4 className="font-bold text-base text-slate-800 mb-1">
-                  Payment Receipts
-                </h4>
-                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                  Download official receipts for your completed payments.
-                </p>
+                <h4 className="font-bold text-base text-slate-800 mb-1">Payment Receipts</h4>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">Download official receipts for your completed payments.</p>
               </div>
               <div className="space-y-2">
                 {paymentHistory
@@ -940,10 +751,8 @@ function ApplicantDashboardInner() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
-                        onClick={() =>
-                          handleDownloadReceipt(pt.receipt_no, pt.payment_type)
-                        }
+                        className="h-8 text-[#7a4f10] hover:text-[#5c3908] hover:bg-[#fff7e8] font-bold"
+                        onClick={() => handleDownloadReceipt(pt.receipt_no, pt.payment_type)}
                         disabled={downloading === `receipt_${pt.receipt_no}`}
                       >
                         <Download className="h-3.5 w-3.5 mr-1" />
@@ -951,8 +760,7 @@ function ApplicantDashboardInner() {
                       </Button>
                     </div>
                   ))}
-                {paymentHistory.filter((pt) => pt.is_successful).length ===
-                  0 && (
+                {paymentHistory.filter((pt) => pt.is_successful).length === 0 && (
                   <p className="text-xs text-center text-slate-400 py-2 italic bg-slate-50 rounded-lg border border-dashed">
                     No payment records found.
                   </p>
@@ -969,10 +777,8 @@ function ApplicantDashboardInner() {
                   <FsmsAdmissionLetter {...admissionLetter} />
                 ) : (
                   <div className="text-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#6b21a8] mx-auto mb-4" />
-                    <p className="text-slate-500 text-sm mt-4">
-                      Loading admission letter details...
-                    </p>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9a6614] mx-auto mb-4" />
+                    <p className="text-slate-500 text-sm mt-4">Loading admission letter details...</p>
                   </div>
                 )}
               </div>
@@ -983,42 +789,12 @@ function ApplicantDashboardInner() {
     );
   };
 
-  // ── Auth gate: wait for AuthContext to finish checking the token ──────
-  // Without this, the dashboard shell renders during the async gap between
-  // hydration and verifyToken completion (the expired-session flash bug).
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground font-medium">
-            Verifying session…
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Auth check completed and user is not authenticated → redirect to login
-  if (!isAuthenticated) {
-    if (typeof window !== "undefined") {
-      const currentPath = window.location.pathname;
-      const loginPath = currentPath.startsWith("/e-portal")
-        ? "/e-portal/auth/login"
-        : "/auth/login";
-      window.location.href = loginPath;
-    }
-    return null;
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground font-medium">
-            Loading dashboard…
-          </p>
+          <p className="text-muted-foreground font-medium">Authenticating</p>
         </div>
       </div>
     );
@@ -1042,14 +818,14 @@ function ApplicantDashboardInner() {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-2 bg-[#6b357d] rounded-full shadow-md shadow-purple-500/30"></div>
-          <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">
+          <div className="h-8 w-2 bg-[#c99b45] rounded-full shadow-sm"></div>
+          <h2 className="text-lg sm:text-xl font-semibold text-slate-900">
             My Active Applications
           </h2>
         </div>
 
         {apps.length === 0 ? (
-          <div className="bg-white/70 backdrop-blur-sm border border-slate-200/60 rounded-2xl p-12 text-center shadow-sm">
+          <div className="bg-[#fffefa] border border-[#e8dfd2] rounded-2xl p-8 sm:p-12 text-center shadow-sm">
             <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <p className="text-slate-500 font-bold">
               No active applications found.
@@ -1059,11 +835,136 @@ function ApplicantDashboardInner() {
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200/60 shadow-lg shadow-slate-100 bg-white/80 backdrop-blur-md">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[1000px]">
+          <>
+            <div className="space-y-3 xl:hidden">
+              {apps.map((app) => {
+                const isComplete = [
+                  "submitted",
+                  "screening",
+                  "admitted",
+                  "accepted",
+                  "rejected",
+                  "enrolled",
+                ].includes(app.application_status);
+                const actionLabel = [
+                  "submitted",
+                  "admitted",
+                  "accepted",
+                  "enrolled",
+                ].includes(app.application_status)
+                  ? "Profile"
+                  : "Apply";
+
+                return (
+                  <div
+                    key={app.id}
+                    className="rounded-2xl border border-[#e8dfd2] bg-[#fffefa] p-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-semibold capitalize text-slate-900">
+                          {app.user_name}
+                        </p>
+                        <p className="mt-1 truncate font-mono text-xs text-slate-500">
+                          {app.form_no || "-"}
+                        </p>
+                      </div>
+
+                      {app.has_paid_application_fee ? (
+                        <Button
+                          size="sm"
+                          className="h-9 shrink-0 rounded-lg bg-[#151515] px-4 font-semibold text-white shadow-sm hover:bg-[#2a2a2a]"
+                          onClick={() => openApplicantProfile(app)}
+                        >
+                          {actionLabel}
+                        </Button>
+                      ) : app.has_pending_application_payment ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Processing
+                        </span>
+                      ) : (
+                        <span className="inline-flex shrink-0 items-center rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600">
+                          Failed
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500">Programme</p>
+                        <p className="mt-1 font-semibold text-slate-800">{app.program_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500">Session</p>
+                        <p className="mt-1 text-slate-700">{app.program_session}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-xs font-semibold text-slate-500">Matric. No</p>
+                        {app.matric_no ? (
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="font-mono text-sm text-slate-700">{app.matric_no}</span>
+                            <button
+                              className="rounded-lg p-1.5 text-slate-400 transition-colors duration-200 hover:bg-slate-100 hover:text-slate-600"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(app.matric_no!);
+                                  setCopiedId(app.id);
+                                  setTimeout(() => setCopiedId(null), 1800);
+                                } catch (e) {
+                                  console.error("Copy failed", e);
+                                }
+                              }}
+                              title="Copy Matric Number"
+                            >
+                              {copiedId === app.id ? (
+                                <Check className="h-4 w-4 text-emerald-600 animate-in fade-in zoom-in duration-200" />
+                              ) : (
+                                <Copy className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-slate-400">-</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm",
+                          isComplete
+                            ? "border-emerald-100 bg-emerald-50 text-emerald-700 shadow-emerald-500/5"
+                            : "border-amber-100 bg-amber-50 text-amber-700 shadow-amber-500/5",
+                        )}
+                      >
+                        {isComplete ? "complete" : "pending"}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm",
+                          app.admission_status === "admitted" ||
+                            app.admission_status === "accepted"
+                            ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                            : app.admission_status === "rejected"
+                              ? "border-red-100 bg-red-50 text-red-700"
+                              : "border-slate-100 bg-slate-50 text-slate-600",
+                        )}
+                      >
+                        {app.admission_status.replace("_", " ")}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-hidden rounded-2xl border border-[#e8dfd2] bg-[#fffefa] shadow-sm xl:block">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[1000px]">
                 <thead>
-                  <tr className="bg-slate-50/75 border-b border-slate-200/60 text-slate-500 font-bold uppercase tracking-wider text-xs">
+                  <tr className="bg-[#fbfaf7] border-b border-[#eee5d8] text-slate-500 font-bold text-xs">
                     <th className="p-5 font-bold">Name</th>
                     <th className="p-5 font-bold">Form No.</th>
                     <th className="p-5 font-bold">Matric. No</th>
@@ -1098,16 +999,12 @@ function ApplicantDashboardInner() {
                         <td className="p-5 text-sm text-slate-400">
                           {app.matric_no ? (
                             <div className="flex items-center gap-3">
-                              <span className="font-mono text-sm text-slate-700">
-                                {app.matric_no}
-                              </span>
+                              <span className="font-mono text-sm text-slate-700">{app.matric_no}</span>
                               <button
                                 className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors duration-200"
                                 onClick={async () => {
                                   try {
-                                    await navigator.clipboard.writeText(
-                                      app.matric_no!,
-                                    );
+                                    await navigator.clipboard.writeText(app.matric_no!);
                                     setCopiedId(app.id);
                                     setTimeout(() => setCopiedId(null), 1800);
                                   } catch (e) {
@@ -1127,13 +1024,13 @@ function ApplicantDashboardInner() {
                             "-"
                           )}
                         </td>
-                        <td className="p-5 text-sm text-slate-800 uppercase font-black tracking-tight">
+                        <td className="p-5 text-sm text-slate-800 font-semibold">
                           {app.program_name}
                         </td>
                         <td className="p-5 text-sm">
                           <span
                             className={cn(
-                              "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm",
+                              "px-2.5 py-1 rounded-full text-[11px] font-semibold border shadow-sm",
                               isComplete
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-100 shadow-emerald-500/5"
                                 : "bg-amber-50 text-amber-700 border-amber-100 shadow-amber-500/5",
@@ -1148,15 +1045,13 @@ function ApplicantDashboardInner() {
                         <td className="p-5 text-sm">
                           <span
                             className={cn(
-                              "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm",
+                              "px-2.5 py-1 rounded-full text-[11px] font-semibold border shadow-sm",
                               app.admission_status === "admitted" ||
                                 app.admission_status === "accepted"
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-100"
                                 : app.admission_status === "rejected"
                                   ? "bg-red-50 text-red-700 border-red-100"
-                                  : app.admission_status === "screening"
-                                    ? "bg-purple-50 text-purple-700 border-purple-200/60 shadow-sm shadow-purple-500/5"
-                                    : "bg-slate-50 text-slate-600 border-slate-100",
+                                  : "bg-slate-50 text-slate-600 border-slate-100",
                             )}
                           >
                             {app.admission_status.replace("_", " ")}
@@ -1167,32 +1062,12 @@ function ApplicantDashboardInner() {
                             // ── Paid — show Apply / Profile button
                             <Button
                               size="sm"
-                              className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-9 px-6 rounded-lg transition-all duration-300 shadow-md shadow-purple-500/10 hover:shadow-purple-500/20"
-                              onClick={async () => {
-                                const isApplyAction = ![
-                                  "submitted",
-                                  "screening",
-                                  "admitted",
-                                  "accepted",
-                                  "enrolled",
-                                ].includes(app.application_status);
-
-                                if (app.program_type_id === 2 && isApplyAction) {
-                                  setPendingApplyApp(app);
-                                  setShowPGNotice(true);
-                                  prefetchApplicationData(app);
-                                } else {
-                                  await handleOpenApplicationForm(app);
-                                }
-                              }}
+                              className="bg-[#151515] hover:bg-[#2a2a2a] text-white font-bold h-9 px-6 rounded-lg transition-all duration-300 shadow-sm"
+                              onClick={() => openApplicantProfile(app)}
                             >
-                              {[
-                                "submitted",
-                                "screening",
-                                "admitted",
-                                "accepted",
-                                "enrolled",
-                              ].includes(app.application_status)
+                              {["submitted", "admitted", "accepted", "enrolled"].includes(
+                                app.application_status,
+                              )
                                 ? "Profile"
                                 : "Apply"}
                             </Button>
@@ -1214,8 +1089,9 @@ function ApplicantDashboardInner() {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     );
@@ -1226,8 +1102,8 @@ function ApplicantDashboardInner() {
     const currentApp = applicants.find((a) => a.id === viewingFormId);
 
     return (
-      <div className="min-h-screen bg-[#f8fafc] py-10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      <div className="min-h-screen bg-[#f8fafc] py-6 sm:py-8">
+        <div className="mx-auto w-full max-w-[1180px] px-3 sm:px-5 lg:px-8 space-y-5">
           <Button
             variant="ghost"
             className="text-slate-500 hover:text-slate-800"
@@ -1241,7 +1117,7 @@ function ApplicantDashboardInner() {
           </Button>
 
           {currentApp &&
-          ["submitted", "screening", "admitted", "accepted", "enrolled"].includes(
+          ["submitted", "admitted", "accepted", "enrolled"].includes(
             currentApp.application_status,
           ) ? (
             <div className="space-y-10">
@@ -1258,28 +1134,24 @@ function ApplicantDashboardInner() {
                             Acceptance Fee Payment Required
                           </h3>
                           <p className="text-sm text-amber-700">
-                            You must pay the acceptance fee to confirm your
-                            admission offer.
+                            You must pay the acceptance fee to confirm your admission offer.
                           </p>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-3xl font-black text-amber-800">
+                        <p className="text-2xl font-semibold text-amber-800">
                           ₦{acceptanceFeeData.amount.toLocaleString()}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {acceptanceFeeData.feeName || "Acceptance Fee"} (incl.
-                          processing fee)
+                          {acceptanceFeeData.feeName || "Acceptance Fee"} (incl. processing fee)
                         </p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-3 pt-2">
                       <Button
-                        className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold px-8"
-                        onClick={() =>
-                          router.push("/applicant/payment?type=acceptance_fee")
-                        }
+                        className="bg-[#151515] hover:bg-[#2a2a2a] text-white font-bold px-8"
+                        onClick={() => router.push('/applicant/payment?type=acceptance_fee')}
                       >
                         Pay Acceptance Fee →
                       </Button>
@@ -1289,7 +1161,9 @@ function ApplicantDashboardInner() {
               </div>
 
               {isAdmitted && (
-                <div className="mb-8">{renderOfficialDocuments()}</div>
+                <div className="mb-8">
+                  {renderOfficialDocuments()}
+                </div>
               )}
 
               {submittedFormData && (
@@ -1304,7 +1178,7 @@ function ApplicantDashboardInner() {
           ) : (
             <>
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-8 text-center space-y-2">
-                <h2 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
+                <h2 className="text-xl sm:text-2xl font-semibold text-slate-900">
                   Application Portal - {formTemplate.program}
                 </h2>
                 <p className="text-slate-500 font-medium">
@@ -1320,7 +1194,6 @@ function ApplicantDashboardInner() {
                 user={user}
                 initialFormData={submittedFormData ?? undefined}
                 initialDocuments={submittedDocuments ?? undefined}
-                initialPassportUrl={viewingFormId ? preloadedPassportUrls[viewingFormId] : undefined}
                 onSuccess={() => {
                   setViewingFormId(null);
                   setFormTemplate(null);
@@ -1374,32 +1247,34 @@ function ApplicantDashboardInner() {
       .map((a) => a.program_type_id),
   );
 
+  const hasApplicationInProgress = applicants.some(
+    (a) =>
+      a.application_status !== "rejected" &&
+      (a.has_paid_application_fee || a.has_pending_application_payment),
+  );
+
+
   return (
-    <div className="min-h-screen bg-[#f8fafc]">
-      <div className="max-w-6xl mx-auto px-4 py-12">
+    <div className="min-h-screen bg-[#f3eee6]">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         {/* ── Welcome Hero Banner ── */}
         {paymentStep === "selection" && (
-          <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 rounded-2xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -ml-10 -mb-10 pointer-events-none" />
+          <div className="rounded-2xl bg-[#c99b45] border border-[#b98d3d] p-5 sm:p-6 md:p-7 shadow-sm relative overflow-hidden mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
             <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-purple-200 bg-clip-text text-transparent">
+                <h1 className="text-2xl md:text-3xl font-semibold text-white leading-tight">
                   Welcome back,{" "}
-                  <span className="capitalize font-black text-white">
+                  <span className="capitalize font-semibold text-white">
                     {user?.username || "Applicant"}
                   </span>
                   ! 👋
                 </h1>
-                <p className="text-slate-300 text-xs md:text-sm font-medium mt-1">
+                <p className="text-white/85 text-sm font-medium mt-2 max-w-2xl">
                   Access your PCU e-portal account and manage your entry
                   registrations.
                 </p>
               </div>
-              <span className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-bold bg-white/10 text-purple-200 border border-white/10 uppercase tracking-widest self-start md:self-auto">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Active Session
-              </span>
             </div>
           </div>
         )}
@@ -1409,22 +1284,15 @@ function ApplicantDashboardInner() {
           <>
             {/* Important Student Portal Access Instructions Alert */}
             {status?.matric_no && (
-              <div className="flex items-start gap-3 p-4 bg-purple-50 rounded-2xl border border-purple-100 mb-6">
-                <AlertCircle className="w-5 h-5 text-purple-700 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 bg-[#fffefa] rounded-2xl border border-[#e8dfd2] mb-6 shadow-sm">
+                <AlertCircle className="w-5 h-5 text-[#9a6614] shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-bold text-purple-900">
+                  <p className="text-sm font-bold text-slate-900">
                     Important Student Portal Access Instructions
                   </p>
-                  <p className="text-sm text-purple-700 mt-1 leading-relaxed">
-                    Please{" "}
-                    <span className="font-bold">
-                      copy your matric number from the active applications table
-                      below and keep it safe
-                    </span>
-                    . You will need this matric number to access your new
-                    student portal. Your default password is your{" "}
-                    <span className="font-bold">surname in lowercase</span>. You
-                    will be prompted to change it upon your first login.
+                  <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                    Please <span className="font-bold">copy your matric number from the active applications table below and keep it safe</span>. You will need this matric number to access your new student portal. 
+                    Your default password is your <span className="font-bold">surname in lowercase</span>. You will be prompted to change it upon your first login.
                   </p>
                 </div>
               </div>
@@ -1434,49 +1302,30 @@ function ApplicantDashboardInner() {
             <ApplicationsTable apps={applicants} />
 
             {/* Available Programs cards below */}
-            <div className="mt-16 space-y-6">
+            <div className="mt-10 sm:mt-14 space-y-5">
               <div className="flex items-center gap-3">
-                <div className="h-8 w-2 bg-[#6b357d] rounded-full shadow-md shadow-purple-500/30"></div>
-                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">
+                <div className="h-8 w-2 bg-[#c99b45] rounded-full shadow-sm"></div>
+                <h2 className="text-lg sm:text-xl font-semibold text-slate-900">
                   Available Programs
                 </h2>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
                 {programTypes.map((form) => (
                   <Card
                     key={form.typeId}
-                    className="group relative overflow-hidden bg-white/85 backdrop-blur-md hover:shadow-2xl hover:shadow-purple-500/5 hover:-translate-y-1.5 transition-all duration-500 rounded-[24px] border border-slate-200/60 flex flex-col justify-between"
+                    className="group relative overflow-hidden bg-[#fffefa] hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 rounded-xl border border-[#e8dfd2] flex flex-col justify-between shadow-sm"
                   >
-                    <div
-                      className={`absolute inset-0 bg-gradient-to-br ${form.color} opacity-20 group-hover:opacity-35 transition-opacity duration-500`}
-                    ></div>
-                    <div className="absolute -right-16 -top-16 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
-
-                    <CardHeader className="relative z-10 p-8 pb-6">
-                      <div className="flex justify-between items-start gap-4 mb-4">
-                        <span className="p-3 bg-purple-50 rounded-xl text-[#6b357d] border border-purple-100 group-hover:bg-purple-100 transition-colors duration-300 shadow-sm">
-                          <GraduationCap className="w-5 h-5" />
-                        </span>
-                        {form.fee !== undefined ? (
-                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-full border border-emerald-100 uppercase tracking-wider">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-1 bg-slate-50 text-slate-400 text-[10px] font-bold rounded-full border border-slate-100 uppercase tracking-wider">
-                            Closed
-                          </span>
-                        )}
-                      </div>
-                      <CardTitle className="text-xl md:text-2xl font-black text-slate-800 tracking-tight leading-tight group-hover:text-[#6b357d] transition-colors duration-300 uppercase">
+                    <CardHeader className="relative z-10 p-4 sm:p-5 pb-3">
+                      <CardTitle className="text-base sm:text-lg font-semibold text-slate-900 leading-snug transition-colors duration-300">
                         {form.name}
                       </CardTitle>
                       {form.fee !== undefined ? (
-                        <div className="mt-3 flex items-baseline gap-1">
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        <div className="mt-2 flex items-baseline gap-1">
+                          <span className="text-xs text-slate-500 font-semibold">
                             Price:
                           </span>
-                          <span className="text-xl font-black text-[#6b357d]">
+                          <span className="text-lg font-semibold text-[#7a4f10]">
                             ₦{form.fee.toLocaleString()}
                           </span>
                         </div>
@@ -1487,43 +1336,53 @@ function ApplicantDashboardInner() {
                       )}
                     </CardHeader>
 
-                    <CardContent className="relative z-10 p-8 pt-0">
+                    <CardContent className="relative z-10 p-4 sm:p-5 pt-0">
                       {blockedTypeIds.has(form.typeId) ? (
                         <div className="space-y-2">
-                          <div className="w-full h-14 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center gap-2 text-emerald-700 font-black text-sm uppercase tracking-widest">
-                            <CheckCircle2 className="h-5 w-5" />
+                          <div className="w-full min-h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center gap-2 text-emerald-700 font-semibold text-sm">
+                            <CheckCircle2 className="h-4 w-4" />
                             Form Purchased
                           </div>
-                          <p className="text-center text-[10px] text-slate-400 font-semibold uppercase tracking-widest">
+                          <p className="text-center text-xs text-slate-500 font-semibold">
                             Re-purchase only allowed if rejected
                           </p>
                         </div>
                       ) : pendingTypeIds.has(form.typeId) ? (
                         <div className="space-y-2">
-                          <div className="w-full h-14 rounded-2xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center gap-2 text-amber-700 font-black text-sm uppercase tracking-widest">
-                            <Loader2 className="h-5 w-5 animate-spin" />
+                          <div className="w-full min-h-10 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center gap-2 text-amber-700 font-semibold text-sm">
+                            <Loader2 className="h-4 w-4 animate-spin" />
                             Payment Processing
                           </div>
-                          <p className="text-center text-[10px] text-slate-400 font-semibold uppercase tracking-widest">
+                          <p className="text-center text-xs text-slate-500 font-semibold">
                             Your payment is being confirmed
+                          </p>
+                        </div>
+                      ) : form.fee === undefined ? (
+                        <Button
+                          disabled
+                          className="w-full h-10 rounded-lg bg-slate-100 text-slate-400 text-sm font-semibold shadow-none flex items-center justify-center gap-2"
+                        >
+                          Coming Soon
+                        </Button>
+                      ) : hasApplicationInProgress ? (
+                        <div className="space-y-2">
+                          <div className="w-full min-h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center gap-2 text-slate-500 font-semibold text-sm">
+                            Application in Progress
+                          </div>
+                          <p className="text-center text-xs text-slate-500 font-semibold">
+                            Complete or wait for the current application first
                           </p>
                         </div>
                       ) : (
                         <Button
                           onClick={() => {
-                            if (form.fee === undefined) return;
                             setSelectedForm(form);
                             setPaymentStep("confirmation");
                           }}
-                          disabled={form.fee === undefined}
-                          className="w-full h-14 text-lg font-black uppercase tracking-wider shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 flex items-center justify-center gap-2 group/btn transition-all duration-300"
+                          className="w-full h-10 rounded-lg bg-[#151515] hover:bg-[#2a2a2a] text-white text-sm font-semibold shadow-sm flex items-center justify-center gap-2 group/btn transition-all duration-300"
                         >
-                          {form.fee === undefined
-                            ? "Coming Soon"
-                            : "Get Started"}
-                          {form.fee !== undefined && (
-                            <ChevronRight className="h-5 w-5 group-hover/btn:translate-x-1 transition-transform" />
-                          )}
+                          Get Started
+                          <ChevronRight className="h-4 w-4 group-hover/btn:translate-x-1 transition-transform" />
                         </Button>
                       )}
                     </CardContent>
@@ -1547,25 +1406,25 @@ function ApplicantDashboardInner() {
             >
               ← Back to selection
             </Button>
-            <Card className="border-0 shadow-2xl overflow-hidden bg-white rounded-[40px]">
-              <CardHeader className="text-center space-y-2 pb-0 p-8">
+            <Card className="border border-[#e8dfd2] shadow-lg overflow-hidden bg-[#fffefa] rounded-2xl">
+              <CardHeader className="text-center space-y-2 pb-0 p-6 sm:p-8">
                 <div className="pt-6">
-                  <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">
+                  <p className="text-slate-500 font-semibold text-xs">
                     Programme:
                   </p>
-                  <p className="text-2xl font-black text-[#433878] uppercase leading-tight italic">
+                  <p className="text-xl sm:text-2xl font-semibold text-slate-900 leading-tight">
                     {selectedForm.name}
                   </p>
                 </div>
               </CardHeader>
 
-              <CardContent className="p-10 pt-6 space-y-8 text-center">
-                <div className="bg-slate-50 rounded-[32px] p-8 space-y-4">
+              <CardContent className="p-6 sm:p-8 pt-6 space-y-6 text-center">
+                <div className="bg-[#fbfaf7] rounded-2xl p-5 sm:p-6 space-y-4 border border-[#eee5d8]">
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-slate-500 font-bold italic">
                       Application Fee
                     </span>
-                    <span className="font-black text-slate-700">
+                    <span className="font-semibold text-slate-700">
                       ₦{selectedForm.fee.toLocaleString()}
                     </span>
                   </div>
@@ -1573,7 +1432,7 @@ function ApplicantDashboardInner() {
                     <span className="text-slate-500 font-bold italic">
                       Processing Fee
                     </span>
-                    <span className="font-black text-slate-700">
+                    <span className="font-semibold text-slate-700">
                       ₦
                       {processingFee.toLocaleString("en-NG", {
                         minimumFractionDigits: 2,
@@ -1582,10 +1441,10 @@ function ApplicantDashboardInner() {
                   </div>
                   <div className="h-px bg-slate-200 my-2"></div>
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-900 font-black uppercase text-xs tracking-widest">
+                    <span className="text-slate-900 font-semibold text-xs">
                       Total Payable
                     </span>
-                    <span className="text-3xl font-black text-[#433878]">
+                    <span className="text-2xl sm:text-3xl font-semibold text-[#7a4f10]">
                       ₦
                       {(selectedForm.fee + processingFee).toLocaleString(
                         "en-NG",
@@ -1610,7 +1469,7 @@ function ApplicantDashboardInner() {
                 )}
 
                 <Button
-                  className="w-full h-14 bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold text-lg uppercase tracking-wider rounded-xl shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 transition-all duration-300 disabled:opacity-70 flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-[#151515] hover:bg-[#2a2a2a] text-white font-bold text-base rounded-xl shadow-sm transition-all duration-300 disabled:opacity-70 flex items-center justify-center gap-2"
                   onClick={handlePayNow}
                   disabled={isProcessing}
                 >
@@ -1634,15 +1493,15 @@ function ApplicantDashboardInner() {
         {/* ── Admission modal — offered but not yet paid acceptance fee ── */}
         {showAdmissionModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="bg-white/95 backdrop-blur-md rounded-[32px] p-8 max-w-md w-full mx-4 border border-slate-100 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
-              <div className="w-24 h-24 bg-purple-50 border border-purple-100 text-[#6b357d] rounded-full flex items-center justify-center mx-auto mb-4 shadow-md shadow-purple-500/5 animate-bounce">
+            <div className="bg-[#fffefa] backdrop-blur-md rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 border border-[#e8dfd2] shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
+              <div className="w-20 h-20 bg-[#f3eee6] border border-[#e2d6c3] text-[#9a6614] rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm animate-bounce">
                 <GraduationCap className="w-12 h-12" />
               </div>
               <div className="space-y-3">
-                <span className="px-3 py-1 bg-purple-50 text-purple-700 text-xs font-bold rounded-full border border-purple-100 uppercase tracking-widest">
+                <span className="px-3 py-1 bg-[#fff7e8] text-[#7a4f10] text-xs font-semibold rounded-full border border-[#efd9a8]">
                   Offer Issued 🎉
                 </span>
-                <h3 className="text-3xl font-black text-slate-900 tracking-tight">
+                <h3 className="text-2xl sm:text-3xl font-semibold text-slate-900">
                   Congratulations!
                 </h3>
                 <p className="text-slate-500 font-medium text-base leading-relaxed px-2">
@@ -1652,103 +1511,88 @@ function ApplicantDashboardInner() {
                 </p>
               </div>
               <Button
-                onClick={() => setShowAdmissionModal(false)}
-                className="w-full h-14 bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold text-lg rounded-xl shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 transition-all duration-300"
+                onClick={openAdmissionOfferProfile}
+                disabled={profileLoading}
+                className="w-full h-12 bg-[#151515] hover:bg-[#2a2a2a] text-white font-bold text-base rounded-xl shadow-sm transition-all duration-300"
               >
-                View Details &amp; Secure Spot
+                {profileLoading ? "Opening Profile..." : "View Details & Secure Spot"}
               </Button>
             </div>
           </div>
         )}
 
         {/* ── Admitted dashboard — Documents & Tuition (replaces old student portal modal) ── */}
-        {isAdmitted &&
-          status?.has_paid_acceptance_fee &&
-          !(status?.has_paid_tuition || user?.role === "student") &&
-          paymentStep === "selection" &&
-          !viewingFormId && (
-            <div className="mt-10 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {/* Section header */}
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-2 bg-emerald-500 rounded-full shadow-md shadow-emerald-500/30"></div>
-                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">
-                  Admitted Student Portal
-                </h2>
-              </div>
+        {isAdmitted && status?.has_paid_acceptance_fee && !(status?.has_paid_tuition || user?.role === "student") && paymentStep === "selection" && !viewingFormId && (
+          <div className="mt-10 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Section header */}
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-2 bg-emerald-500 rounded-full shadow-md shadow-emerald-500/30"></div>
+              <h2 className="text-xl sm:text-2xl font-semibold text-slate-900">
+                Admitted Student Portal
+              </h2>
+            </div>
 
-              {/* Pay School Fees Card */}
-              <Card className="shadow-lg border border-amber-500/10 hover:border-amber-500/25 transition-all duration-300 group overflow-hidden bg-amber-500/[0.01]">
-                <div className="h-2 bg-gradient-to-r from-amber-500 to-amber-500/80 w-full shadow-sm" />
-                <CardHeader className="pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-amber-500/10 p-2 rounded-xl group-hover:bg-amber-500/20 transition-colors duration-300 text-amber-600">
-                      <CreditCard className="w-6 h-6" />
-                    </div>
-                    <CardTitle className="text-lg font-bold text-slate-800">
-                      Pay School Fees
-                    </CardTitle>
+            {/* Pay School Fees Card */}
+            <Card className="shadow-lg border border-amber-500/10 hover:border-amber-500/25 transition-all duration-300 group overflow-hidden bg-amber-500/[0.01]">
+              <div className="h-2 bg-gradient-to-r from-amber-500 to-amber-500/80 w-full shadow-sm" />
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-amber-500/10 p-2 rounded-xl group-hover:bg-amber-500/20 transition-colors duration-300 text-amber-600">
+                    <CreditCard className="w-6 h-6" />
                   </div>
-                  <CardDescription className="text-slate-500 mt-1">
-                    Complete your school fees payment to unlock full student
-                    portal access, including course registration.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 bg-white">
-                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-                    <p className="text-sm text-amber-700 font-medium">
-                      Your admission is confirmed. Pay school fees to complete
-                      enrolment and receive your matric number.
+                  <CardTitle className="text-lg font-bold text-slate-800">
+                    Pay School Fees
+                  </CardTitle>
+                </div>
+                <CardDescription className="text-slate-500 mt-1">
+                  Complete your school fees payment to unlock full student portal access, including course registration.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 bg-white">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <p className="text-sm text-amber-700 font-medium">
+                    Your admission is confirmed. Pay school fees to complete enrolment and receive your matric number.
+                  </p>
+                </div>
+
+                {tuitionPayError && (
+                  <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-700">{tuitionPayError}</p>
+                  </div>
+                )}
+
+                {tuitionPaySuccess ? (
+                  <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <p className="text-sm text-emerald-700 font-bold">
+                      Payment confirmed! Your account is being upgraded to full student...
                     </p>
                   </div>
+                ) : (
+                  <Button
+                    className="w-full h-12 text-base font-semibold bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm hover:scale-[1.01] transition-all duration-200 flex items-center justify-center gap-2"
+                    onClick={handlePayTuition}
+                    disabled={isPayingTuition}
+                  >
+                    {isPayingTuition ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Opening Payment...
+                      </>
+                    ) : (
+                      <>Proceed to Pay School Fees</>
+                    )}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
 
-                  {tuitionPayError && (
-                    <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
-                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                      <p className="text-sm text-red-700">{tuitionPayError}</p>
-                    </div>
-                  )}
-
-                  {tuitionPaySuccess ? (
-                    <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                      <p className="text-sm text-emerald-700 font-bold">
-                        Payment confirmed! Your account is being upgraded to
-                        full student...
-                      </p>
-                    </div>
-                  ) : (
-                    <Button
-                      className={`w-full h-14 text-base font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 shadow-lg ${
-                        isFullyPaid
-                          ? "bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/10 shadow-none border border-emerald-600/20"
-                          : "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/15 hover:shadow-amber-500/25 hover:scale-[1.01]"
-                      }`}
-                      onClick={handlePayTuition}
-                      disabled={isPayingTuition || isFullyPaid}
-                    >
-                      {isPayingTuition ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Opening Payment...
-                        </>
-                      ) : isFullyPaid ? (
-                        <>
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          Fees Fully Paid
-                        </>
-                      ) : (
-                        <>Proceed to Pay School Fees</>
-                      )}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Document Downloads Section */}
-              {renderOfficialDocuments()}
-            </div>
-          )}
+            {/* Document Downloads Section */}
+            {renderOfficialDocuments()}
+          </div>
+        )}
 
         {/* ── Fee Breakdown Modal ── */}
         {showBreakdownModal && (
@@ -1757,23 +1601,16 @@ function ApplicantDashboardInner() {
               <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-6 text-white">
                 <div className="flex items-center gap-3 mb-1">
                   <CreditCard className="w-6 h-6" />
-                  <h3 className="text-xl font-black tracking-tight">
-                    School Fees Breakdown
-                  </h3>
+                  <h3 className="text-lg sm:text-xl font-semibold">School Fees Breakdown</h3>
                 </div>
-                <p className="text-amber-100 text-sm font-medium">
-                  Review your fee components before proceeding to payment.
-                </p>
+                <p className="text-amber-100 text-sm font-medium">Review your fee components before proceeding to payment.</p>
               </div>
 
               <div className="p-6 space-y-5">
                 {loadingBreakdown && (
                   <div className="space-y-3 animate-pulse">
                     {[1, 2, 3].map((i) => (
-                      <div
-                        key={i}
-                        className="flex justify-between items-center py-3 border-b border-slate-100"
-                      >
+                      <div key={i} className="flex justify-between items-center py-3 border-b border-slate-100">
                         <div className="h-4 bg-slate-200 rounded w-2/3" />
                         <div className="h-4 bg-slate-200 rounded w-1/4" />
                       </div>
@@ -1789,144 +1626,89 @@ function ApplicantDashboardInner() {
                   <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
                     <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-sm font-bold text-red-800">
-                        Could not load fee breakdown
-                      </p>
-                      <p className="text-sm text-red-600 mt-0.5">
-                        {breakdownError}
-                      </p>
+                      <p className="text-sm font-bold text-red-800">Could not load fee breakdown</p>
+                      <p className="text-sm text-red-600 mt-0.5">{breakdownError}</p>
                     </div>
                   </div>
                 )}
 
-                {!loadingBreakdown &&
-                  !breakdownError &&
-                  feeComponents.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 mb-3">
-                        <button
-                          className={`px-3 py-2 rounded-lg font-semibold ${paymentMode === "full" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-700"}`}
-                          onClick={() => {
-                            setPaymentMode("full");
-                            setInstallmentAmount(null);
-                          }}
-                        >
-                          Full Payment
-                        </button>
-                        <button
-                          className={`px-3 py-2 rounded-lg font-semibold ${paymentMode === "installment" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-700"}`}
-                          onClick={() => {
-                            setPaymentMode("installment");
-                            const plan =
-                              installmentPlans.find(
-                                (p) => p.id === selectedInstallmentPlanId,
-                              ) || installmentPlans[0];
-                            if (plan) {
-                              setSelectedInstallmentPlanId(plan.id);
-                              setInstallmentAmount(
-                                parseFloat(
-                                  (
-                                    feeTotal * (plan.percentage / 100) || 0
-                                  ).toFixed(2),
-                                ),
-                              );
-                            }
-                          }}
-                        >
-                          Installments
-                        </button>
-                      </div>
-
-                      {paymentMode === "installment" &&
-                        installmentPlans.length > 0 && (
-                          <div className="space-y-2 pt-2 pb-4 animate-in fade-in duration-200">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                              Tuition Installments (Read-Only)
-                            </span>
-                            <div className="grid grid-cols-2 gap-2">
-                              {installmentPlans.map((plan) => (
-                                <div
-                                  key={plan.id}
-                                  className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all opacity-80 ${
-                                    selectedInstallmentPlanId === plan.id
-                                      ? "border-[#6b357d] bg-[#6b357d]/5 text-[#6b357d] font-bold shadow-sm"
-                                      : "border-slate-200 text-slate-500 bg-slate-50/50"
-                                  }`}
-                                >
-                                  <span className="text-xs font-bold truncate">
-                                    {plan.name} ({plan.percentage}%)
-                                  </span>
-                                  <span className="text-xs font-black font-mono mt-1">
-                                    ₦
-                                    {(
-                                      feeTotal *
-                                      (plan.percentage / 100)
-                                    ).toLocaleString("en-NG", {
-                                      minimumFractionDigits: 2,
-                                    })}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                      {feeComponents.map((fc, idx) => (
-                        <div
-                          key={idx}
-                          className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0"
-                        >
-                          <span className="text-sm font-semibold text-slate-700">
-                            {fc.name}
-                          </span>
-                          <span className="text-sm font-bold text-slate-900 tabular-nums">
-                            ₦
-                            {fc.amount.toLocaleString("en-NG", {
-                              minimumFractionDigits: 2,
-                            })}
-                          </span>
-                        </div>
-                      ))}
-
-                      <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                        <span className="text-sm font-semibold text-slate-500">
-                          Processing Fee
-                        </span>
-                        <span className="text-sm font-bold text-slate-700 tabular-nums">
-                          ₦
-                          {tuitionProcessingFee.toLocaleString("en-NG", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-amber-300">
-                        <span className="text-base font-black text-slate-800 uppercase tracking-tight">
-                          Total Payable
-                        </span>
-                        <span className="text-xl font-black text-amber-600 tabular-nums">
-                          ₦
-                          {(
-                            (paymentMode === "installment"
-                              ? installmentAmount || 0
-                              : feeTotal * (remainingPercentage / 100)) +
-                            tuitionProcessingFee
-                          ).toLocaleString("en-NG", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
-                      </div>
+                {!loadingBreakdown && !breakdownError && feeComponents.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 mb-3">
+                      <button
+                        className={`px-3 py-2 rounded-lg font-semibold ${paymentMode === "full" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-700"}`}
+                        onClick={() => { setPaymentMode("full"); setInstallmentAmount(null); }}
+                      >Full Payment</button>
+                      <button
+                        className={`px-3 py-2 rounded-lg font-semibold ${paymentMode === "installment" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-700"}`}
+                        onClick={() => {
+                          setPaymentMode("installment");
+                          const plan = installmentPlans.find((p) => p.id === selectedInstallmentPlanId) || installmentPlans[0];
+                          if (plan) {
+                            setSelectedInstallmentPlanId(plan.id);
+                            setInstallmentAmount(parseFloat((feeTotal * (plan.percentage / 100) || 0).toFixed(2)));
+                          }
+                        }}
+                      >Installments</button>
                     </div>
-                  )}
 
-                {!loadingBreakdown &&
-                  !breakdownError &&
-                  feeComponents.length === 0 && (
-                    <p className="text-center text-sm text-muted-foreground py-4 italic">
-                      No fee components found. Please contact the accounts
-                      office.
-                    </p>
-                  )}
+                    {paymentMode === "installment" && installmentPlans.length > 0 && (
+                      <div className="space-y-2 pt-2 pb-4 animate-in fade-in duration-200">
+                        <span className="text-xs text-slate-500 font-semibold block">
+                          Tuition Installments (Read-Only)
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          {installmentPlans.map((plan) => (
+                            <div
+                              key={plan.id}
+                              className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all opacity-80 ${
+                                selectedInstallmentPlanId === plan.id
+                                  ? "border-[#d8bd82] bg-[#fff7e8] text-[#7a4f10] font-bold shadow-sm"
+                                  : "border-slate-200 text-slate-500 bg-slate-50/50"
+                              }`}
+                            >
+                              <span className="text-xs font-bold truncate">{plan.name} ({plan.percentage}%)</span>
+                              <span className="text-xs font-black font-mono mt-1">
+                                ₦{(feeTotal * (plan.percentage / 100)).toLocaleString("en-NG", {
+                                  minimumFractionDigits: 2,
+                                })}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {feeComponents.map((fc, idx) => (
+                      <div key={idx} className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0">
+                        <span className="text-sm font-semibold text-slate-700">{fc.name}</span>
+                        <span className="text-sm font-bold text-slate-900 tabular-nums">
+                          ₦{fc.amount.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    ))}
+
+                    <div className="flex justify-between items-center py-3 border-b border-slate-100">
+                      <span className="text-sm font-semibold text-slate-500">Processing Fee</span>
+                      <span className="text-sm font-bold text-slate-700 tabular-nums">
+                        ₦{tuitionProcessingFee.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-amber-300">
+                      <span className="text-sm font-semibold text-slate-800">Total Payable</span>
+                      <span className="text-xl font-semibold text-amber-700 tabular-nums">
+                        ₦{((paymentMode === "installment" ? (installmentAmount || 0) : (feeTotal * (remainingPercentage / 100))) + tuitionProcessingFee).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {!loadingBreakdown && !breakdownError && feeComponents.length === 0 && (
+                  <p className="text-center text-sm text-muted-foreground py-4 italic">
+                    No fee components found. Please contact the accounts office.
+                  </p>
+                )}
 
                 {tuitionPayError && (
                   <div className="flex items-start gap-2 p-3 bg-red-50 rounded-xl border border-red-200">
@@ -1938,22 +1720,15 @@ function ApplicantDashboardInner() {
                 <div className="flex flex-col gap-3 pt-2">
                   {!tuitionPaySuccess && (
                     <Button
-                      className="w-full h-14 font-black text-lg bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/30 disabled:opacity-70"
+                      className="w-full h-12 font-semibold text-base bg-[#151515] hover:bg-[#2a2a2a] text-white rounded-xl shadow-sm disabled:opacity-70"
                       onClick={confirmAndPayTuition}
                       disabled={
-                        isPayingTuition ||
-                        loadingBreakdown ||
-                        !!breakdownError ||
-                        feeComponents.length === 0 ||
-                        (paymentMode === "installment" &&
-                          !selectedInstallmentPlanId)
+                        isPayingTuition || loadingBreakdown || !!breakdownError || feeComponents.length === 0 ||
+                        (paymentMode === "installment" && !selectedInstallmentPlanId)
                       }
                     >
                       {isPayingTuition ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                          Opening Payment...
-                        </>
+                        <><Loader2 className="w-5 h-5 animate-spin mr-2" />Opening Payment...</>
                       ) : (
                         <>Confirm & Pay</>
                       )}
@@ -1962,89 +1737,13 @@ function ApplicantDashboardInner() {
                   <Button
                     variant="ghost"
                     className="w-full text-slate-500 font-medium"
-                    onClick={() => {
-                      setShowBreakdownModal(false);
-                      setTuitionPayError(null);
-                    }}
+                    onClick={() => { setShowBreakdownModal(false); setTuitionPayError(null); }}
                     disabled={isPayingTuition}
-                  >
-                    Cancel
-                  </Button>
+                  >Cancel</Button>
                 </div>
               </div>
             </div>
           </div>
-        )}
-
-        {showPGNotice && (
-          <Dialog
-            open={showPGNotice}
-            onOpenChange={(open) => {
-              if (!open) {
-                setShowPGNotice(false);
-                setPendingApplyApp(null);
-              }
-            }}
-          >
-            <DialogContent className="max-w-xl md:max-w-2xl bg-white border border-slate-200 shadow-2xl rounded-2xl p-10 z-[10000] focus:outline-none">
-              <div className="font-serif text-black space-y-6 text-[15px] leading-relaxed">
-                <h2 className="text-xl font-bold tracking-wide uppercase mb-6">INSTRUCTIONS TO STUDENTS</h2>
-
-                <div className="space-y-4">
-                  <div className="grid grid-cols-[30px_1fr] items-start">
-                    <span className="pl-1">a)</span>
-                    <span>It is the student’s responsibility to ensure that every field on this form is properly filled correctly</span>
-                  </div>
-
-                  <div className="grid grid-cols-[30px_1fr] items-start">
-                    <span className="pl-1">b)</span>
-                    <span>A student who has third class is not eligible for this programme, such should contact the Postgraduate School for further information.</span>
-                  </div>
-
-                  <div className="grid grid-cols-[30px_1fr] items-start">
-                    <span className="pl-1">c)</span>
-                    <span>One of the referees must be an Academic staff of a recognized university, recognized by the Senate of the Precious Cornerstone University.</span>
-                  </div>
-
-                  <div className="grid grid-cols-[30px_1fr] items-start font-bold">
-                    <span className="pl-1">d)</span>
-                    <span>Any false information detected renders this application invalid, and the Postgraduate School shall not be responsible for ANY REFUND.</span>
-                  </div>
-
-                  <div className="grid grid-cols-[30px_1fr] items-start">
-                    <span className="pl-1">e)</span>
-                    <span>Any questions about this form or about postgraduate registration in general should be directed to the Dean, Postgraduate School.</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-4 pt-6 mt-6 border-t border-slate-100">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowPGNotice(false);
-                    setPendingApplyApp(null);
-                  }}
-                  className="flex-1 border-slate-200 text-slate-500 hover:bg-slate-50 font-semibold h-12 rounded-xl transition-all"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={async () => {
-                    setShowPGNotice(false);
-                    if (pendingApplyApp) {
-                      const appToOpen = pendingApplyApp;
-                      setPendingApplyApp(null);
-                      await handleOpenApplicationForm(appToOpen);
-                    }
-                  }}
-                  className="flex-1 bg-[#6b21a8] hover:bg-purple-800 text-white font-bold h-12 rounded-xl transition-all duration-200 shadow-md shadow-purple-500/10 hover:shadow-purple-500/20"
-                >
-                  Continue
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
         )}
       </div>
     </div>

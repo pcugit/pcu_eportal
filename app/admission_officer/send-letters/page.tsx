@@ -246,11 +246,44 @@ export default function SendLettersPage() {
         )}
 
         <Tabs defaultValue="pending" value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "sent" | "failed")}>
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="pending">Pending</TabsTrigger>
-            <TabsTrigger value="sent">Sent Successfully</TabsTrigger>
-            <TabsTrigger value="failed">Failed</TabsTrigger>
-          </TabsList>
+          <div className="mb-6">
+            <div className="relative overflow-hidden rounded-2xl border border-[#e5d8c6] bg-[#fffefa] p-1.5 shadow-sm">
+              <div className="pointer-events-none absolute inset-y-1.5 left-1.5 w-6 bg-gradient-to-r from-[#fffefa] to-transparent sm:hidden" />
+              <div className="pointer-events-none absolute inset-y-1.5 right-1.5 w-6 bg-gradient-to-l from-[#fffefa] to-transparent sm:hidden" />
+              <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <TabsList className="h-auto min-w-max w-full justify-start gap-1 bg-transparent p-0 text-slate-700 sm:grid sm:grid-cols-3">
+                  <TabsTrigger
+                    value="pending"
+                    className="min-w-[112px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                  >
+                    Pending
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="sent"
+                    className="min-w-[156px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                  >
+                    Sent Successfully
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="failed"
+                    className="min-w-[112px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                  >
+                    Failed
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+            </div>
+            <div className="mt-2 flex justify-center gap-1.5 sm:hidden" aria-hidden="true">
+              {(["pending", "sent", "failed"] as const).map((tab) => (
+                <span
+                  key={tab}
+                  className={`h-1.5 rounded-full transition-all ${
+                    activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
 
           {/* Pending Tab */}
           <TabsContent value="pending" className="space-y-6">

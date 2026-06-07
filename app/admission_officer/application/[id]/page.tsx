@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import {
   User,
   ArrowRight,
   FileText,
-  GraduationCap,
 } from "lucide-react";
 import {
   Select,
@@ -38,17 +37,7 @@ function ApplicantInfoTab({
   form: any;
   passportUrl: string | null;
 }) {
-  const isPG = applicant?.program_id === 2 || applicant?.prog_type === 2;
   const olevelResults = form?.olevel_results || [];
-  const hasUTMEData = !isPG && !!(form?.utme_reg_no || form?.utme_score || form?.utme_subject1 || form?.choice1);
-  const hasOLevelData = !isPG && olevelResults.length > 0;
-
-  const InfoCard = ({ label, value, colSpan = "" }: { label: string; value?: string | null; colSpan?: string }) => (
-    <div className={`p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl ${colSpan}`}>
-      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">{label}</span>
-      <span className="font-bold text-slate-800 text-sm">{value || "N/A"}</span>
-    </div>
-  );
 
   return (
     <div className="space-y-8 bg-white border border-slate-100 p-8 shadow-sm rounded-[24px]">
@@ -64,7 +53,9 @@ function ApplicantInfoTab({
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
               <User className="w-8 h-8 mb-1" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">No Photo</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider">
+                No Photo
+              </span>
             </div>
           )}
         </div>
@@ -73,20 +64,20 @@ function ApplicantInfoTab({
             {form?.full_name || applicant?.name}
           </h2>
           <div className="flex flex-wrap items-center gap-6 text-sm text-slate-500 font-medium">
-            <p><strong>Email:</strong> {form?.email || applicant?.email}</p>
-            <p><strong>Phone:</strong> {form?.phone_number || applicant?.phone_number}</p>
-            {isPG && form?.secondary_phone_number && (
-              <p><strong>Alt Phone:</strong> {form.secondary_phone_number}</p>
-            )}
-            {!isPG && <p><strong>Gender:</strong> {form?.gender || "N/A"}</p>}
+            <p>
+              <strong>Email:</strong> {form?.email || applicant?.email}
+            </p>
+            <p>
+              <strong>Phone:</strong>{" "}
+              {form?.phone_number || applicant?.phone_number}
+            </p>
+            <p>
+              <strong>Gender:</strong> {form?.gender || "N/A"}
+            </p>
           </div>
           <div className="pt-2">
             <Badge className="bg-[#6b357d] hover:bg-[#6b357d] text-white font-bold rounded-lg px-3 py-1 text-xs">
-              {isPG
-                ? (form?.proposed_course_name
-                  ? `${form?.degree_code || ""} ${form.proposed_course_name}`.trim()
-                  : (form?.degree_name || applicant?.program_name))
-                : (form?.first_choice_program_name || applicant?.program_name)}
+              {form?.first_choice_program_name || applicant?.program_name}
             </Badge>
           </div>
         </div>
@@ -94,230 +85,201 @@ function ApplicantInfoTab({
 
       {/* Personal Details */}
       <div className="space-y-4 pt-4">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Personal Details</h3>
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+          Personal Details
+        </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <InfoCard label="Date of Birth" value={form?.date_of_birth} />
-          {isPG ? (
-            <>
-              <InfoCard label="Contact Address" value={form?.address} colSpan="md:col-span-2" />
-              <InfoCard
-                label="Physically Challenged"
-                value={
-                  !form?.physically_challenged || form.physically_challenged === "No"
-                    ? "No"
-                    : form.physical_challenge_reason || "Yes"
-                }
-                colSpan="md:col-span-3"
-              />
-            </>
-          ) : (
-            <>
-              <InfoCard label="Place of Birth" value={form?.place_of_birth} />
-              <InfoCard label="Nationality" value={form?.nationality} />
-              <InfoCard label="State of Origin" value={form?.state} />
-              <InfoCard label="LGA" value={form?.lga} />
-              <InfoCard label="Religion" value={form?.religion} />
-              <InfoCard label="Blood Group" value={form?.blood_group} />
-              <InfoCard label="Genotype" value={form?.genotype} />
-              <InfoCard label="Contact Address" value={form?.address || form?.contact_address} colSpan="md:col-span-2" />
-            </>
-          )}
+          {[
+            { label: "Date of Birth", value: form?.date_of_birth },
+            { label: "Place of Birth", value: form?.place_of_birth },
+            { label: "Nationality", value: form?.nationality },
+            { label: "State of Origin", value: form?.state },
+            { label: "LGA", value: form?.lga },
+            { label: "Religion", value: form?.religion },
+            { label: "Blood Group", value: form?.blood_group },
+            { label: "Genotype", value: form?.genotype },
+            {
+              label: "Contact Address",
+              value: form?.address || form?.contact_address,
+              colSpan: "md:col-span-2",
+            },
+          ].map((item, idx) => (
+            <div
+              key={idx}
+              className={`p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl ${item.colSpan || ""}`}
+            >
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
+                {item.label}
+              </span>
+              <span className="font-bold text-slate-800 text-sm">
+                {item.value || "N/A"}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* PG: Academic History */}
-      {isPG && (
-        <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Academic History</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <InfoCard label="Previous Institution" value={form?.previous_institution} colSpan="md:col-span-2" />
-            <InfoCard label="Department" value={form?.department} />
-            <InfoCard label="Previous Course of Study" value={form?.previous_course} colSpan="md:col-span-2" />
-            <InfoCard label="Class of First Degree" value={form?.class_of_degree} />
-          </div>
-        </div>
-      )}
-
-      {/* PG: Proposed Study */}
-      {isPG && (
-        <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Proposed Study</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <InfoCard
-              label="Degree in View"
-              value={form?.degree_name ? `${form.degree_name}${form.degree_code ? ` (${form.degree_code})` : ""}` : undefined}
-            />
-            <InfoCard label="Proposed Course of Study" value={form?.proposed_course_name} colSpan="md:col-span-2" />
-            <InfoCard label="Proposed Faculty / Institute / Centre" value={form?.proposed_faculty_name} colSpan="md:col-span-2" />
-            <InfoCard label="Mode of Study" value={form?.mode_of_study} />
-            {form?.area_of_specialisation && (
-              <InfoCard label="Area of Specialisation" value={form.area_of_specialisation} colSpan="md:col-span-3" />
-            )}
-            {form?.proposed_research_title && (
-              <InfoCard label="Proposed Title of Research" value={form.proposed_research_title} colSpan="md:col-span-3" />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* PG: Referees */}
-      {isPG && (form?.referee_name1 || form?.referee_name2 || form?.referee_name3) && (
-        <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Referees</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              { label: "Referee 1", name: form?.referee_name1, address: form?.referee_address1 },
-              { label: "Referee 2", name: form?.referee_name2, address: form?.referee_address2 },
-              { label: "Referee 3", name: form?.referee_name3, address: form?.referee_address3 },
-            ].filter((ref) => ref.name).map((ref, idx) => (
-              <div key={idx} className="bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5 space-y-3">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{ref.label}</p>
-                <div className="flex justify-between items-start text-sm border-b border-slate-100 pb-3">
-                  <span className="text-slate-400 font-semibold shrink-0">Name</span>
-                  <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">{ref.name}</span>
-                </div>
-                <div className="flex justify-between items-start text-sm">
-                  <span className="text-slate-400 font-semibold shrink-0">Address</span>
-                  <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">{ref.address || "N/A"}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Sponsor & Next of Kin */}
+      {/* Sponsor & Kin info in a beautiful grid of cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
         <div className="space-y-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Sponsor Information</h3>
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            Sponsor Information
+          </h3>
           <div className="bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5 space-y-4">
-            {[
-              { label: "Name", value: form?.sponsor_name },
-              ...(!isPG ? [
-                { label: "Phone", value: form?.sponsor_phone_number },
-                { label: "Relationship", value: form?.sponsor_relationship },
-              ] : []),
-              { label: "Address", value: form?.sponsor_address },
-            ].map((item, idx) => (
-              <div key={idx} className="flex justify-between items-start text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                <span className="text-slate-400 font-semibold">{item.label}</span>
-                <span className="font-bold text-slate-800 capitalize text-right max-w-[200px] leading-snug">{item.value || "N/A"}</span>
-              </div>
-            ))}
+            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold">Name</span>
+              <span className="font-bold text-slate-800 capitalize">
+                {form?.sponsor_name || "N/A"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold">Phone</span>
+              <span className="font-bold text-slate-800">
+                {form?.sponsor_phone_number || "N/A"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold">Relationship</span>
+              <span className="font-bold text-slate-800 capitalize">
+                {form?.sponsor_relationship || "N/A"}
+              </span>
+            </div>
+            <div className="flex justify-between items-start text-sm last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold shrink-0">
+                Address
+              </span>
+              <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">
+                {form?.sponsor_address || "N/A"}
+              </span>
+            </div>
           </div>
         </div>
 
         <div className="space-y-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Next of Kin Information</h3>
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            Next of Kin Information
+          </h3>
           <div className="bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5 space-y-4">
-            {[
-              { label: "Name", value: form?.next_of_kin_name },
-              { label: "Phone", value: form?.next_of_kin_phone_number },
-              ...(isPG && form?.next_of_kin_secondary_phone_number
-                ? [{ label: "Alt Phone", value: form.next_of_kin_secondary_phone_number }]
-                : []),
-              { label: "Address", value: form?.next_of_kin_address },
-            ].map((item, idx) => (
-              <div key={idx} className="flex justify-between items-start text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                <span className="text-slate-400 font-semibold shrink-0">{item.label}</span>
-                <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">{item.value || "N/A"}</span>
-              </div>
-            ))}
+            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold">Name</span>
+              <span className="font-bold text-slate-800 capitalize">
+                {form?.next_of_kin_name || "N/A"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold">Phone</span>
+              <span className="font-bold text-slate-800">
+                {form?.next_of_kin_phone_number || "N/A"}
+              </span>
+            </div>
+            <div className="flex justify-between items-start text-sm last:border-0 last:pb-0">
+              <span className="text-slate-400 font-semibold shrink-0">
+                Address
+              </span>
+              <span className="font-bold text-slate-800 text-right max-w-[200px] leading-snug">
+                {form?.next_of_kin_address || "N/A"}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Programme Choices — UG only */}
-      {!isPG && (
-        <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Programme Choices</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5">
-            <div className="space-y-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">First Choice</span>
-              <p className="font-black text-[#6b357d] text-sm uppercase">{form?.first_choice_program_name || "N/A"}</p>
-            </div>
-            <div className="space-y-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Second Choice</span>
-              <p className="font-bold text-slate-600 text-sm uppercase">{form?.second_choice_program_name || "N/A"}</p>
-            </div>
+      {/* Programme Choices */}
+      <div className="space-y-4 pt-4">
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+          Programme Choices
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5">
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+              First Choice
+            </span>
+            <p className="font-black text-[#6b357d] text-sm uppercase">
+              {form?.first_choice_program_name || "N/A"}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+              Second Choice
+            </span>
+            <p className="font-bold text-slate-600 text-sm uppercase">
+              {form?.second_choice_program_name || "N/A"}
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* JAMB / UTME — UG only */}
-      {hasUTMEData && (
-        <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">JAMB / UTME Details</h3>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
-            {[
-              { label: "JAMB Registration Number", value: form?.utme_reg_no },
-              { label: "JAMB Score", value: form?.utme_score },
-              { label: "Mode of Entry", value: form?.mode_of_entry },
-              { label: "Original First Choice (JAMB)", value: form?.choice1 },
-              { label: "Original Second Choice (JAMB)", value: form?.choice2 },
-            ].map((item, idx) => (
-              <div key={idx} className="p-4 bg-slate-50/50 border border-slate-100/40 rounded-xl">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">{item.label}</span>
-                <span className="font-bold text-slate-800 text-sm">{item.value || "N/A"}</span>
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
-            {[1, 2, 3, 4].map((num) => {
-              const subject = form?.[`utme_subject${num}`];
-              const score = form?.[`utme_score${num}`];
-              if (!subject) return null;
-              return (
-                <div key={num} className="p-3 bg-purple-50/30 border border-purple-100/40 rounded-xl">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mb-1">{subject}</span>
-                  <span className="font-black text-[#6b357d] text-base">{score || "0"}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* O'Level Results — UG only */}
-      {hasOLevelData && (
-        <div className="space-y-4 pt-4">
-          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">O'Level Results</h3>
+      {/* O'Level Results */}
+      <div className="space-y-4 pt-4">
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+          O'Level Results
+        </h3>
+        {olevelResults.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {olevelResults.map((exam: any, idx: number) => (
-              <div key={idx} className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-all duration-300">
-                <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
-                  <h4 className="font-black text-[#6b357d] uppercase text-sm tracking-tight">{exam.name || "WAEC"} — Sitting {idx + 1}</h4>
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
-                  <div>
-                    <span className="block text-[9px] text-slate-400">Reg Number</span>
-                    <span className="text-slate-700 font-mono">{exam.number}</span>
+              <div
+                key={idx}
+                className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-all duration-300 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+                    <h4 className="font-black text-[#6b357d] uppercase text-sm tracking-tight">
+                      {exam.name || "WAEC"} — Sitting {idx + 1}
+                    </h4>
                   </div>
-                  <div><span className="text-slate-700">{exam.year}</span></div>
-                </div>
-                <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-                  <table className="w-full text-left text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                        <th className="p-3 font-bold">Subject</th>
-                        <th className="p-3 text-right font-bold">Grade</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {exam.subjects?.filter((s: any) => s.subject).map((s: any, sIdx: number) => (
-                        <tr key={sIdx} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="p-3 text-xs font-bold text-slate-600 uppercase">{s.subject}</td>
-                          <td className="p-3 text-right font-black text-slate-800">{s.grade || "-"}</td>
+                  <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
+                    <div>
+                      <span className="block text-[9px] text-slate-400">
+                        Reg Number
+                      </span>
+                      <span className="text-slate-700 font-mono">
+                        {exam.number}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400">
+                        Exam Year
+                      </span>
+                      <span className="text-slate-700">{exam.year}</span>
+                    </div>
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+                    <table className="w-full text-left text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                          <th className="p-3 font-bold">Subject</th>
+                          <th className="p-3 text-right font-bold">Grade</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {exam.subjects
+                          ?.filter((s: any) => s.subject)
+                          .map((s: any, sIdx: number) => (
+                            <tr
+                              key={sIdx}
+                              className="hover:bg-slate-50/50 transition-colors"
+                            >
+                              <td className="p-3 text-xs font-bold text-slate-600 uppercase">
+                                {s.subject}
+                              </td>
+                              <td className="p-3 text-right font-black text-slate-800">
+                                {s.grade || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="p-6 bg-slate-50 border border-dashed rounded-2xl text-center text-slate-400 font-medium">
+            No O'Level results uploaded.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -396,64 +358,12 @@ function DocumentsTab({ documents }: { documents: any[] }) {
   );
 }
 
-function PgEvaluationPanel({ evaluation }: { evaluation: any }) {
-  if (!evaluation) {
-    return (
-      <Card className="border-amber-100 bg-amber-50/40 rounded-2xl">
-        <CardContent className="pt-5 pb-5 flex items-center gap-3">
-          <GraduationCap className="h-5 w-5 text-amber-500 flex-shrink-0" />
-          <p className="text-sm text-amber-700 font-semibold">
-            The PG Admin has not yet completed their Section B evaluation for this application.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const fields = [
-    { label: "Transcript Received", value: evaluation.transcript_received },
-    { label: "Transcript Comment", value: evaluation.transcript_comment || "—" },
-    { label: "Reference Letters Received", value: String(evaluation.ref_letters_count ?? 0) },
-    { label: "Recommendation", value: evaluation.recommendation || "—" },
-    { label: "Proposed Supervisor", value: evaluation.supervisor_name || "—" },
-    { label: "Evaluated By (PG Admin)", value: evaluation.dean_name || "—" },
-    {
-      label: "Evaluation Date",
-      value: evaluation.updated_at
-        ? new Date(evaluation.updated_at).toLocaleString()
-        : "—",
-    },
-  ];
-
-  return (
-    <Card className="border-purple-100 bg-white rounded-2xl shadow-md overflow-hidden">
-      <CardHeader className="border-b border-purple-50 pb-4">
-        <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
-          <GraduationCap className="h-5 w-5 text-[#6b357d]" />
-          PG Admin Evaluation
-        </CardTitle>
-        <p className="text-xs text-slate-500 font-medium mt-1">
-          Review completed by the Postgraduate School Admin
-        </p>
-      </CardHeader>
-      <CardContent className="pt-5 space-y-3">
-        {fields.map((f, i) => (
-          <div key={i} className="flex justify-between items-start text-sm border-b border-slate-50 pb-2 last:border-0 last:pb-0">
-            <span className="text-slate-400 font-semibold shrink-0 mr-4">{f.label}</span>
-            <span className="font-bold text-slate-800 text-right">{f.value}</span>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
 function ReviewsTab({
   application,
   onReviewSuccess,
 }: {
   application: ApplicationDetail;
-  onReviewSuccess: () => void | Promise<void>;
+  onReviewSuccess: () => void;
 }) {
   const [reviewing, setReviewing] = useState(false);
   const [decision, setDecision] = useState<"accept" | "reject" | "recommend">(
@@ -520,10 +430,7 @@ function ReviewsTab({
       setApprovedCourse("");
       setDecision("accept");
       window.dispatchEvent(new Event("application-reviewed"));
-      // Await the callback to ensure data is refreshed before closing
-      await Promise.resolve(onReviewSuccess());
-      // Add a small delay to ensure state updates propagate
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      onReviewSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit review");
     } finally {
@@ -654,10 +561,11 @@ function ReviewsTab({
                       setDecision(opt.value);
                       setApprovedCourse("");
                     }}
-                    className={`flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 font-bold text-xs uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${decision === opt.value
-                      ? `${opt.cls} ring-2 ring-offset-2 shadow-md`
-                      : "border-slate-100 bg-slate-50/40 text-slate-500 hover:border-slate-200 hover:text-slate-800"
-                      }`}
+                    className={`flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 font-bold text-xs uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
+                      decision === opt.value
+                        ? `${opt.cls} ring-2 ring-offset-2 shadow-md`
+                        : "border-slate-100 bg-slate-50/40 text-slate-500 hover:border-slate-200 hover:text-slate-800"
+                    }`}
                   >
                     <span className="p-2 rounded-xl bg-white border shadow-sm">
                       <Icon className="w-5 h-5" />
@@ -709,6 +617,14 @@ function ReviewsTab({
                       )}
                   </SelectContent>
                 </Select>
+                {approvedCourse && (
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest pt-1 px-1">
+                    Recorded as:{" "}
+                    <span className="text-[#6b357d]">
+                      approved &amp; finalised course
+                    </span>
+                  </p>
+                )}
               </div>
             )}
 
@@ -766,12 +682,13 @@ function ReviewsTab({
               <Button
                 onClick={handleReview}
                 disabled={reviewing || (needsCourse && !approvedCourse)}
-                className={`gap-2 min-w-[200px] h-12 text-sm font-bold uppercase tracking-wider rounded-xl shadow-lg transition-all duration-300 ${decision === "accept"
-                  ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10 hover:shadow-emerald-500/20"
-                  : decision === "reject"
-                    ? "bg-rose-600 hover:bg-rose-700 shadow-rose-500/10 hover:shadow-rose-500/20"
-                    : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/10 hover:shadow-blue-500/20"
-                  }`}
+                className={`gap-2 min-w-[200px] h-12 text-sm font-bold uppercase tracking-wider rounded-xl shadow-lg transition-all duration-300 ${
+                  decision === "accept"
+                    ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10 hover:shadow-emerald-500/20"
+                    : decision === "reject"
+                      ? "bg-rose-600 hover:bg-rose-700 shadow-rose-500/10 hover:shadow-rose-500/20"
+                      : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/10 hover:shadow-blue-500/20"
+                }`}
               >
                 {reviewing ? (
                   <>
@@ -804,7 +721,6 @@ interface ApplicationDetail {
   form: any;
   documents: any[];
   reviews: any[];
-  pg_evaluation?: any;
 }
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -823,9 +739,16 @@ const statusColors: Record<string, string> = {
 export default function ApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
 
   // Keep applicantId as a string — it's a UUID, not an integer
   const applicantId = (params?.id as string) || "";
+  const returnStatus = searchParams.get("status");
+  const applicationsHref =
+    returnStatus &&
+    ["submitted", "screening", "admitted", "rejected"].includes(returnStatus)
+      ? `/admission_officer/applications?status=${returnStatus}`
+      : "/admission_officer/applications";
 
   const { user, isAuthenticated, logout } = useAuth();
 
@@ -837,7 +760,7 @@ export default function ApplicationDetailPage() {
   const [sendingLetter, setSendingLetter] = useState(false);
   const [letterSent, setLetterSent] = useState(false);
   const [passportUrl, setPassportUrl] = useState<string | null>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [activeTab, setActiveTab] = useState<"info" | "documents" | "reviews">("info");
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
@@ -925,27 +848,6 @@ export default function ApplicationDetailPage() {
     }
   };
 
-  const handleDownloadPgPdf = async () => {
-    setDownloadingPdf(true);
-    try {
-      const blob = await ApiClient.downloadPgApplicationPdf(applicantId);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `pg_application_${application?.applicant?.form_no || applicantId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to download application PDF");
-    } finally {
-      setDownloadingPdf(false);
-    }
-  };
-
-  const isPgApplication = application?.applicant?.program_id === 2 || application?.applicant?.prog_type === 2;
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -970,7 +872,7 @@ export default function ApplicationDetailPage() {
               {error ||
                 "The application you're looking for could not be found."}
             </p>
-            <Link href="/admission_officer/applications">
+            <Link href={applicationsHref}>
               <Button>Go Back</Button>
             </Link>
           </CardContent>
@@ -984,7 +886,7 @@ export default function ApplicationDetailPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back link */}
         <Link
-          href="/admission_officer/applications"
+          href={applicationsHref}
           className="text-primary hover:underline text-sm mb-4 block"
         >
           ← Back to Applications
@@ -1001,32 +903,17 @@ export default function ApplicationDetailPage() {
                 {application.applicant.email}
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              {isPgApplication && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDownloadPgPdf}
-                  disabled={downloadingPdf}
-                  className="gap-2 border-[#6b357d] text-[#6b357d] hover:bg-[#6b357d]/5 font-bold rounded-xl shadow-sm"
-                >
-                  {downloadingPdf ? (
-                    <span className="animate-spin">⟳</span>
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  Download Application
-                </Button>
-              )}
-              <Badge
-                className={
+            <Badge
+              data-status={application.applicant.application_status}
+              className={
+                `admission-status-badge ${
                   statusColors[application.applicant.application_status] ||
                   "bg-slate-100 text-slate-700"
-                }
-              >
-                {application.applicant.application_status.replace(/_/g, " ")}
-              </Badge>
-            </div>
+                }`
+              }
+            >
+              {application.applicant.application_status.replace(/_/g, " ")}
+            </Badge>
           </div>
 
           {/* Global error */}
@@ -1040,15 +927,51 @@ export default function ApplicationDetailPage() {
           )}
 
           {/* Tabs */}
-          <Tabs defaultValue="info" className="mb-8">
-            <TabsList className={`grid w-full ${isPgApplication ? 'max-w-lg grid-cols-4' : 'max-w-md grid-cols-3'}`}>
-              <TabsTrigger value="info">Information</TabsTrigger>
-              <TabsTrigger value="documents">Documents</TabsTrigger>
-              {isPgApplication && (
-                <TabsTrigger value="pg_evaluation">PG Admin&apos;s Review</TabsTrigger>
-              )}
-              <TabsTrigger value="reviews">Reviews</TabsTrigger>
-            </TabsList>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) =>
+              setActiveTab(value as "info" | "documents" | "reviews")
+            }
+            className="mb-8"
+          >
+            <div className="mb-6 max-w-xl">
+              <div className="relative overflow-hidden rounded-2xl border border-[#e5d8c6] bg-[#fffefa] p-1.5 shadow-sm">
+                <div className="pointer-events-none absolute inset-y-1.5 left-1.5 w-6 bg-gradient-to-r from-[#fffefa] to-transparent sm:hidden" />
+                <div className="pointer-events-none absolute inset-y-1.5 right-1.5 w-6 bg-gradient-to-l from-[#fffefa] to-transparent sm:hidden" />
+                <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsList className="h-auto min-w-max w-full justify-start gap-1 bg-transparent p-0 text-slate-700 sm:grid sm:grid-cols-3">
+                    <TabsTrigger
+                      value="info"
+                      className="min-w-[124px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                    >
+                      Information
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="documents"
+                      className="min-w-[124px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                    >
+                      Documents
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="reviews"
+                      className="min-w-[112px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                    >
+                      Reviews
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+              </div>
+              <div className="mt-2 flex justify-center gap-1.5 sm:hidden" aria-hidden="true">
+                {(["info", "documents", "reviews"] as const).map((tab) => (
+                  <span
+                    key={tab}
+                    className={`h-1.5 rounded-full transition-all ${
+                      activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
 
             <TabsContent value="info" className="space-y-6">
               {/* passportUrl lives in parent — never re-fetched on tab switch */}
@@ -1063,23 +986,7 @@ export default function ApplicationDetailPage() {
               <DocumentsTab documents={application.documents} />
             </TabsContent>
 
-            {isPgApplication && (
-              <TabsContent value="pg_evaluation" className="space-y-6">
-                <PgEvaluationPanel evaluation={application.pg_evaluation} />
-              </TabsContent>
-            )}
-
             <TabsContent value="reviews">
-              {isPgApplication && !application.pg_evaluation && (
-                <Card className="mb-4 border-amber-100 bg-amber-50/40 rounded-2xl">
-                  <CardContent className="pt-4 pb-4 flex items-center gap-3">
-                    <GraduationCap className="h-5 w-5 text-amber-500 flex-shrink-0" />
-                    <p className="text-sm text-amber-700 font-semibold">
-                      Note: The PG Admin has not yet completed their Section B evaluation. You may still make a decision, but it is recommended to wait for the PG Admin&apos;s review.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
               <ReviewsTab
                 application={application}
                 onReviewSuccess={loadApplicationDetail}

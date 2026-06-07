@@ -29,6 +29,10 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isAuthenticated, isLoading } = useAuth();
 
+  if (pathname?.startsWith("/pgstudents")) {
+    return <main className="min-h-screen">{children}</main>;
+  }
+
   const isPublicPage =
     pathname &&
     PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));

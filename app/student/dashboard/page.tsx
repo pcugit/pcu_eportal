@@ -32,12 +32,14 @@ import {
   DollarSign,
 } from "lucide-react";
 
+import FirstLoginPasswordChange from "@/components/FirstLoginPasswordChange";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 
 export default function StudentDashboard() {
   const router = useRouter();
   const { user, student, isAuthenticated, logout, isLoading } = useAuth();
   const isAdmitted = user?.role === "admitted"; // paid acceptance fee, not yet school fees
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [regStatus, setRegStatus] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [applicantStatus, setApplicantStatus] = useState<any>(null);
@@ -148,6 +150,11 @@ export default function StudentDashboard() {
     }
   };
 
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && student?.is_first_login) {
+      setShowPasswordChange(true);
+    }
+  }, [isLoading, isAuthenticated, student]);
 
   const handlePayTuition = async () => {
     // Step 1 — open the fee breakdown modal before touching Interswitch
@@ -231,8 +238,7 @@ export default function StudentDashboard() {
 
       const form = document.createElement("form");
       form.method = "POST";
-      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay
-      form.action = `${url.origin}${url.pathname}`;
+      form.action = `${url.origin}/collections/w/pay`;
 
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");
@@ -384,42 +390,35 @@ export default function StudentDashboard() {
     );
   }
 
+  if (showPasswordChange) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 px-4">
+        <FirstLoginPasswordChange
+          onComplete={() => setShowPasswordChange(false)}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+    <div className="min-h-screen bg-[#f3eee6]">
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
         {/* Welcome & Info */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card className="col-span-full md:col-span-2 overflow-hidden border-none shadow-xl bg-gradient-to-r from-[#6b21a8] to-[#881337] text-white relative group">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card className="col-span-full md:col-span-2 md:self-start overflow-hidden rounded-2xl border border-[#b98d3d] shadow-sm bg-[#c99b45] text-white relative group">
             <div className="absolute top-0 right-0 p-8 opacity-15 group-hover:scale-110 transition-transform duration-300">
               <GraduationCap className="w-24 h-24" />
             </div>
-            <CardHeader className="relative z-10 pb-2">
-              <CardTitle className="text-2xl font-bold tracking-tight">
+            <CardHeader className="relative z-10 p-5 md:p-5 md:py-6">
+              <CardTitle className="text-2xl font-black tracking-tight !text-white">
                 Welcome, {user?.name}
               </CardTitle>
-              <CardDescription className="text-white/80 font-medium text-sm mt-1">
+              <CardDescription className="!text-white/85 font-bold text-sm mt-1">
                 Matric Number: {student?.matric_number}
               </CardDescription>
             </CardHeader>
-            <CardContent className="relative z-10">
-              {/* Desktop Badges */}
-              <div className="hidden md:flex flex-wrap gap-2 mt-2">
-                <Badge
-                  variant="secondary"
-                  className="bg-white/15 text-white hover:bg-white/25 border border-white/10 backdrop-blur-md px-3 py-1 font-semibold"
-                >
-                  {student?.current_level}
-                </Badge>
-                <Badge
-                  variant="secondary"
-                  className="bg-white/15 text-white hover:bg-white/25 border border-white/10 backdrop-blur-md px-3 py-1 font-semibold"
-                >
-                  {student?.session}
-                </Badge>
-              </div>
-
+            <CardContent className="relative z-10 md:hidden">
               {/* Mobile String representation */}
               <div className="md:hidden mt-2.5 text-xs font-semibold text-white/90 bg-white/10 border border-white/15 backdrop-blur-md rounded-lg p-2.5 inline-flex items-center gap-1 shadow-inner">
                 <span>
@@ -439,40 +438,40 @@ export default function StudentDashboard() {
             </CardContent>
           </Card>
 
-          <Card className="hidden md:flex shadow-md border-[#6b21a8]/10 bg-[#6b21a8]/5 flex-col justify-center items-center text-center p-6 space-y-2 hover:scale-[1.01] transition-transform duration-200">
-            <div className="bg-[#6b21a8]/10 p-3 rounded-2xl mb-1 text-[#6b21a8]">
+          <Card className="hidden md:flex rounded-2xl border-[#e8dfd2] bg-white shadow-sm flex-col justify-center items-center text-center p-5 space-y-2 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+            <div className="bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] p-3 rounded-2xl mb-1">
               <BookOpen className="w-6 h-6" />
             </div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[#6b21a8]/70">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Current Level
             </p>
-            <p className="text-2xl font-bold text-[#6b21a8]">
+            <p className="text-2xl font-black text-slate-900">
               {student?.current_level}
             </p>
           </Card>
 
-          <Card className="hidden md:flex shadow-md border-[#881337]/10 bg-[#881337]/5 flex-col justify-center items-center text-center p-6 space-y-2 hover:scale-[1.01] transition-transform duration-200">
-            <div className="bg-[#881337]/10 p-3 rounded-2xl mb-1 text-[#881337]">
+          <Card className="hidden md:flex rounded-2xl border-[#e8dfd2] bg-white shadow-sm flex-col justify-center items-center text-center p-5 space-y-2 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+            <div className="bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] p-3 rounded-2xl mb-1">
               <Calendar className="w-6 h-6" />
             </div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[#881337]/70">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Session
             </p>
-            <p className="text-2xl font-bold text-[#881337]">
+            <p className="text-2xl font-black text-[#15110a]">
               {student?.session}
             </p>
           </Card>
         </div>
 
         {/* Action Widgets */}
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-5">
           {/* Course Registration Widget */}
           {!isAdmitted && (
-            <Card className="shadow-lg border border-[#6b21a8]/10 hover:border-[#6b21a8]/25 transition-all duration-300 group overflow-hidden bg-[#6b21a8]/[0.01]">
-              <div className="h-2 bg-gradient-to-r from-[#6b21a8] to-[#6b21a8]/80 w-full shadow-sm" />
+            <Card className="rounded-2xl shadow-sm border border-[#e8dfd2] hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group overflow-hidden bg-white">
+              <div className="h-1.5 bg-[#c99b45] w-full" />
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="bg-[#6b21a8]/10 p-2 rounded-xl group-hover:bg-[#6b21a8]/20 transition-colors duration-300 text-[#6b21a8]">
+                  <div className="bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] p-2 rounded-xl group-hover:scale-105 transition-transform duration-300">
                     <BookOpen className="w-6 h-6" />
                   </div>
                   <CardTitle className="text-lg font-bold text-slate-800">
@@ -488,7 +487,7 @@ export default function StudentDashboard() {
                 {regStatus === "submitted" ? (
                   <Button
                     variant="outline"
-                    className="w-full gap-2 font-bold py-6 text-base border-emerald-600 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50 hover:text-emerald-800 transition-all duration-200 shadow-sm"
+                    className="w-full gap-2 font-bold py-6 text-base border-[#cfe6d8] text-[#23704d] bg-[#eef7f1] hover:bg-[#e3f1e8] transition-all duration-200 shadow-sm"
                     onClick={() => router.push("/student/registration")}
                   >
                     View Registration
@@ -496,7 +495,7 @@ export default function StudentDashboard() {
                   </Button>
                 ) : (
                   <Button
-                    className="w-full gap-2 font-bold py-6 text-base bg-[#6b21a8] hover:bg-[#581c87] text-white shadow-lg shadow-purple-500/15 hover:shadow-purple-500/25 transition-all duration-200 hover:scale-[1.01]"
+                    className="w-full gap-2 font-bold py-6 text-base bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm transition-all duration-200"
                     onClick={() => router.push("/student/registration")}
                   >
                     Go to Registration
@@ -510,12 +509,12 @@ export default function StudentDashboard() {
           {/* Pay School Fees Widget */}
           <Card
             id="school-fees"
-            className="shadow-lg border border-amber-500/10 hover:border-amber-500/25 transition-all duration-300 group overflow-hidden bg-amber-500/[0.01]"
+            className="rounded-2xl shadow-sm border border-[#e8dfd2] hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group overflow-hidden bg-white"
           >
-            <div className="h-2 bg-gradient-to-r from-amber-500 to-amber-500/80 w-full shadow-sm" />
+            <div className="h-1.5 bg-[#e39519] w-full" />
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="bg-amber-500/10 p-2 rounded-xl group-hover:bg-amber-500/20 transition-colors duration-300 text-amber-600">
+                <div className="bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] p-2 rounded-xl group-hover:scale-105 transition-transform duration-300">
                   <CreditCard className="w-6 h-6" />
                 </div>
                 <CardTitle className="text-lg font-bold text-slate-800">
@@ -529,7 +528,7 @@ export default function StudentDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 bg-white">
+              <div className="flex items-center gap-3 p-3 bg-[#fffefa] rounded-xl border border-[#efd9a8]">
                 <Clock className="w-5 h-5 text-amber-600 shrink-0" />
                 <p className="text-sm text-amber-700 font-medium">
                   {isAdmitted
@@ -557,8 +556,8 @@ export default function StudentDashboard() {
                 <Button
                   className={`w-full gap-2 font-bold py-6 text-base shadow-lg transition-all duration-200 ${
                     isFullyPaid
-                      ? "bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/10 shadow-none border border-emerald-600/20"
-                      : "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/15 hover:shadow-amber-500/25 hover:scale-[1.01]"
+                      ? "bg-[#eef7f1] text-[#23704d] hover:bg-[#eef7f1] shadow-none border border-[#cfe6d8]"
+                      : "bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm"
                   }`}
                   onClick={handlePayTuition}
                   disabled={isPayingTuition || isFullyPaid}
@@ -582,11 +581,11 @@ export default function StudentDashboard() {
           </Card>
 
           {/* Profile & Settings Widget */}
-          <Card className="shadow-lg border border-[#881337]/10 hover:border-[#881337]/25 transition-all duration-300 group overflow-hidden bg-[#881337]/[0.01]">
-            <div className="h-2 bg-gradient-to-r from-[#881337] to-[#881337]/80 w-full shadow-sm" />
+          <Card className="rounded-2xl shadow-sm border border-[#e8dfd2] hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 group overflow-hidden bg-white">
+            <div className="h-1.5 bg-[#b85d75] w-full" />
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="bg-[#881337]/10 p-2 rounded-xl group-hover:bg-[#881337]/20 transition-colors duration-300 text-[#881337]">
+                <div className="bg-[#f8eef2] text-[#881337] border border-[#ead2db] p-2 rounded-xl group-hover:scale-105 transition-transform duration-300">
                   <User className="w-6 h-6" />
                 </div>
                 <CardTitle className="text-lg font-bold text-slate-800">
@@ -599,7 +598,7 @@ export default function StudentDashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
+                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-[#f7f1e8] transition-colors border border-[#eee5d8] bg-[#fbfaf7]">
                   <span className="text-sm font-semibold text-slate-500">
                     Full Name
                   </span>
@@ -607,15 +606,15 @@ export default function StudentDashboard() {
                     {user?.name}
                   </span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
+                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-[#f7f1e8] transition-colors border border-[#eee5d8] bg-[#fbfaf7]">
                   <span className="text-sm font-semibold text-slate-500">
                     Portal Username
                   </span>
-                  <span className="text-sm font-bold font-mono text-[#6b21a8] bg-[#6b21a8]/5 p-1 px-3 rounded-lg border border-[#6b21a8]/10">
+                  <span className="text-sm font-bold font-mono text-[#5c4520] bg-[#ead6aa] p-1 px-3 rounded-lg border border-[#d5b875]">
                     {user?.username || "N/A"}
                   </span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
+                <div className="flex items-center justify-between p-3 rounded-xl hover:bg-[#f7f1e8] transition-colors border border-[#eee5d8] bg-[#fbfaf7]">
                   <span className="text-sm font-semibold text-slate-500">
                     Email Address
                   </span>
@@ -830,9 +829,9 @@ export default function StudentDashboard() {
         {/* Admission Letter - From Applicant flow into Student dashboard */}
         <Card
           id="admission-documents"
-          className="hidden md:block mb-8 overflow-hidden border border-slate-100 shadow-xl mt-8 bg-white"
+          className="hidden md:block mb-8 overflow-hidden rounded-2xl border border-[#e8dfd2] shadow-sm mt-8 bg-white"
         >
-          <div className="bg-gradient-to-r from-[#6b21a8]/5 via-[#881337]/5 to-transparent p-6 border-b border-slate-100">
+          <div className="bg-[#fbfaf7] p-6 border-b border-[#f0e8dc]">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-xl font-bold text-slate-800">
@@ -847,11 +846,11 @@ export default function StudentDashboard() {
           </div>
 
           <CardContent className="p-6">
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
               {/* Admission Letter Download */}
-              <div className="bg-gradient-to-br from-[#6b21a8]/[0.02] to-transparent border border-[#6b21a8]/10 hover:border-[#6b21a8]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+              <div className="min-w-0 bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
                 <div>
-                  <div className="bg-[#6b21a8]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                  <div className="bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-105 transition-transform duration-300">
                     <FileText className="h-6 w-6" />
                   </div>
                   <h4 className="font-bold text-base text-slate-800 mb-1">
@@ -861,12 +860,12 @@ export default function StudentDashboard() {
                     Your official letter of admission for your program.
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Button
                     onClick={() => setShowLetter(!showLetter)}
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4"
+                    className="min-w-0 border-[#d8bd82] text-[#7a4f10] hover:bg-[#fff7e8] text-xs font-semibold py-4"
                     disabled={!admissionLetter}
                   >
                     {showLetter ? "Hide" : "Preview"}
@@ -874,7 +873,7 @@ export default function StudentDashboard() {
                   <Button
                     onClick={handlePrintPDF}
                     size="sm"
-                    className="flex-1 gap-2 bg-[#6b21a8] hover:bg-[#581c87] text-white shadow-md shadow-purple-500/10 text-xs font-semibold py-4"
+                    className="min-w-0 gap-1.5 bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm text-xs font-semibold py-4"
                     disabled={printLoading || !admissionLetter}
                   >
                     <Download className="h-3.5 w-3.5" />
@@ -884,9 +883,9 @@ export default function StudentDashboard() {
               </div>
 
               {/* Medical Form Download */}
-              <div className="bg-gradient-to-br from-[#881337]/[0.02] to-transparent border border-[#881337]/10 hover:border-[#881337]/35 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+              <div className="min-w-0 bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
                 <div>
-                  <div className="bg-[#881337]/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#881337]">
+                  <div className="bg-[#f8eef2] text-[#881337] border border-[#ead2db] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-105 transition-transform duration-300">
                     <FileText className="h-6 w-6" />
                   </div>
                   <h4 className="font-bold text-base text-slate-800 mb-1">
@@ -902,7 +901,7 @@ export default function StudentDashboard() {
                     downloading === "medical_form" ||
                     !applicantStatus?.has_paid_tuition
                   }
-                  className="w-full gap-2 bg-[#881337] hover:bg-[#70112c] text-white shadow-md shadow-rose-900/10 text-xs font-semibold py-4"
+                  className="w-full min-h-10 h-auto gap-1.5 bg-[#151515] hover:bg-[#2a2a2a] text-white shadow-sm text-xs font-semibold py-3.5 whitespace-normal leading-tight"
                 >
                   <Download className="h-3.5 w-3.5" />
                   {downloading === "medical_form"
@@ -912,9 +911,9 @@ export default function StudentDashboard() {
               </div>
 
               {/* Additional Forms Download */}
-              <div className="bg-gradient-to-br from-[#6b21a8]/[0.01] to-[#881337]/[0.01] border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+              <div className="min-w-0 bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
                 <div>
-                  <div className="bg-purple-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#6b21a8]">
+                  <div className="bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-105 transition-transform duration-300">
                     <Settings className="h-6 w-6" />
                   </div>
                   <h4 className="font-bold text-base text-slate-800 mb-1">
@@ -930,7 +929,7 @@ export default function StudentDashboard() {
                     variant="outline"
                     size="sm"
                     disabled={downloading === "admission_notice"}
-                    className="w-full gap-2 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-4 justify-center"
+                    className="w-full min-h-10 h-auto gap-1.5 border-[#d8bd82] text-[#7a4f10] hover:bg-[#fff7e8] text-xs font-semibold py-3.5 justify-center whitespace-normal leading-tight"
                   >
                     <Download className="h-3.5 w-3.5" />
                     {downloading === "admission_notice"
@@ -942,7 +941,7 @@ export default function StudentDashboard() {
                     variant="outline"
                     size="sm"
                     disabled={downloading === "affidavit"}
-                    className="w-full gap-2 border-[#881337]/25 text-[#881337] hover:bg-[#881337]/5 text-xs font-semibold py-4 justify-center"
+                    className="w-full min-h-10 h-auto gap-1.5 border-[#ead2db] text-[#881337] hover:bg-[#f8eef2] text-xs font-semibold py-3.5 justify-center whitespace-normal leading-tight"
                   >
                     <Download className="h-3.5 w-3.5" />
                     {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
@@ -951,9 +950,9 @@ export default function StudentDashboard() {
               </div>
 
               {/* Receipts Section */}
-              <div className="bg-gradient-to-br from-slate-50/50 to-transparent border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
+              <div className="min-w-0 bg-white border border-[#e8dfd2] hover:border-[#d8bd82] transition-all duration-300 rounded-xl p-5 shadow-sm group flex flex-col justify-between">
                 <div>
-                  <div className="bg-rose-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#881337]">
+                  <div className="bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-105 transition-transform duration-300">
                     <DollarSign className="h-6 w-6" />
                   </div>
                   <h4 className="font-bold text-base text-slate-800 mb-1">
@@ -969,15 +968,15 @@ export default function StudentDashboard() {
                     .map((pt) => (
                       <div
                         key={pt.transaction_id}
-                        className="flex items-center justify-between p-2 bg-white hover:bg-slate-50 rounded-lg border border-slate-100 text-xs transition-colors duration-200"
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 p-2 bg-[#fbfaf7] hover:bg-[#f7f1e8] rounded-lg border border-[#eee5d8] text-xs transition-colors duration-200"
                       >
-                        <span className="capitalize font-semibold text-slate-600">
+                        <span className="min-w-0 capitalize font-semibold text-slate-600 break-words">
                           {pt.payment_type.replace("_", " ")}
                         </span>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
+                          className="h-8 shrink-0 px-2 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
                           onClick={() =>
                             handleDownloadReceipt(
                               pt.receipt_no,

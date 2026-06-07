@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Lock, UserRound } from "lucide-react";
 
-export default function PgStudentsLoginPage() {
+export default function PtStudentsLoginPage() {
   return (
     <div className="portal-login-root">
       <div className="portal-login-card">
@@ -15,7 +15,7 @@ export default function PgStudentsLoginPage() {
             className="portal-login-logo"
           />
           <div>
-            <h1 className="portal-login-title">Postgraduate Student Portal</h1>
+            <h1 className="portal-login-title">Part-Time Student Portal</h1>
             <p className="portal-login-subtitle">
               Precious Cornerstone University
             </p>
@@ -51,7 +51,7 @@ export default function PgStudentsLoginPage() {
             </div>
           </div>
 
-          <Link href="/pgstudents/dashboard" className="portal-login-btn text-center">
+          <Link href="/ptstudents/dashboard" className="portal-login-btn text-center">
             Sign In
           </Link>
         </form>

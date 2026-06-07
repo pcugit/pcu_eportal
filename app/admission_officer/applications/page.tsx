@@ -155,6 +155,7 @@ function ApplicationsContent() {
             {applications.map((app) => (
               <Link key={app.id} href={`/admission_officer/application/${app.id}?status=${status}`} className="block">
                 <Card className="hover:shadow-lg hover:border-[#d8c29a] border-[#e8dfd2] transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden shadow-sm">
+                  {/* Subtle left gradient strip */}
                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#c99b45] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   <CardContent className="p-5 sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -170,6 +171,7 @@ function ApplicationsContent() {
                             >
                               {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
                             </Badge>
+                            {/* Fee status pill — only shown on admitted tab */}
                             {status === 'admitted' && (
                               <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border shadow-sm ${
                                 app.application_status === 'accepted'
@@ -181,6 +183,7 @@ function ApplicationsContent() {
                             )}
                           </div>
                         </div>
+                        
                         <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                           <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
                             <span className="text-xs text-slate-500 font-bold">Form No.</span>
@@ -200,6 +203,7 @@ function ApplicationsContent() {
                           </div>
                         </div>
                       </div>
+                      
                       <div className="flex items-center justify-end lg:justify-center">
                         <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
                           <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />

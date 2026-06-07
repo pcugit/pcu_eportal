@@ -163,7 +163,7 @@ export default function SignupPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="portal-login-root">
       {/* Toast Error Notification */}
       {showError && displayError && (
         <div
@@ -227,10 +227,10 @@ export default function SignupPage() {
       )}
 
       <div className="w-full max-w-md">
-        <Link href="/" className="inline-block mb-8">
+        <Link href="/" className="hidden">
           <Button variant="ghost">← Back</Button>
         </Link>
-        <Card className="w-full relative overflow-hidden">
+        <Card className="portal-login-card relative">
           {loadingConfig ? (
             <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
@@ -261,26 +261,26 @@ export default function SignupPage() {
             </div>
           ) : null}
 
-          <CardHeader className="space-y-4 text-center">
+          <CardHeader className="portal-login-header p-0">
             <div className="flex justify-center">
               <Image
                 src="/e-portal/images/logo new.png"
                 alt="University Logo"
                 width={120}
                 height={120}
-                className="object-contain"
+                className="portal-login-logo"
               />
             </div>
-            <CardTitle className="text-2xl">Create Account</CardTitle>
-            <CardDescription>
+            <CardTitle className="portal-login-title">Create Account</CardTitle>
+            <CardDescription className="portal-login-subtitle">
               Join the admission portal to start your application
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <form noValidate onSubmit={handleSubmit} className="space-y-4">
+          <CardContent className="p-0">
+            <form noValidate onSubmit={handleSubmit} className="portal-login-form">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="first_name">First Name</Label>
+                <div className="portal-login-field">
+                  <Label htmlFor="first_name" className="portal-login-label">First Name</Label>
                   <Input
                     id="first_name"
                     name="first_name"
@@ -289,10 +289,11 @@ export default function SignupPage() {
                     onChange={handleChange}
                     disabled={isLoading}
                     required
+                    className="portal-login-input"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="last_name">Last name</Label>
+                <div className="portal-login-field">
+                  <Label htmlFor="last_name" className="portal-login-label">Last name</Label>
                   <Input
                     id="last_name"
                     name="last_name"
@@ -301,12 +302,13 @@ export default function SignupPage() {
                     onChange={handleChange}
                     disabled={isLoading}
                     required
+                    className="portal-login-input"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+              <div className="portal-login-field">
+                <Label htmlFor="email" className="portal-login-label">Email Address</Label>
                 <Input
                   id="email"
                   name="email"
@@ -315,11 +317,12 @@ export default function SignupPage() {
                   value={formData.email}
                   onChange={handleChange}
                   disabled={isLoading}
+                  className="portal-login-input"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="phone_number">Phone Number</Label>
+              <div className="portal-login-field">
+                <Label htmlFor="phone_number" className="portal-login-label">Phone Number</Label>
                 <Input
                   id="phone_number"
                   name="phone_number"
@@ -327,11 +330,12 @@ export default function SignupPage() {
                   value={formData.phone_number}
                   onChange={handleChange}
                   disabled={isLoading}
+                  className="portal-login-input"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+              <div className="portal-login-field">
+                <Label htmlFor="password" className="portal-login-label">Password</Label>
                 <Input
                   id="password"
                   name="password"
@@ -340,11 +344,12 @@ export default function SignupPage() {
                   value={formData.password}
                   onChange={handleChange}
                   disabled={isLoading}
+                  className="portal-login-input"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <div className="portal-login-field">
+                <Label htmlFor="confirmPassword" className="portal-login-label">Confirm Password</Label>
                 <Input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -353,29 +358,26 @@ export default function SignupPage() {
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   disabled={isLoading}
+                  className="portal-login-input"
                 />
               </div>
 
               <Button
                 type="submit"
-                className="w-full"
+                className="portal-login-btn"
                 disabled={isLoading}
-                style={{
-                  background:
-                    "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)",
-                }}
               >
                 {isLoading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
 
             <div className="mt-6 text-center text-sm">
-              <span className="text-muted-foreground">
+              <span className="portal-login-subtitle">
                 Already have an account?{" "}
               </span>
               <Link
                 href="/auth/login"
-                className="text-primary font-medium hover:underline"
+                className="portal-login-link font-medium hover:underline"
               >
                 Log in
               </Link>

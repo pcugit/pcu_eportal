@@ -135,8 +135,8 @@ export default function LoginPage() {
 
   if (isAuthenticated && user?.role === "student") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md border-primary/20 shadow-xl text-center">
+      <div className="portal-login-root">
+        <Card className="portal-login-card text-center">
           <CardHeader>
             <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
               <CheckCircle2 className="h-10 w-10 text-green-600" />
@@ -181,7 +181,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="portal-login-root">
       {/* Toast Error Notification */}
       <div
         className={`fixed top-6 right-6 max-w-sm z-50 transition-all duration-500 ease-in-out transform ${
@@ -231,7 +231,7 @@ export default function LoginPage() {
         `}</style>
       </div>
 
-      <Card className="w-full max-w-md relative overflow-hidden">
+      <Card className="portal-login-card relative">
         {loadingConfig ? (
           <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur flex items-center justify-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
@@ -262,25 +262,25 @@ export default function LoginPage() {
           </div>
         ) : null}
 
-        <CardHeader className="space-y-4 text-center">
+        <CardHeader className="portal-login-header p-0">
           <div className="flex justify-center">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"
               width={120}
               height={120}
-              className="object-contain"
+              className="portal-login-logo"
             />
           </div>
-          <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>
+          <CardTitle className="portal-login-title">Admissions Portal</CardTitle>
+          <CardDescription className="portal-login-subtitle">
             Log in to your admission portal account
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form noValidate onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email or Username</Label>
+        <CardContent className="p-0">
+          <form noValidate onSubmit={handleSubmit} className="portal-login-form">
+            <div className="portal-login-field">
+              <Label htmlFor="email" className="portal-login-label">Email or Username</Label>
               <Input
                 id="email"
                 name="email"
@@ -289,11 +289,12 @@ export default function LoginPage() {
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isLoading}
+                className="portal-login-input"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+            <div className="portal-login-field">
+              <Label htmlFor="password" className="portal-login-label">Password</Label>
               <Input
                 id="password"
                 name="password"
@@ -302,28 +303,25 @@ export default function LoginPage() {
                 value={formData.password}
                 onChange={handleChange}
                 disabled={isLoading}
+                className="portal-login-input"
               />
             </div>
 
             <Button
               type="submit"
-              className="w-full"
+              className="portal-login-btn"
               disabled={isLoading}
-              style={{
-                background:
-                  "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)",
-              }}
             >
               {isLoading ? "Logging in..." : "Log In"}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm space-y-4">
-            <div className="text-muted-foreground">
+            <div className="portal-login-subtitle">
               Don't have an account?{" "}
               <Link
                 href="/auth/signup"
-                className="text-primary font-medium hover:underline"
+                className="portal-login-link font-medium hover:underline"
               >
                 Create one
               </Link>

@@ -107,7 +107,7 @@ export default function StudentLoginPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="portal-login-root">
       {/* Toast Error Notification */}
       {showError && displayError && (
         <div
@@ -167,30 +167,32 @@ export default function StudentLoginPage() {
         </div>
       )}
 
-      <Card className="w-full max-w-md relative overflow-hidden">
-        <CardHeader className="space-y-4 text-center pb-1">
+      <Card className="portal-login-card relative">
+        <CardHeader className="portal-login-header p-0">
           <div className="flex justify-center">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"
               width={120}
               height={120}
-              className="object-contain"
+              className="portal-login-logo"
             />
           </div>
-          <div className="space-y-1">
-            <CardTitle className="text-2xl">Welcome Back</CardTitle>
-            <CardDescription>
+          <div>
+            <CardTitle className="portal-login-title">
+              Undergraduate Student Portal
+            </CardTitle>
+            <CardDescription className="portal-login-subtitle">
               Log in to your student portal account using your matric
               number.
             </CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent>
-          <form noValidate onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Matric Number</Label>
+        <CardContent className="p-0">
+          <form noValidate onSubmit={handleSubmit} className="portal-login-form">
+            <div className="portal-login-field">
+              <Label htmlFor="email" className="portal-login-label">Matric Number</Label>
               <Input
                 id="email"
                 name="email"
@@ -199,12 +201,13 @@ export default function StudentLoginPage() {
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isLoading}
+                className="portal-login-input"
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="portal-login-field">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="portal-login-label">Password</Label>
                 {/*
                 <Link
                   href="/auth/forgot-password"
@@ -222,17 +225,14 @@ export default function StudentLoginPage() {
                 value={formData.password}
                 onChange={handleChange}
                 disabled={isLoading}
+                className="portal-login-input"
               />
             </div>
 
             <Button
               type="submit"
-              className="w-full"
+              className="portal-login-btn"
               disabled={isLoading}
-              style={{
-                background:
-                  "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)",
-              }}
             >
               {isLoading ? "Logging in..." : "Log In"}
             </Button>

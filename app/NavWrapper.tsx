@@ -7,6 +7,7 @@ import { GlobalNav } from "@/components/GlobalNav";
 import { Footer } from "@/components/Footer";
 import NavBar from "./HomePage/NavBar";
 import PcuFooter from "./HomePage/PcuFooter";
+import { PortalNavbar } from "./components/PortalNavbar";
 
 const PUBLIC_PATHS = [
   "/",
@@ -29,7 +30,28 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isAuthenticated, isLoading } = useAuth();
 
-  if (pathname?.startsWith("/pgstudents")) {
+  const isPortalAuthPage =
+    pathname === "/auth/login" ||
+    pathname === "/auth/signup" ||
+    pathname === "/staff/login" ||
+    pathname === "/student/login" ||
+    pathname === "/pgstudents/login" ||
+    pathname === "/ptstudents/login";
+
+  if (pathname === "/") {
+    return <main className="min-h-screen">{children}</main>;
+  }
+
+  if (isPortalAuthPage) {
+    return (
+      <>
+        <PortalNavbar />
+        <main className="min-h-screen">{children}</main>
+      </>
+    );
+  }
+
+  if (pathname?.startsWith("/pgstudents") || pathname?.startsWith("/ptstudents")) {
     return <main className="min-h-screen">{children}</main>;
   }
 

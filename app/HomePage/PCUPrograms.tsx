@@ -32,7 +32,7 @@ const programs = [
 export default function PCUPrograms() {
   const [current, setCurrent] = useState(0);
 
-  const goTo = (index) => setCurrent((index + programs.length) % programs.length);
+  const goTo = (index: number) => setCurrent((index + programs.length) % programs.length);
 
   return (
     <div className="bg-white py-12">

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient } from "@/lib/api";
+import { ApiClient, LetterStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -44,18 +44,7 @@ interface DepartmentApplicant {
   program_name: string;
 }
 
-interface LetterStatus {
-  applicant_id: number;
-  form_no: string | null;
-  name: string;
-  email: string;
-  program: string;
-  course: string;
-  status: "pending" | "sent" | "failed";
-  sent_at: string | null;
-  error_message: string | null;
-  retry_count: number;
-}
+
 
 export default function SendLettersPage() {
   const router = useRouter();

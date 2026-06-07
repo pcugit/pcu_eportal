@@ -234,6 +234,7 @@ interface FormField {
   required?: boolean;
   options?: string[];
   disabled?: boolean;
+  placeholder?: string;
 }
 
 interface Document {
@@ -1572,7 +1573,7 @@ export default function ApplicationForm({
               if (confirm("Are you sure you want to delete this document?")) {
                 try {
                   setSaving(true);
-                  await ApiClient.deleteDocument(docId);
+                  await ApiClient.deleteDocument(parseInt(docId, 10));
                   setUploadedDocuments((prev) => {
                     const next = { ...prev };
                     delete next[docType];

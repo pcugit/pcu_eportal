@@ -41,7 +41,7 @@ const newsItems = [
   },
 ];
 
-function NewsCard({ item }) {
+function NewsCard({ item }: { item: any }) {
   if (item.isImage) {
     return (
       <div

@@ -124,8 +124,11 @@ export default function PcuFooter() {
             alt="PCU Campus"
             className="w-full h-full object-cover"
             onError={(e) => {
-              e.target.style.display = "none";
-              e.target.parentElement.classList.add("bg-gray-700");
+              const target = e.currentTarget as HTMLImageElement;
+              target.style.display = "none";
+              if (target.parentElement) {
+                target.parentElement.classList.add("bg-gray-700");
+              }
             }}
           />
           {/* Instagram overlay */}

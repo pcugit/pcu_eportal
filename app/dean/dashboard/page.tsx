@@ -16,7 +16,7 @@ export default function DeanDashboard() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || !["dean", "admin"].includes(user?.role)) {
+    if (!isAuthenticated || !["dean", "admin"].includes(user?.role ?? "")) {
       router.push("/staff/login");
       return;
     }

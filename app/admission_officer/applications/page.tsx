@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -48,7 +48,8 @@ const statusColors: Record<string, string> = {
   rejected: "bg-rose-50 text-rose-700 border border-rose-200/60 shadow-sm shadow-rose-500/5",
 };
 
-export default function ApplicationsPage() {
+// ─── Inner component: safe to use useSearchParams() here ─────────────────────
+function ApplicationsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, logout } = useAuth();
@@ -66,7 +67,6 @@ export default function ApplicationsPage() {
       router.replace("/staff/login");
       return;
     }
-
     loadApplications();
   }, [isAuthenticated, user, router, status]);
 
@@ -96,8 +96,6 @@ export default function ApplicationsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50">
-
-      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
         <div className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -143,7 +141,11 @@ export default function ApplicationsPage() {
               <div className="space-y-1">
                 <p className="text-slate-800 font-bold text-lg">Inbox is Empty</p>
                 <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                  No applications found matching the <span className="font-bold text-slate-500 capitalize">{status.replace("_", " ")}</span> status filter.
+                  No applications found matching the{" "}
+                  <span className="font-bold text-slate-500 capitalize">
+                    {status.replace("_", " ")}
+                  </span>{" "}
+                  status filter.
                 </p>
               </div>
             </CardContent>
@@ -153,7 +155,6 @@ export default function ApplicationsPage() {
             {applications.map((app) => (
               <Link key={app.id} href={`/admission_officer/application/${app.id}?status=${status}`} className="block">
                 <Card className="hover:shadow-lg hover:border-[#d8c29a] border-[#e8dfd2] transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden shadow-sm">
-                  {/* Subtle left gradient strip */}
                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#c99b45] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   <CardContent className="p-5 sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -163,25 +164,23 @@ export default function ApplicationsPage() {
                             <h3 className="font-black text-slate-900 text-lg sm:text-xl leading-snug capitalize">{app.name}</h3>
                           </div>
                           <div className="flex flex-wrap gap-2 sm:justify-end lg:min-w-[250px]">
-                          <Badge
-                            data-status={app.application_status}
-                            className={`admission-status-badge ${statusColors[app.application_status] || 'bg-slate-50 text-slate-700 border border-slate-200'} font-bold text-xs py-1.5 px-3.5 rounded-full`}
-                          >
-                            {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
-                          </Badge>
-                          {/* Fee status pill — only shown on admitted tab */}
-                          {status === 'admitted' && (
-                            <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border shadow-sm ${
-                              app.application_status === 'accepted'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : 'bg-amber-50 text-amber-700 border-amber-100'
-                            }`}>
-                              {app.application_status === 'accepted' ? '✓ Fee Paid' : '⏳ Awaiting Fee'}
-                            </span>
-                          )}
+                            <Badge
+                              data-status={app.application_status}
+                              className={`admission-status-badge ${statusColors[app.application_status] || 'bg-slate-50 text-slate-700 border border-slate-200'} font-bold text-xs py-1.5 px-3.5 rounded-full`}
+                            >
+                              {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
+                            </Badge>
+                            {status === 'admitted' && (
+                              <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border shadow-sm ${
+                                app.application_status === 'accepted'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                  : 'bg-amber-50 text-amber-700 border-amber-100'
+                              }`}>
+                                {app.application_status === 'accepted' ? '✓ Fee Paid' : '⏳ Awaiting Fee'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        </div>
-                        
                         <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                           <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
                             <span className="text-xs text-slate-500 font-bold">Form No.</span>
@@ -201,7 +200,6 @@ export default function ApplicationsPage() {
                           </div>
                         </div>
                       </div>
-                      
                       <div className="flex items-center justify-end lg:justify-center">
                         <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
                           <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
@@ -216,5 +214,23 @@ export default function ApplicationsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Default export: Suspense boundary satisfies Next.js prerender ────────────
+export default function ApplicationsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50/50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6b357d] mx-auto mb-4" />
+            <p className="text-slate-500 font-semibold text-sm">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <ApplicationsContent />
+    </Suspense>
   );
 }

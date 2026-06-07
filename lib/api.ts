@@ -52,6 +52,7 @@ export interface CourseData {
   category: string;
   remark: string | null;
   lecturer: string | null;
+  semester?: string | null;
 }
 
 export interface CourseRegistrationResponse {
@@ -94,6 +95,8 @@ export interface LetterStatus {
   sent_at: string | null;
   error_message: string | null;
   retry_count: number;
+  form_no?: string | null;
+  course?: string | null;
 }
 
 export interface LetterStatusSummaryResponse {

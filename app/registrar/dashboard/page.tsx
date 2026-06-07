@@ -28,7 +28,7 @@ export default function RegistrarDashboard() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || !["registrar", "admin"].includes(user?.role)) {
+    if (!isAuthenticated || !["registrar", "admin"].includes(user?.role ?? "")) {
       router.push("/staff/login");
       return;
     }

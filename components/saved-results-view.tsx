@@ -40,7 +40,7 @@ interface DrillState {
   level: DrillLevel
   departmentId?: number
   departmentName?: string
-  sessionId?: number
+  sessionId?: string | number
   sessionName?: string
   semesterName?: string
   selectedLevel?: Level
@@ -77,7 +77,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
     }
   }
 
-  async function loadSessionTranscripts(sessionId: number) {
+  async function loadSessionTranscripts(sessionId: string | number) {
     try {
       setSessionLoading(true)
       setError(null)
@@ -179,7 +179,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
   function totalInDept(dept: DepartmentGroup) {
     return dept.sessions.reduce((a, s) => a + s.semesters.reduce((b, sem) => b + sem.students.length, 0), 0)
   }
-  function totalInSession(dept: DepartmentGroup, sessionId: number) {
+  function totalInSession(dept: DepartmentGroup, sessionId: string | number) {
     return dept.sessions.find((s) => s.id === sessionId)?.semesters.reduce((a, sem) => a + sem.students.length, 0) ?? 0
   }
 

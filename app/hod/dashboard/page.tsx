@@ -32,7 +32,7 @@ export default function HODDashboard() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || !["hod", "admin"].includes(user?.role)) {
+    if (!isAuthenticated || !["hod", "admin"].includes(user?.role ?? "")) {
       router.push("/staff/login");
       return;
     }

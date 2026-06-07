@@ -19,6 +19,7 @@ type StaffRole =
   | "registrar"
   | "admissionofficer"
   | "ictdirector"
+  | "ict_director"
   | "admin"
   | "freshapplicant";
 
@@ -43,6 +44,7 @@ export const STAFF_ROLES: string[] = [
   "freshapplicant",
   "admissionofficer",
   "ictdirector",
+  "ict_director",
   "admin",
 ];
 

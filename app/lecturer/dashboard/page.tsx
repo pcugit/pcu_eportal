@@ -35,7 +35,7 @@ export default function LecturerDashboard() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || !["lecturer","deo","hod","admin"].includes(user?.role)) {
+    if (!isAuthenticated || !["lecturer","deo","hod","admin"].includes(user?.role ?? "")) {
       router.push("/staff/login");
       return;
     }

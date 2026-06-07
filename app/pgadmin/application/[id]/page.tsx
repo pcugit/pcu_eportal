@@ -1029,10 +1029,7 @@ function ReviewTab({
                   </SelectTrigger>
                   <SelectContent>
                     {pgPrograms.map((prog) => (
-                      <SelectItem
-                        key={prog.id}
-                        value={String(prog.id)}
-                      >
+                      <SelectItem key={prog.id} value={String(prog.id)}>
                         {prog.full_name || prog.program_name || prog.title}
                       </SelectItem>
                     ))}
@@ -1268,7 +1265,6 @@ export default function PgApplicationDetailPage() {
               >
                 {appStatus.replace("_", " ")}
               </Badge>
-
             </div>
             <div className="flex flex-wrap gap-4 text-sm text-slate-500">
               <span>

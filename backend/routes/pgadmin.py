@@ -16,6 +16,15 @@ USER_NAME_EXPR = "u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.s
 PG_PROG_TYPE = 2  # prog_type id for Postgraduate in program_types table
 
 
+def _ensure_recommendation_columns():
+    Database.execute_update(
+        '''ALTER TABLE pg_application
+           ADD COLUMN IF NOT EXISTS approved_course TEXT,
+           ADD COLUMN IF NOT EXISTS finalised_course TEXT,
+           ADD COLUMN IF NOT EXISTS applicant_recommended_course TEXT'''
+    )
+
+
 def get_pg_admission_ref(applicant_id):
     res = Database.execute_query(
         '''SELECT asess.name AS session_name
@@ -163,8 +172,14 @@ def get_applications(payload):
                              {USER_NAME_EXPR} AS name,
                              u.email, u.phone_number,
                              2 AS program_id,
-                             COALESCE(dg.code || ' ', '') ||
-                             COALESCE(pgps.name, '') AS program_name,
+                             COALESCE(
+                                 CASE
+                                     WHEN pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                                     THEN pg.finalised_course
+                                 END,
+                                 pg.approved_course,
+                                 COALESCE(dg.code || ' ', '') || COALESCE(pgps.name, '')
+                             ) AS program_name,
                              pg.applicant_stage AS application_status,
                              pg.updated_date AS submitted_at,
                              pg.form_no,
@@ -230,7 +245,14 @@ def get_application_detail(payload, application_id):
                    {USER_NAME_EXPR} AS name,
                    u.email, u.phone_number,
                    2 AS program_id,
-                   COALESCE(dg.code || ' ', '') || COALESCE(pg.approved_course, pgps.name, '') AS program_name,
+                   COALESCE(
+                       CASE
+                           WHEN pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                           THEN pg.finalised_course
+                       END,
+                       pg.approved_course,
+                       COALESCE(dg.code || ' ', '') || COALESCE(pgps.name, '')
+                   ) AS program_name,
                    pg.applicant_stage AS application_status,
                    pg.updated_date AS submitted_at,
                    pg.form_no,
@@ -238,6 +260,7 @@ def get_application_detail(payload, application_id):
                    pg.decision_date,
                    pg.approved_course,
                    pg.finalised_course,
+                   pg.applicant_recommended_course,
                    pg.admission_letter_sent,
                    COALESCE(asess.name, '') AS session
             FROM pg_application pg
@@ -480,14 +503,39 @@ def save_evaluation(payload, application_id):
 
 # ─── Review Application (Finalisation) ─────────────────────────────────────────
 
+@pgadmin_bp.route('/programs', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def get_programs(payload):
+    """Return active postgraduate programs for admin review decisions."""
+    programs = Database.execute_query(
+        '''SELECT
+               ps.id,
+               ps.name,
+               COALESCE(dg.code || ' ', '') || ps.name AS full_name,
+               d.id AS department_id,
+               d.name AS department,
+               dg.id AS degree_id,
+               dg.name AS degree,
+               dg.code AS degree_code
+           FROM pg_program_setup ps
+           LEFT JOIN departments d ON ps.department_id = d.id
+           LEFT JOIN degrees dg ON ps.degree_id = dg.id
+           WHERE ps.is_active = TRUE
+           ORDER BY d.name, ps.name''',
+        ()
+    )
+    return jsonify(programs or []), 200
+
+
 @pgadmin_bp.route('/review-application', methods=['POST'])
 @AuthHandler.token_required
 @AuthHandler.pgadmin_required
 def review_application(payload):
-    """Review and approve/reject/recommend application.
-    Saves decision, decision_date, approved_course and finalised_course
-    directly onto the pg_application row.
-    """
+    """Review and approve/reject/recommend application."""
+    _ensure_recommendation_columns()
+    
+
     data = request.get_json()
 
     if not data or 'applicant_id' not in data or 'decision' not in data:
@@ -505,13 +553,54 @@ def review_application(payload):
 
     admin_user_id = payload['user_id']
 
-    stage_map  = {'accept': 'admitted', 'reject': 'rejected', 'recommend': 'screening'}
-    new_status = stage_map[decision]
+    current_app = Database.execute_query(
+        '''SELECT applicant_stage, approved_course, applicant_recommended_course
+           FROM pg_application WHERE uuid = %s''',
+        (applicant_id,)
+    )
+    
+    if not current_app:
+        return jsonify({'message': 'Applicant not found'}), 404
+    
+    current_stage = current_app[0]['applicant_stage']
+    current_approved_course = current_app[0].get('approved_course')
+    applicant_rec_course = current_app[0].get('applicant_recommended_course')
+    # Determine new status based on decision and current context
+    if decision == 'recommend':
+        new_status = 'recommended'
+        stored_approved_course = approved_course
+        finalised_course = None
+    elif decision == 'reject':
+        new_status = 'rejected'
+        stored_approved_course = current_approved_course or approved_course
+        finalised_course = None
+    else:  # decision == 'accept'
+        stored_approved_course = current_approved_course or approved_course
+        if current_stage == 'accepted_recommendation':
+            # Applicant accepted the recommendation → finalize it
+            new_status = 'admitted'
+            finalised_course = approved_course
+        elif current_stage == 'applicant_recommended':
+            # Applicant recommended alternative → accept their recommendation
+            new_status = 'admitted'
+            finalised_course = approved_course
+        else:
+            # Direct acceptance
+            new_status = 'admitted'
+            finalised_course = approved_course
+        if current_stage == 'applicant_recommended':
+            finalised_course = applicant_rec_course or finalised_course
+        elif current_stage == 'accepted_recommendation':
+            finalised_course = stored_approved_course
 
     ps_id = None
     department_id = None
     degree_id = None
-    if approved_course:
+    
+    # Resolve only the final admitted course. Recommendation should not alter
+    # the applicant's original proposed_course/program metadata.
+    course_to_resolve = finalised_course
+    if course_to_resolve:
         ps_res = Database.execute_query(
             '''SELECT ps.id, ps.department_id, ps.degree_id
                FROM pg_program_setup ps
@@ -519,7 +608,7 @@ def review_application(payload):
                WHERE LOWER(ps.name) = LOWER(%s)
                   OR LOWER(COALESCE(dg.code || ' ', '') || ps.name) = LOWER(%s)
                LIMIT 1''',
-            (approved_course, approved_course)
+            (course_to_resolve, course_to_resolve)
         )
         if ps_res:
             ps_id = ps_res[0]['id']
@@ -533,12 +622,11 @@ def review_application(payload):
                decision_date           = NOW(),
                approved_course         = %s,
                finalised_course        = %s,
-               proposed_course         = COALESCE(%s, proposed_course),
                degree_id               = COALESCE(%s, degree_id),
                decision_maker_user_id  = %s,
                updated_date            = NOW()
            WHERE uuid = %s''',
-        (new_status, decision, approved_course, approved_course, ps_id, degree_id, admin_user_id, applicant_id)
+        (new_status, decision, stored_approved_course, finalised_course, degree_id, admin_user_id, applicant_id)
     )
 
     return jsonify({
@@ -553,7 +641,10 @@ def review_application(payload):
 @AuthHandler.token_required
 @AuthHandler.pgadmin_required
 def send_admission_letter(payload):
+    
+    
     """Send admission letter to single PG applicant"""
+
     from email_utils import send_email
     from utils.pdf_generator import PDFGenerator
 

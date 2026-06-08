@@ -66,7 +66,11 @@ const STUDENT_NAV_ITEMS = [
 // (tuition payment, documents, downloads — no course registration)
 const ADMITTED_NAV_ITEMS = [
   { label: "Dashboard", href: "/applicant/dashboard", icon: LayoutDashboard },
-  { label: "Pay Fees", href: "/applicant/payment?type=tuition", icon: DollarSign },
+  {
+    label: "Pay Fees",
+    href: "/applicant/payment?type=tuition",
+    icon: DollarSign,
+  },
   { label: "Transactions", href: "/applicant/transactions", icon: CreditCard },
   { label: "Change Password", href: "/applicant/change-password", icon: Lock },
 ];
@@ -143,7 +147,9 @@ export function GlobalNav() {
 
   const isApplicantPortal =
     isAuthenticated &&
-    (user?.role === "applicant" || user?.role === "freshapplicant" || user?.role === "admitted");
+    (user?.role === "applicant" ||
+      user?.role === "freshapplicant" ||
+      user?.role === "admitted");
   const isStudentPortal = isAuthenticated && user?.role === "student";
   const isAdmittedPortal = isAuthenticated && user?.role === "admitted";
   const isAdminPortal = isAuthenticated && user?.role === "admissionofficer";
@@ -206,7 +212,8 @@ export function GlobalNav() {
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
     if (isLecturerPortal) return LECTURER_NAV_ITEMS;
     if (isIctPortal) return ICT_NAV_ITEMS;
-    if (user?.role === "pgadmin" || user?.role === "pgdean") return PGADMIN_NAV_ITEMS;
+    if (user?.role === "pgadmin" || user?.role === "pgdean")
+      return PGADMIN_NAV_ITEMS;
     if (isManagementPortal)
       return [
         {
@@ -248,8 +255,7 @@ export function GlobalNav() {
   return (
     <>
       {/* Top Header - "Only the name of the authenticated user" */}
-      <header
-      >
+      <header>
         {/* Mobile Hamburger Toggle */}
         <button
           onClick={toggle}
@@ -274,7 +280,6 @@ export function GlobalNav() {
             isOpen ? "gap-4 xl:gap-6" : "gap-6 xl:gap-8",
           )}
         ></div>
-
       </header>
 
       {/* Mobile Backdrop Overlay */}
@@ -309,16 +314,15 @@ export function GlobalNav() {
             )}
           >
             <Link href="/" className="flex min-w-0 items-center gap-3 shrink-0">
-              <Image
-                src="/e-portal/images/logo new.png"
-                alt="PCU Logo"
-                width={35}
-                height={35}
-                className={cn(
-                  "object-contain shrink-0",
-                  isOpen ? "h-10 w-10" : "h-9 w-9",
-                )}
-              />
+              <div className=" bg-white  shadow-md">
+                <Image
+                  src="/e-portal/images/logo new.png"
+                  alt="University Logo"
+                  width={30}
+                  height={30}
+                  className="portal-login-logo"
+                />
+              </div>
               <span
                 className={cn(
                   "font-black text-slate-800 uppercase transition-all duration-300 overflow-hidden whitespace-nowrap leading-none",
@@ -373,10 +377,10 @@ export function GlobalNav() {
                         isOfficialPortalSection && isActive
                           ? "bg-[#c99b45] border-[#c99b45] text-[#15110a] shadow-[#c99b45]/20"
                           : isActive
-                          ? "bg-[#6b21a8] border-[#6b21a8] text-white shadow-[#6b21a8]/20"
-                          : isOfficialPortalSection
-                            ? "bg-[#202020] border-white/10 text-[#d8d1c6] group-hover:border-[#c99b45]/60 group-hover:text-white group-hover:scale-105"
-                            : "bg-white border-slate-100 text-slate-500 group-hover:border-purple-200 group-hover:scale-105",
+                            ? "bg-[#6b21a8] border-[#6b21a8] text-white shadow-[#6b21a8]/20"
+                            : isOfficialPortalSection
+                              ? "bg-[#202020] border-white/10 text-[#d8d1c6] group-hover:border-[#c99b45]/60 group-hover:text-white group-hover:scale-105"
+                              : "bg-white border-slate-100 text-slate-500 group-hover:border-purple-200 group-hover:scale-105",
                       )}
                     >
                       <item.icon
@@ -400,8 +404,8 @@ export function GlobalNav() {
                           ? "text-[#f4e9d0]"
                           : "text-[#d8d1c6] group-hover:text-white"
                         : isActive
-                        ? "text-[#6b21a8]"
-                        : "text-slate-500 group-hover:text-slate-900",
+                          ? "text-[#6b21a8]"
+                          : "text-slate-500 group-hover:text-slate-900",
                     )}
                   >
                     {item.label}

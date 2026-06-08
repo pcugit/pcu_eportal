@@ -2,7 +2,7 @@ template = {
     'program': 'Postgraduate',
     'steps': [
         {
-            'title': 'Personal Information',
+            'title': 'Background Information',
             'type': 'fields',
             'fields': [
                 {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},

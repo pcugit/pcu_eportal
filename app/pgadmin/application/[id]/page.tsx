@@ -824,6 +824,31 @@ function ReviewTab({
   const currentDecision = application?.applicant?.decision;
   const proposedCourse = application?.form?.proposed_course_name;
   const applicationStatus = application?.applicant?.application_status;
+  const applicantRecommendedCourse =
+    application?.applicant?.applicant_recommended_course;
+  const isRecommendationFollowUp =
+    applicationStatus === "accepted_recommendation" ||
+    applicationStatus === "applicant_recommended";
+  const acceptedRecommendedCourse =
+    applicationStatus === "accepted_recommendation"
+      ? application?.applicant?.approved_course
+      : null;
+  const finalAcceptCourse =
+    applicantRecommendedCourse || acceptedRecommendedCourse || proposedCourse;
+  const reviewedCourse =
+    currentDecision === "accept"
+      ? application?.applicant?.finalised_course ||
+        application?.applicant?.approved_course ||
+        application?.applicant?.program_name
+      : application?.applicant?.approved_course ||
+        application?.applicant?.program_name;
+  const getProgramLabel = (program: any) =>
+    program.full_name ||
+    program.program_name ||
+    program.program ||
+    program.name ||
+    program.title ||
+    "";
 
   // Fetch PG programs for recommendation
   useEffect(() => {
@@ -844,8 +869,10 @@ function ReviewTab({
       return;
     }
 
+    const selectedCourse =
+      decision === "accept" ? finalAcceptCourse : approvedCourse;
     const needsCourse = decision === "accept" || decision === "recommend";
-    if (needsCourse && !approvedCourse) {
+    if (needsCourse && !selectedCourse) {
       setError("Please select a course for this decision");
       return;
     }
@@ -858,7 +885,7 @@ function ReviewTab({
       await ApiClient.pgReviewApplication(
         application.applicant.id,
         decision,
-        approvedCourse || undefined,
+        selectedCourse || undefined,
       );
       setReviewSuccess(true);
       setTimeout(() => onReviewSuccess(), 1500);
@@ -869,7 +896,9 @@ function ReviewTab({
     }
   };
 
-  const canReview = applicationStatus === "screening" && !currentDecision;
+  const canReview =
+    (applicationStatus === "screening" && !currentDecision) ||
+    isRecommendationFollowUp;
 
   const getDecisionBadge = (decisionValue: string) => {
     const badges: {
@@ -915,8 +944,7 @@ function ReviewTab({
                 <p className="text-sm text-slate-600 mt-2.5">
                   {currentDecision === "accept" ? "Approved Course" : "Course"}:{" "}
                   <span className="font-semibold">
-                    {application.applicant.accepted_recommended_program_name ||
-                      "—"}
+                    {reviewedCourse || "—"}
                   </span>
                 </p>
               )}
@@ -986,7 +1014,9 @@ function ReviewTab({
                     ? "bg-red-600 text-white"
                     : "bg-gray-100 text-slate-600 hover:bg-gray-200",
               },
-            ].map(({ value, label, icon: Icon, color }) => (
+            ]
+              .filter(({ value }) => !isRecommendationFollowUp || value !== "recommend")
+              .map(({ value, label, icon: Icon, color }) => (
               <Button
                 key={value}
                 onClick={() => {
@@ -1013,10 +1043,14 @@ function ReviewTab({
               {decision === "accept" ? (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
                   <p className="text-slate-600 font-semibold">
-                    {proposedCourse}
+                    {finalAcceptCourse}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Applicant's proposed course
+                    {applicantRecommendedCourse
+                      ? "Applicant's recommended course"
+                      : acceptedRecommendedCourse
+                        ? "Applicant accepted the recommended course"
+                        : "Applicant's proposed course"}
                   </p>
                 </div>
               ) : (
@@ -1028,11 +1062,17 @@ function ReviewTab({
                     <SelectValue placeholder="Select a program to recommend" />
                   </SelectTrigger>
                   <SelectContent>
-                    {pgPrograms.map((prog) => (
-                      <SelectItem key={prog.id} value={String(prog.id)}>
-                        {prog.full_name || prog.program_name || prog.title}
-                      </SelectItem>
-                    ))}
+                    {pgPrograms
+                      .map((prog) => ({
+                        id: prog.id,
+                        label: getProgramLabel(prog),
+                      }))
+                      .filter((prog) => prog.label)
+                      .map((prog) => (
+                        <SelectItem key={prog.id} value={prog.label}>
+                          {prog.label}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               )}
@@ -1230,7 +1270,7 @@ export default function PgApplicationDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8">
         {/* Breadcrumb + Print */}
         <div className="flex items-center justify-between mb-5">
           <Link

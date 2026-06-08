@@ -77,7 +77,7 @@ export default function ICTDashboard() {
     <div className="min-h-screen bg-slate-50">
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
         {pendingCount > 0 && (
           <div className="mb-8 p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center justify-between animate-pulse">
             <div className="flex items-center gap-3">

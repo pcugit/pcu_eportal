@@ -15,6 +15,8 @@ export interface ApplicantStatus {
   program_name: string;
   degree_code?: string | null;
   approved_course?: string | null;
+  finalised_course?: string | null;
+  applicant_recommended_course?: string | null;
   form_no: string | null;
   matric_no: string | null;
   application_status: string;
@@ -382,9 +384,14 @@ export class ApiClient {
     if (isGet) {
       this.inFlight.set(cacheKey, promise);
       // Clean up from inFlight map once resolved or failed
-      promise.finally(() => {
-        this.inFlight.delete(cacheKey);
-      });
+      promise.then(
+        () => {
+          this.inFlight.delete(cacheKey);
+        },
+        () => {
+          this.inFlight.delete(cacheKey);
+        },
+      );
     }
 
     return promise;
@@ -1149,7 +1156,7 @@ export class ApiClient {
 
   static async getPgPrograms(): Promise<any[]> {
     const { data } = await this.fetch<any>(`/pgadmin/programs`);
-    return data || [];
+    return Array.isArray(data) ? data : data?.programs || [];
   }
 
   static async getRecentActivity(limit = 15): Promise<{

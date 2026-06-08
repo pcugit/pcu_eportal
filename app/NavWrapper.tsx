@@ -98,7 +98,7 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
   return (
     <>
       <GlobalNav />
-      <main className="transition-all duration-300 ease-in-out pl-[var(--sidebar-width)] pt-16 min-h-screen flex flex-col">
+      <main className="transition-all duration-300 ease-in-out pl-[var(--sidebar-width)] min-h-screen flex flex-col">
         <div className="flex-grow">{children}</div>
         <Footer />
       </main>

@@ -7,13 +7,15 @@ export default function PtStudentsLoginPage() {
     <div className="portal-login-root">
       <div className="portal-login-card">
         <div className="portal-login-header">
-          <Image
-            src="/e-portal/images/logo new.png"
-            alt="PCU Logo"
-            width={120}
-            height={120}
-            className="portal-login-logo"
-          />
+          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
+            <Image
+              src="/e-portal/images/logo new.png"
+              alt="PCU Logo"
+              width={120}
+              height={120}
+              className="portal-login-logo"
+            />
+          </div>
           <div>
             <h1 className="portal-login-title">Part-Time Student Portal</h1>
             <p className="portal-login-subtitle">

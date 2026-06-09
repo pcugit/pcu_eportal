@@ -318,11 +318,19 @@ export default function ApplicantProfile({
    * Get field value from form, with support for aliases and formatters
    */
   const getFieldValue = (field: ProfileField): string => {
-    const value = form?.[field.key];
+    const keys = [field.key, ...(field.aliases || [])];
+    const value = keys
+      .map((key) => form?.[key])
+      .find((candidate) => candidate !== undefined && candidate !== null && candidate !== "");
 
     // Special handling for specific field keys
     if (field.key === "degree_name" && form?.degree_name && form?.degree_code) {
       return `${form.degree_name} (${form.degree_code})`;
+    }
+
+    if (field.format) {
+      const formatted = field.format(value, form);
+      if (formatted) return formatted;
     }
 
     if (!value && field.showIfEmpty === false) return "";

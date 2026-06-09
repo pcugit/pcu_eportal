@@ -8,10 +8,12 @@
 export interface ProfileField {
   /** Key to access in form data */
   key: string;
+  /** Alternative keys to try when key is empty */
+  aliases?: string[];
   /** Display label */
   label: string;
   /** Optional formatter function */
-  format?: (value: any) => string;
+  format?: (value: any, form?: any) => string;
   /** Whether to show if value is empty */
   showIfEmpty?: boolean;
 }
@@ -55,7 +57,7 @@ export const pgTemplate: ProfileTemplate = {
       fields: [
         { key: "email", label: "Email" },
         { key: "first_name", label: "First Name" },
-        { key: "last_name", label: "Surname" },
+        { key: "last_name", aliases: ["surname"], label: "Surname" },
         { key: "middle_name", label: "Middle Name" },
         { key: "gender", label: "Gender" },
         { key: "date_of_birth", label: "Date of Birth" },
@@ -91,8 +93,16 @@ export const pgTemplate: ProfileTemplate = {
               : "";
           },
         },
-        { key: "proposed_course_name", label: "Proposed Course/Program" },
-        { key: "proposed_faculty_name", label: "Faculty/Institute" },
+        {
+          key: "proposed_course_name",
+          aliases: ["program_name", "finalised_course", "approved_course"],
+          label: "Proposed Course/Program",
+        },
+        {
+          key: "proposed_faculty_name",
+          aliases: ["faculty_name"],
+          label: "Faculty/Institute",
+        },
         { key: "area_of_specialisation", label: "Area of Specialisation" },
         { key: "proposed_research_title", label: "Proposed Research Title" },
         { key: "mode_of_study", label: "Mode of Study" },

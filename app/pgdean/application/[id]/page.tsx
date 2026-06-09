@@ -931,8 +931,8 @@ export default function PgApplicationDetailPage() {
   const appStatus = applicant?.application_status || "submitted";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8">
+    <div className="min-h-screen overflow-x-hidden bg-gray-50">
+      <div className="mx-auto max-w-6xl px-4 pb-8 pt-4 sm:px-6 lg:px-8">
         {/* Breadcrumb + Print */}
         <div className="flex items-center justify-between mb-5">
           <Link
@@ -1000,26 +1000,31 @@ export default function PgApplicationDetailPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="info">
-          <TabsList className="bg-white border border-gray-200 rounded-lg p-1 mb-5 gap-1">
-            {[
-              { value: "info", label: "Applicant Info", icon: User },
-              { value: "documents", label: "Documents", icon: FileText },
-              {
-                value: "section-b",
-                label: "Section B Eval.",
-                icon: ClipboardCheck,
-              },
-            ].map(({ value, label, icon: Icon }) => (
-              <TabsTrigger
-                key={value}
-                value={value}
-                className="flex items-center gap-1.5 rounded-md font-medium text-sm text-slate-500 data-[state=active]:bg-slate-800 data-[state=active]:text-white px-4 py-2 transition-all"
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="relative mb-5 overflow-hidden rounded-lg border border-gray-200 bg-white p-1">
+            <div className="pointer-events-none absolute bottom-1 right-1 top-1 z-10 w-8 rounded-r-lg bg-gradient-to-l from-white to-transparent sm:hidden" />
+            <div className="overflow-x-auto pb-2 sm:pb-0 [scrollbar-color:#94a3b8_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400 sm:[-ms-overflow-style:none] sm:[scrollbar-width:none] sm:[&::-webkit-scrollbar]:hidden">
+              <TabsList className="h-auto min-w-max w-full justify-start gap-1 bg-transparent p-0 sm:grid sm:grid-cols-3">
+                {[
+                  { value: "info", label: "Applicant Info", icon: User },
+                  { value: "documents", label: "Documents", icon: FileText },
+                  {
+                    value: "section-b",
+                    label: "Section B Eval.",
+                    icon: ClipboardCheck,
+                  },
+                ].map(({ value, label, icon: Icon }) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium text-slate-500 transition-all data-[state=active]:bg-slate-800 data-[state=active]:text-white"
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+          </div>
 
           <TabsContent value="info">
             <ApplicantInfoTab

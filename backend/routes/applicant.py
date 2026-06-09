@@ -2584,6 +2584,7 @@ def get_form(payload, applicant_id):
             form_data = {
                 'first_name': row['first_name'],
                 'last_name': row['surname'],
+                'surname': row['surname'],
                 'middle_name': row['middle_name'],
                 'email': row['email'],
                 'gender': row['gender'],
@@ -2599,6 +2600,7 @@ def get_form(payload, applicant_id):
                 'class_of_degree': row['class_of_degree'],
                 'proposed_course': row['proposed_course'],
                 'proposed_faculty': row['proposed_faculty_id'],
+                'proposed_faculty_id': row['proposed_faculty_id'],
                 'degree_id': row['degree_id'],
                 'area_of_specialisation': row['area_of_specialisation'],
                 'proposed_research_title': row['proposed_research_title'],
@@ -2616,14 +2618,31 @@ def get_form(payload, applicant_id):
                 'referee_name3': row['referee_name3'],
                 'referee_address3': row['referee_address3'],
             }
+            names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('last_name')]
+            form_data['full_name'] = ' '.join(filter(None, names))
+
             if row['proposed_course']:
-                c_res = Database.execute_query('SELECT name FROM pg_program_setup WHERE id = %s', (row['proposed_course'],))
+                c_res = Database.execute_query(
+                    '''SELECT ps.name, ps.faculty_id, f.name AS faculty_name
+                       FROM pg_program_setup ps
+                       LEFT JOIN faculties f ON f.id = ps.faculty_id
+                       WHERE ps.id = %s''',
+                    (row['proposed_course'],)
+                )
                 if c_res:
                     form_data['proposed_course_name'] = c_res[0]['name']
-            if row['proposed_faculty_id']:
-                f_res = Database.execute_query('SELECT name FROM faculties WHERE id = %s', (row['proposed_faculty_id'],))
+                    if not form_data.get('proposed_faculty_id') and c_res[0].get('faculty_id'):
+                        form_data['proposed_faculty'] = c_res[0]['faculty_id']
+                        form_data['proposed_faculty_id'] = c_res[0]['faculty_id']
+                    if c_res[0].get('faculty_name'):
+                        form_data['proposed_faculty_name'] = c_res[0]['faculty_name']
+                        form_data['faculty_name'] = c_res[0]['faculty_name']
+
+            if form_data.get('proposed_faculty_id') and not form_data.get('proposed_faculty_name'):
+                f_res = Database.execute_query('SELECT name FROM faculties WHERE id = %s', (form_data['proposed_faculty_id'],))
                 if f_res:
                     form_data['proposed_faculty_name'] = f_res[0]['name']
+                    form_data['faculty_name'] = f_res[0]['name']
             if row['degree_id']:
                 d_res = Database.execute_query('SELECT name, code FROM degrees WHERE id = %s', (row['degree_id'],))
                 if d_res:

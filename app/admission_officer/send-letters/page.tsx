@@ -329,13 +329,28 @@ export default function SendLettersPage() {
                                 onClick={() => handleSelectDepartment(dept.name)}
                                 className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
                                   selectedDepartment === dept.name
-                                    ? "bg-primary text-primary-foreground"
+                                    ? "!bg-[#c99b45] !text-[#15110a] shadow-sm"
                                     : "hover:bg-muted"
                                 }`}
                               >
                                 <div className="flex justify-between items-center">
-                                  <span>{dept.name}</span>
-                                  <Badge variant="secondary">
+                                  <span
+                                    className={
+                                      selectedDepartment === dept.name
+                                        ? "!text-[#15110a] font-semibold"
+                                        : undefined
+                                    }
+                                  >
+                                    {dept.name}
+                                  </span>
+                                  <Badge
+                                    variant="secondary"
+                                    className={
+                                      selectedDepartment === dept.name
+                                        ? "!bg-white !text-[#15110a]"
+                                        : undefined
+                                    }
+                                  >
                                     {dept.pending_count}
                                   </Badge>
                                 </div>

@@ -67,14 +67,17 @@ export default function CourseRecommendation({
   };
 
   return (
-    <div id="course-recommendation-decision" className="scroll-mt-24 pt-6 space-y-4">
+    <div
+      id="course-recommendation-decision"
+      className="scroll-mt-24 space-y-4 pt-6"
+    >
       {/* Recommended Status */}
       {normalizedStatus === "recommended" && (
-        <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-5 space-y-4">
+        <div className="space-y-4 rounded-lg border-2 border-amber-200 bg-amber-50 p-4 sm:p-5">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="font-semibold text-amber-900 mb-1">
+            <div className="min-w-0 flex-1">
+              <h3 className="mb-1 text-base font-semibold text-amber-900">
                 Course Recommendation
               </h3>
               <p className="text-sm text-amber-800">
@@ -89,17 +92,17 @@ export default function CourseRecommendation({
               <p className="text-xs text-amber-600 font-medium mb-1">
                 RECOMMENDED COURSE
               </p>
-              <p className="text-sm font-medium text-slate-900">
+              <p className="break-words text-sm font-medium leading-snug text-slate-900">
                 {approvedCourse}
               </p>
             </div>
           )}
 
-          <div className="flex gap-3 pt-2">
+          <div className="grid grid-cols-1 gap-3 pt-2 xl:grid-cols-3">
             <Button
               onClick={onAcceptRecommendation}
               disabled={isLoading}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="h-auto min-h-10 w-full whitespace-normal bg-emerald-600 px-3 py-2 text-white hover:bg-emerald-700"
             >
               {isLoading ? "Processing..." : "Accept Recommended Course"}
             </Button>
@@ -107,7 +110,7 @@ export default function CourseRecommendation({
               onClick={() => setShowCourseModal(true)}
               disabled={isLoading}
               variant="outline"
-              className="flex-1"
+              className="h-auto min-h-10 w-full whitespace-normal px-3 py-2"
             >
               Recommend Alternative
             </Button>
@@ -115,7 +118,7 @@ export default function CourseRecommendation({
               onClick={onRejectRecommendation}
               disabled={isLoading}
               variant="outline"
-              className="flex-1 border-red-200 text-red-700 hover:bg-red-50"
+              className="h-auto min-h-10 w-full whitespace-normal border-red-200 px-3 py-2 text-red-700 hover:bg-red-50"
             >
               Reject
             </Button>

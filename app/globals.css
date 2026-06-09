@@ -137,12 +137,14 @@ body {
   color: #fff !important;
   font-size: 1.6rem;
   font-weight: 700;
-  margin: 0;
+  line-height: 1.25 !important;
+  margin: 0 0 0.35rem;
 }
 
 .portal-login-subtitle {
   color: rgba(255, 255, 255, 0.45) !important;
   font-size: 0.78rem;
+  line-height: 1.45 !important;
   margin: 0;
 }
 

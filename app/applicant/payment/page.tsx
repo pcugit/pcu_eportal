@@ -68,6 +68,16 @@ function PaymentContent() {
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
 
+  const formatProgramName = () => {
+    const degreeCode = (status?.degree_code || "").trim();
+    const course = (status?.approved_course || status?.program_name || "").trim();
+    if (!course) return "N/A";
+    if (!degreeCode) return course;
+    return course.toLowerCase().startsWith(degreeCode.toLowerCase())
+      ? course
+      : `${degreeCode} ${course}`;
+  };
+
   // ── Load applicant status ─────────────────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) {
@@ -485,9 +495,7 @@ function PaymentContent() {
                     Application Program
                   </span>
                   <p className="text-base font-bold text-slate-800 uppercase leading-snug">
-                    {status?.degree_code && status?.approved_course
-                      ? `${status.degree_code} ${status.approved_course}`
-                      : status?.program_name || "N/A"}
+                    {formatProgramName()}
                   </p>
                 </div>
               </div>

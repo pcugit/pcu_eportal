@@ -11,6 +11,7 @@ from utils.interswitch import InterswitchClient
 from utils.payment_status import (
     classify_response,
     apply_downstream_success,
+    atomic_settle_payment,
     build_update_sql_params,
     generate_receipt_no,
 )
@@ -87,6 +88,13 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
     applicant initiates a fresh attempt.
     """
     if program_type_id == 2:
+        user_res = Database.execute_query(
+            '''SELECT surname, firstname, middlename, email, phone_number
+               FROM users WHERE id = %s LIMIT 1''',
+            (user_id,)
+        )
+        user_profile = user_res[0] if user_res else {}
+
         existing = Database.execute_query(
             '''SELECT uuid, application_payment_reference
                FROM pg_application
@@ -112,10 +120,43 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
             if not already_paid:
                 Database.execute_update(
                     """UPDATE pg_application
-                       SET application_payment_reference = %s, updated_date = NOW()
+                       SET application_payment_reference = %s,
+                           surname = COALESCE(NULLIF(surname, ''), %s),
+                           first_name = COALESCE(NULLIF(first_name, ''), %s),
+                           middle_name = COALESCE(NULLIF(middle_name, ''), %s),
+                           email = COALESCE(NULLIF(email, ''), %s),
+                           phone_number = COALESCE(NULLIF(phone_number, ''), %s),
+                           updated_date = NOW()
                        WHERE uuid = %s""",
-                    (reference_no, app_id)
+                    (
+                        reference_no,
+                        user_profile.get('surname'),
+                        user_profile.get('firstname'),
+                        user_profile.get('middlename'),
+                        user_profile.get('email'),
+                        user_profile.get('phone_number'),
+                        app_id,
+                    )
                 )
+
+            Database.execute_update(
+                """UPDATE pg_application
+                   SET surname = COALESCE(NULLIF(surname, ''), %s),
+                       first_name = COALESCE(NULLIF(first_name, ''), %s),
+                       middle_name = COALESCE(NULLIF(middle_name, ''), %s),
+                       email = COALESCE(NULLIF(email, ''), %s),
+                       phone_number = COALESCE(NULLIF(phone_number, ''), %s),
+                       updated_date = NOW()
+                   WHERE uuid = %s""",
+                (
+                    user_profile.get('surname'),
+                    user_profile.get('firstname'),
+                    user_profile.get('middlename'),
+                    user_profile.get('email'),
+                    user_profile.get('phone_number'),
+                    app_id,
+                )
+            )
 
             return app_id
 
@@ -130,9 +171,21 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
         Database.execute_update(
             '''INSERT INTO pg_application
                    (user_id, form_no, academic_session_id,
+                    surname, first_name, middle_name, email, phone_number,
                     applicant_stage, application_payment_reference)
-               VALUES (%s, %s, %s, %s, %s)''',
-            (user_id, form_no, current_session_id, 'started', reference_no)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+            (
+                user_id,
+                form_no,
+                current_session_id,
+                user_profile.get('surname'),
+                user_profile.get('firstname'),
+                user_profile.get('middlename'),
+                user_profile.get('email'),
+                user_profile.get('phone_number'),
+                'started',
+                reference_no,
+            )
         )
         res = Database.execute_query(
             'SELECT uuid FROM pg_application WHERE form_no = %s', (form_no,)
@@ -1580,7 +1633,8 @@ def payment_callback():
     
     # Find transaction in DB
     txn = Database.execute_query(
-        '''SELECT id, user_id, amount_in_kobo, amount, tran_type, tran_status, 
+        '''SELECT id, user_id, amount_in_kobo, amount, tran_type, tran_status,
+                  response_description,
                   COALESCE(requery_count, 0) AS requery_count
            FROM payment_transactions
            WHERE reference_no = %s
@@ -1599,8 +1653,14 @@ def payment_callback():
     amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
     requery_count = txn['requery_count']
     
-    # If already finalised, redirect to frontend callback to show the finalised status page
-    if txn['tran_status'] not in ('pending', 'requery_error'):
+    user_cancelled = (
+        txn['tran_status'] == 'cancelled'
+        and (txn.get('response_description') or '') == 'Cancelled by user'
+    )
+
+    # If already finalised, redirect to frontend callback to show the finalised status page.
+    # Old gateway-derived cancelled rows are recoverable and should be requeried.
+    if txn['tran_status'] not in ('pending', 'requery_error', 'cancelled') or user_cancelled:
         redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
         return make_html_redirect(redirect_url)
     
@@ -1664,6 +1724,7 @@ def verify_transaction_by_reference(reference_no: str):
 
     txn_res = Database.execute_query(
         '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no,
+                  response_description,
                   tran_type, COALESCE(requery_count, 0) AS requery_count, user_id
            FROM payment_transactions
            WHERE reference_no = %s
@@ -1679,19 +1740,29 @@ def verify_transaction_by_reference(reference_no: str):
     payment_type = txn['tran_type']
     requery_count = int(txn['requery_count'])
 
-    if txn['tran_status'] in ('successful', 'failed', 'cancelled'):
+    user_cancelled = (
+        txn['tran_status'] == 'cancelled'
+        and (txn.get('response_description') or '') == 'Cancelled by user'
+    )
+    if txn['tran_status'] in ('successful', 'failed') or user_cancelled:
         return txn['tran_status']
 
     amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
 
     latest_check = Database.execute_query(
-        '''SELECT tran_status FROM payment_transactions
+        '''SELECT tran_status, response_description FROM payment_transactions
            WHERE reference_no = %s
            ORDER BY created_at DESC LIMIT 1''',
         (reference_no,)
     )
-    if latest_check and latest_check[0].get('tran_status') != 'pending':
-        return latest_check[0].get('tran_status')
+    if latest_check:
+        latest_status = latest_check[0].get('tran_status')
+        latest_user_cancelled = (
+            latest_status == 'cancelled'
+            and (latest_check[0].get('response_description') or '') == 'Cancelled by user'
+        )
+        if latest_status not in ('pending', 'requery_error', 'cancelled') or latest_user_cancelled:
+            return latest_status
 
 
     try:
@@ -1715,25 +1786,31 @@ def verify_transaction_by_reference(reference_no: str):
     is_successful = (tran_status == 'successful')
 
     latest_after = Database.execute_query(
-        '''SELECT tran_status FROM payment_transactions
+        '''SELECT tran_status, response_description FROM payment_transactions
            WHERE reference_no = %s
            ORDER BY created_at DESC LIMIT 1''',
         (reference_no,)
     )
-    if latest_after and latest_after[0].get('tran_status') != 'pending':
-        return latest_after[0].get('tran_status')
+    if latest_after:
+        latest_status = latest_after[0].get('tran_status')
+        latest_user_cancelled = (
+            latest_status == 'cancelled'
+            and (latest_after[0].get('response_description') or '') == 'Cancelled by user'
+        )
+        if latest_status not in ('pending', 'requery_error', 'cancelled') or latest_user_cancelled:
+            return latest_status
+
+    receipt_no_val = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
+
+    if is_successful:
+        atomic_settle_payment(reference_no, user_id, payment_type)
 
     # Update transaction record
-    receipt_no_val = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
     sql, params = build_update_sql_params(
         tran_status, reference_no, response_code, response_desc,
         isw_resp, amount_kobo, receipt_no_val,
     )
     Database.execute_update(sql, params)
-
-    # Downstream actions on success
-    if is_successful:
-        apply_downstream_success(user_id, payment_type, reference_no=reference_no)
 
     print(f"[callback verify] Transaction {reference_no} verified and updated to: {tran_status}")
     return tran_status
@@ -1745,7 +1822,7 @@ def verify_payment(payload):
     
     from utils.payment_status import classify_response, build_update_sql_params, generate_receipt_no, atomic_settle_payment, get_session_payment_summary
     from utils.interswitch import InterswitchClient
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     
     user_id = payload['user_id']
     data = request.get_json() or {}
@@ -1757,6 +1834,7 @@ def verify_payment(payload):
     # Fetch transaction
     txn = Database.execute_query(
         '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no, tran_type,
+                  response_description,
                   academic_session_id,
                   COALESCE(requery_count, 0) AS requery_count,
                   last_queried_at, fully_paid_for_session
@@ -1793,8 +1871,14 @@ def verify_payment(payload):
         
         return response
     
-    # If already finalised (success/failed/cancelled), just return status
-    if current_status in ('successful', 'failed', 'cancelled'):
+    user_cancelled = (
+        current_status == 'cancelled'
+        and (txn.get('response_description') or '') == 'Cancelled by user'
+    )
+
+    # If already finalised, just return status. Old gateway-derived cancelled
+    # rows are recoverable and should be requeried.
+    if current_status in ('successful', 'failed') or user_cancelled:
         return jsonify(build_response(
             current_status, 
             current_status == 'successful',
@@ -1806,7 +1890,7 @@ def verify_payment(payload):
     amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
     last_queried = txn.get('last_queried_at')
     should_requery = (
-        current_status == 'pending' and
+        current_status in ('pending', 'requery_error', 'cancelled') and
         (last_queried is None or 
          (datetime.now(timezone.utc).replace(tzinfo=None) - last_queried).total_seconds() > 5)
     )
@@ -1831,8 +1915,11 @@ def verify_payment(payload):
             
             print(f"[verify-payment] {reference_no} | requery code={response_code!r} → {tran_status}")
             
-            # Update transaction
             receipt_no = generate_receipt_no() if is_successful else None
+            if is_successful:
+                atomic_settle_payment(reference_no, user_id, payment_type)
+
+            # Update transaction
             sql, params = build_update_sql_params(
                 tran_status, reference_no, response_code, response_desc,
                 isw_resp, amount_kobo, receipt_no
@@ -1840,7 +1927,6 @@ def verify_payment(payload):
             Database.execute_update(sql, params)
             
             if is_successful:
-                atomic_settle_payment(reference_no, user_id, payment_type)
                 return jsonify(build_response(
                     'successful',
                     True,
@@ -1928,6 +2014,7 @@ def payment_webhook():
     # ── Look up the transaction (include requery_count) ───────────────────────
     txn_res = Database.execute_query(
         '''SELECT id, user_id, amount_in_kobo, amount, tran_status, receipt_no,
+                  response_description,
                   tran_type, COALESCE(requery_count, 0) AS requery_count
            FROM payment_transactions
            WHERE reference_no = %s
@@ -1943,8 +2030,13 @@ def payment_webhook():
     payment_type  = txn['tran_type']
     requery_count = int(txn['requery_count'])
 
-    # Idempotency 
-    if txn['tran_status'] in ('successful', 'failed', 'cancelled'):
+    user_cancelled = (
+        txn['tran_status'] == 'cancelled'
+        and (txn.get('response_description') or '') == 'Cancelled by user'
+    )
+
+    # Idempotency. Old gateway-derived cancelled rows are recoverable.
+    if txn['tran_status'] in ('successful', 'failed') or user_cancelled:
         print(f"[webhook] Already finalised ({txn['tran_status']}): {reference_no}")
         return jsonify({'message': 'already processed'}), 200
 
@@ -1978,6 +2070,9 @@ def payment_webhook():
     print(log_msg)
 
     # ── Update transaction record ─────────────────────────────────────────────
+    if is_successful:
+        atomic_settle_payment(reference_no, user_id, payment_type)
+
     receipt_no: str = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
     sql, params = build_update_sql_params(
         tran_status, reference_no, response_code, response_desc,
@@ -1986,9 +2081,6 @@ def payment_webhook():
     Database.execute_update(sql, params)
 
     # ── Downstream on success ─────────────────────────────────────────────────
-    if is_successful:
-        apply_downstream_success(user_id, payment_type, reference_no=reference_no)
-
     return jsonify({'message': 'ok', 'tran_status': tran_status}), 200
 
 
@@ -2054,8 +2146,8 @@ def get_applicant_status(payload):
                    CASE WHEN pg.applicant_stage != 'started' THEN pg.updated_date ELSE NULL END AS submitted_at,
                    CASE 
                        WHEN pg.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted' 
-                       WHEN pg.applicant_stage = 'recommended' OR pg.decision = 'recommend' THEN 'recommend'
                        WHEN pg.applicant_stage IN ('accepted_recommendation','applicant_recommended') THEN pg.applicant_stage
+                       WHEN pg.applicant_stage = 'recommended' OR pg.decision = 'recommend' THEN 'recommend'
                        WHEN pg.applicant_stage = 'screening' THEN 'screening'
                        WHEN pg.applicant_stage = 'rejected' THEN 'rejected'
                        ELSE 'pending' 

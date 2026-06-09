@@ -55,7 +55,7 @@ def dashboard(payload):
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))        AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')                        AS new_applications,
-               COUNT(*) FILTER (WHERE applicant_stage = 'screening')                        AS under_review,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')) AS under_review,
                COUNT(*) FILTER (WHERE applicant_stage = 'rejected')                         AS total_rejected
            FROM pg_application''',
         ()
@@ -194,6 +194,9 @@ def get_applications(payload):
 
     if status == 'admitted':
         where_clause = " WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')"
+        params = []
+    elif status == 'screening':
+        where_clause = " WHERE pg.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')"
         params = []
     else:
         where_clause = " WHERE pg.applicant_stage = %s"

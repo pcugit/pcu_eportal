@@ -539,9 +539,7 @@ export default function ApplicantProfile({
                 <CourseRecommendationSection
                   applicantId={applicant?.id || applicant?.uuid || ""}
                   applicationStatus={
-                    applicant?.admission_status === "recommend"
-                      ? applicant.admission_status
-                      : applicant?.application_status ||
+                    applicant?.application_status ||
                     applicant?.admission_status ||
                     ""
                   }

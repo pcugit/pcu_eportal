@@ -367,7 +367,7 @@ export default function Navbar() {
         <div className="flex items-center justify-between px-6 lg:px-10 py-3">
           {/* Logo */}
           <a href="/" className="shrink-0">
-            <div className="w-16 h-16 border-2 border-gray-200 rounded-lg overflow-hidden flex items-center justify-center bg-white">
+            <div className="w-16 h-16 overflow-hidden flex items-center justify-center">
               <img
                 src="/e-portal/images/logo new.png"
                 alt="University Logo"

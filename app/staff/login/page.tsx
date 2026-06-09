@@ -115,6 +115,7 @@ export default function StaffLogin() {
       <style jsx>{`
         .staff-login-root {
           min-height: 100vh;
+          box-sizing: border-box;
           display: flex;
           align-items: center;
           justify-content: center;

@@ -340,9 +340,7 @@ function ApplicantDashboardInner() {
       const recommendationApp = apps.find(
         (app: ApplicantStatus) =>
           app.has_paid_application_fee &&
-          (app.admission_status === "recommend" ||
-            (app as any).decision === "recommend" ||
-            ["recommended", "recommend"].includes(app.application_status)),
+          ["recommended", "recommend"].includes(app.application_status),
       );
       if (recommendationApp) {
         setRecommendationModalApp(recommendationApp);

@@ -45,6 +45,7 @@ const statusColors: Record<string, string> = {
   submitted: "bg-blue-50 text-blue-700 border border-blue-200",
   in_progress: "bg-slate-100 text-slate-600 border border-slate-200",
   screening: "bg-violet-50 text-violet-700 border border-violet-200",
+  recommended: "bg-cyan-50 text-cyan-700 border border-cyan-200",
   admitted: "bg-emerald-50 text-emerald-700 border border-emerald-200",
   accepted: "bg-emerald-50 text-emerald-700 border border-emerald-200",
   enrolled: "bg-teal-50 text-teal-700 border border-teal-200",
@@ -178,6 +179,7 @@ function PgApplicationsPageInner() {
             <SelectContent className="bg-white border-gray-200 rounded-lg shadow-lg">
               <SelectItem value="submitted" className="text-slate-700 font-medium cursor-pointer">New Submissions</SelectItem>
               <SelectItem value="screening" className="text-slate-700 font-medium cursor-pointer">Awaiting Decision</SelectItem>
+              <SelectItem value="recommended" className="text-slate-700 font-medium cursor-pointer">Recommended</SelectItem>
               <SelectItem value="admitted" className="text-slate-700 font-medium cursor-pointer">Admitted</SelectItem>
               <SelectItem value="rejected" className="text-slate-700 font-medium cursor-pointer">Rejected</SelectItem>
             </SelectContent>

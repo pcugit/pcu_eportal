@@ -212,7 +212,7 @@ class PGApplicationPDFGenerator:
         story.append(Paragraph("<b>(a) BACKGROUND</b>", section_heading_style))
         
         # Set up personal info variables
-        full_name = ' '.join(filter(None, [form.get('surname', '').upper(), form.get('first_name', ''), form.get('middle_name', '')]))
+        full_name = ' '.join(filter(None, [form.get('first_name', ''), form.get('middle_name', ''), form.get('surname', '').upper()]))
         dob_raw = form.get('date_of_birth', '')
         dob_str = dob_raw.strftime('%d %B %Y') if hasattr(dob_raw, 'strftime') else str(dob_raw)
         

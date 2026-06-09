@@ -7,20 +7,12 @@ from datetime import datetime
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
 
-# ── CANCELLED: user-initiated cancellations, no real transaction occurred ─────
-# These should NEVER be requeried — the user chose to cancel.
 CANCELLED_CODES = {
     'Z0',   # User cancelled on ISW gateway (no transaction)
     'Z6',   # User cancelled (must be recorded as cancelled, NOT failed)
     'Z9',   # User cancelled / session expired on gateway
-    '',     # Empty response (page closed before completing)
 }
 
-# ── PENDING / REQUERY: transient or processing codes — try again later ────────
-# The background worker will keep requerying these until they resolve.
-# These represent temporary infrastructure issues, NOT permanent declines.
-# IMPORTANT: Bank transfers (NIP/NIBSS) commonly return T0/Z62 at callback
-# time because the bank hasn't confirmed yet. They can take up to 24 hours.
 PENDING_CODES = {
     'T0',    # Transaction pending / processing (very common for bank transfers)
     'T03',   # Transaction pending at processor
@@ -40,8 +32,6 @@ PENDING_CODES = {
     'PE',    # Pending (used by some ISW integrations for transfers)
 }
 
-# ── DEFINITIVE FAILURE: permanent declines — mark FAILED immediately ──────────
-# These represent hard declines from the issuer or gateway. No point requerying.
 DEFINITIVE_FAILURE_CODES = {
     '06',   # Error (generic permanent error from issuer)
     '30',   # Format Error (malformed transaction data)
@@ -56,13 +46,9 @@ DEFINITIVE_FAILURE_CODES = {
     'Z28',  # Transaction not permissible
 }
 
-# Only flip status to 'failed' after this many confirmed non-success requeries
-# for codes that are NOT in PENDING_CODES (those are never failed by count).
+
 FAIL_AFTER_REQUERIES = 6
 
-# Minutes after creation before a still-pending transaction is considered stale
-# and force-marked failed. Bank transfers (NIP/NIBSS) can take up to 24 hours
-# to settle — so we must give them the full window before giving up.
 STALE_THRESHOLD_MINUTES = 24 * 60  # 24 hours
 
 
@@ -98,7 +84,8 @@ def classify_response(response_code: str, current_requery_count: int) -> str:
     if code == '00':
         return 'successful'
 
-    # User cancelled on gateway (empty response, no transaction made)
+    # User cancelled on gateway. Empty/unknown requery responses are not
+    # cancellations; they remain pending so async confirmation can still land.
     if code in CANCELLED_CODES:
         return 'cancelled'
 
@@ -162,6 +149,13 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
         return
 
     if program_type_id == 2:
+        user_res = Database.execute_query(
+            '''SELECT surname, firstname, middlename, email, phone_number
+               FROM users WHERE id = %s LIMIT 1''',
+            (user_id,)
+        )
+        user_profile = user_res[0] if user_res else {}
+
         # Check if a row already exists in pg_application for this user + session
         existing = Database.execute_query(
             '''SELECT uuid, application_payment_reference
@@ -173,9 +167,23 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
             # Row already exists — update the reference so it stays linked
             Database.execute_update(
                 '''UPDATE pg_application
-                   SET application_payment_reference = %s, updated_date = NOW()
+                   SET application_payment_reference = %s,
+                       surname = COALESCE(NULLIF(surname, ''), %s),
+                       first_name = COALESCE(NULLIF(first_name, ''), %s),
+                       middle_name = COALESCE(NULLIF(middle_name, ''), %s),
+                       email = COALESCE(NULLIF(email, ''), %s),
+                       phone_number = COALESCE(NULLIF(phone_number, ''), %s),
+                       updated_date = NOW()
                    WHERE uuid = %s''',
-                (reference_no, existing[0]['uuid'])
+                (
+                    reference_no,
+                    user_profile.get('surname'),
+                    user_profile.get('firstname'),
+                    user_profile.get('middlename'),
+                    user_profile.get('email'),
+                    user_profile.get('phone_number'),
+                    existing[0]['uuid'],
+                )
             )
             return
 
@@ -193,9 +201,21 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
         Database.execute_update(
             '''INSERT INTO pg_application
                    (user_id, form_no, academic_session_id,
+                    surname, first_name, middle_name, email, phone_number,
                     applicant_stage, application_payment_reference)
-               VALUES (%s, %s, %s, %s, %s)''',
-            (user_id, form_no, session_id, 'started', reference_no)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+            (
+                user_id,
+                form_no,
+                session_id,
+                user_profile.get('surname'),
+                user_profile.get('firstname'),
+                user_profile.get('middlename'),
+                user_profile.get('email'),
+                user_profile.get('phone_number'),
+                'started',
+                reference_no,
+            )
         )
         return
 
@@ -521,7 +541,13 @@ def atomic_settle_payment(reference_no: str, user_id: int, payment_type: str) ->
     update_sql = '''UPDATE payment_transactions
                    SET tran_status = 'processing'
                    WHERE reference_no = %s AND user_id = %s
-                     AND tran_status IN ('pending', 'requery_error') '''
+                     AND (
+                         tran_status IN ('pending', 'requery_error')
+                         OR (
+                             tran_status = 'cancelled'
+                             AND COALESCE(response_description, '') <> 'Cancelled by user'
+                         )
+                     ) '''
     
     Database.execute_update(update_sql, (reference_no, user_id))
     

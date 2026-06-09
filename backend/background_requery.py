@@ -123,6 +123,12 @@ def requery_all_pending(dry_run: bool = False) -> dict:
             continue
 
         # ── Write to DB ───────────────────────────────────────────────────────
+        if tran_status == 'successful':
+            from utils.payment_status import atomic_settle_payment
+            settled = atomic_settle_payment(ref, user_id, payment_type)
+        else:
+            settled = False
+
         receipt_no = txn['receipt_no'] or (generate_receipt_no() if tran_status == 'successful' else None)
         sql, params = build_update_sql_params(
             tran_status, ref, response_code, response_desc,
@@ -131,8 +137,7 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         Database.execute_update(sql, params)
 
         if tran_status == 'successful':
-            from utils.payment_status import atomic_settle_payment
-            if atomic_settle_payment(ref, user_id, payment_type):
+            if settled:
                 logger.info(
                     f'[requery_worker] SUCCESS: {ref} | type={payment_type} | user={user_id}'
                 )

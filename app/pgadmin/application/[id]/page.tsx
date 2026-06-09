@@ -612,7 +612,7 @@ function SectionBTab({
             SECTION B: EVALUATION AND RECOMMENDATION
           </h3>
           <p className="text-slate-400 text-xs mt-0.5 italic">
-            (To be completed by the Dean)
+            (To be completed by PG Admin)
           </p>
         </div>
         <div className="p-5 space-y-6">

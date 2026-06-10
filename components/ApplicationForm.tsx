@@ -39,14 +39,6 @@ import {
 } from "@/components/ui/dialog";
 
 
-// --- Memoized year options (static, never changes) ---
-const YEAR_OPTIONS = Array.from({ length: 30 }, (_, i) => 2026 - i);
-const yearItems = YEAR_OPTIONS.map((y) => (
-  <SelectItem key={y} value={y.toString()}>
-    {y}
-  </SelectItem>
-));
-
 // --- Memoized exam block: each sitting is isolated, only re-renders on its own data change ---
 interface ExamBlockProps {
   exam: any;
@@ -154,6 +146,32 @@ const OlevelExamBlock = memo(function OlevelExamBlock({
           <Input
             value={exam.number}
             onChange={(e) => handleFieldChange("number", e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Period*</Label>
+          <Select
+            value={exam.period}
+            onValueChange={(val) => handleFieldChange("period", val)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="--select--" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectItem value="May/June">May/June</SelectItem>
+              <SelectItem value="Jan/Feb">Jan/Feb</SelectItem>
+              <SelectItem value="Aug/Sept">Aug/Sept</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Year*</Label>
+          <Input
+            type="number"
+            inputMode="numeric"
+            placeholder="e.g. 2026"
+            value={exam.year}
+            onChange={(e) => handleFieldChange("year", e.target.value)}
           />
         </div>
       </div>
@@ -1460,9 +1478,9 @@ export default function ApplicationForm({
                   variant="secondary"
                   className="bg-[#6b21a8] hover:bg-purple-800 text-white"
                   onClick={() => {
-                    if (olevelExams.length >= 3) {
+                    if (olevelExams.length >= 2) {
                       alert(
-                        "You can only add a maximum of 3 O'Level sittings.",
+                        "You can only add a maximum of 2 O'Level sittings.",
                       );
                       return;
                     }

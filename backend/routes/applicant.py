@@ -1112,8 +1112,12 @@ def submit_form(payload):
                 prefix   = '' if idx == 0 else 'second_'
                 type_key = 'exam_type' if idx == 0 else 'exam_type1'
                 no_key   = 'exam_no'   if idx == 0 else 'exam_no1'
+                period_key = 'exam_period' if idx == 0 else 'exam_period1'
+                year_key = 'exam_year' if idx == 0 else 'exam_year1'
                 aq_fields[type_key] = exam.get('name') or exam.get('examType')
                 aq_fields[no_key]   = exam.get('number') or exam.get('regNo')
+                aq_fields[period_key] = exam.get('period')
+                aq_fields[year_key] = exam.get('year')
                 for i, s in enumerate(subjects[:5], start=1):
                     sv = str(s.get('subject_id') or s.get('subject', '')).strip()
                     gv = str(s.get('grade_id')   or s.get('grade', '')).strip()
@@ -2760,14 +2764,23 @@ def get_form(payload, applicant_id):
         if aq_res:
             aq = aq_res[0]
             olevel_exams = []
-            for sitting, prefix, type_key, no_key in [(0, '', 'exam_type', 'exam_no'), (1, 'second_', 'exam_type1', 'exam_no1')]:
+            for sitting, prefix, type_key, no_key, period_key, year_key in [
+                (0, '', 'exam_type', 'exam_no', 'exam_period', 'exam_year'),
+                (1, 'second_', 'exam_type1', 'exam_no1', 'exam_period1', 'exam_year1'),
+            ]:
                 if aq.get(type_key):
                     subjects = [
                         {'subject_id': aq.get(f'{prefix}subject{i}'), 'grade_id': aq.get(f'{prefix}grade{i}'), 'subject': aq.get(f'{prefix}subject{i}'), 'grade': aq.get(f'{prefix}grade{i}')}
                         for i in range(1, 6)
                         if aq.get(f'{prefix}subject{i}') and aq.get(f'{prefix}grade{i}')
                     ]
-                    olevel_exams.append({'name': aq.get(type_key), 'number': aq.get(no_key), 'subjects': subjects})
+                    olevel_exams.append({
+                        'name': aq.get(type_key),
+                        'number': aq.get(no_key),
+                        'period': aq.get(period_key),
+                        'year': aq.get(year_key),
+                        'subjects': subjects,
+                    })
             if olevel_exams:
                 form_data['olevel_results'] = olevel_exams
 

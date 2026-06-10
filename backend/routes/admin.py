@@ -403,7 +403,13 @@ def get_application_details(payload, applicant_id):
                     grade = aq.get(f'grade{i}')
                     if subj and grade:
                         subjects.append({'subject_id': subj, 'grade_id': grade, 'subject': subj, 'grade': grade})
-                olevel_exams.append({'name': aq.get('exam_type'), 'number': aq.get('exam_no'), 'subjects': subjects})
+                olevel_exams.append({
+                    'name': aq.get('exam_type'),
+                    'number': aq.get('exam_no'),
+                    'period': aq.get('exam_period'),
+                    'year': aq.get('exam_year'),
+                    'subjects': subjects,
+                })
 
             if aq.get('exam_type1'):
                 subjects = []
@@ -412,7 +418,13 @@ def get_application_details(payload, applicant_id):
                     grade = aq.get(f'second_grade{i}')
                     if subj and grade:
                         subjects.append({'subject_id': subj, 'grade_id': grade, 'subject': subj, 'grade': grade})
-                olevel_exams.append({'name': aq.get('exam_type1'), 'number': aq.get('exam_no1'), 'subjects': subjects})
+                olevel_exams.append({
+                    'name': aq.get('exam_type1'),
+                    'number': aq.get('exam_no1'),
+                    'period': aq.get('exam_period1'),
+                    'year': aq.get('exam_year1'),
+                    'subjects': subjects,
+                })
 
             if olevel_exams:
                 form_data['olevel_results'] = olevel_exams

@@ -31,7 +31,25 @@ interface ApplicantProfileProps {
   form: any;
   documents: any[];
   acceptanceFeeData?: { amount: number; feeName: string; paid: boolean } | null;
-  program_type_id?: number; // NEW: Determines which profile template to use
+  program_type_id?: number;
+  template?: FormTemplate | null;
+}
+
+interface FormTemplateField {
+  name: string;
+  label: string;
+  type: string;
+}
+
+interface FormTemplateStep {
+  title: string;
+  type?: string;
+  fields?: FormTemplateField[];
+}
+
+interface FormTemplate {
+  program?: string;
+  steps?: FormTemplateStep[];
 }
 
 export default function ApplicantProfile({
@@ -39,18 +57,59 @@ export default function ApplicantProfile({
   form,
   documents,
   acceptanceFeeData,
-  program_type_id = 1,
+  program_type_id,
+  template,
 }: ApplicantProfileProps) {
   const router = useRouter();
   const [passportUrl, setPassportUrl] = React.useState<string | null>(null);
   const [isProcessingRecommendation, setIsProcessingRecommendation] =
     React.useState(false);
 
-  // Get the profile template for this program type
   const profileTemplate = React.useMemo(
     () => getProfileTemplate(program_type_id),
     [program_type_id],
   );
+
+  const templateDrivenSections = React.useMemo<ProfileSection[]>(() => {
+    if (program_type_id === 2 || !template?.steps?.length) return [];
+
+    const sections = template.steps
+      .filter((step) => step.type === "fields" && step.fields?.length)
+      .map((step) => ({
+        title: step.title,
+        fields: step.fields!.map((field) => ({
+          key: field.name,
+          label: field.label,
+        })),
+        alwaysShow: true,
+      }));
+
+    const hasProgramChoices =
+      form?.first_choice_program_name ||
+      form?.second_choice_program_name ||
+      form?.first_choice_program_id ||
+      form?.second_choice_program_id;
+
+    if (hasProgramChoices) {
+      sections.push({
+        title: "PCU Application Programme Choice",
+        fields: [
+          { key: "first_choice_program_name", label: "PCU First Choice Program" },
+          { key: "second_choice_program_name", label: "PCU Second Choice Program" },
+        ],
+        alwaysShow: true,
+      });
+    }
+
+    return sections;
+  }, [form, program_type_id, template]);
+
+  const profileSections =
+    program_type_id === 2 ? profileTemplate?.sections ?? [] : templateDrivenSections;
+  const showOLevel =
+    program_type_id === 2
+      ? profileTemplate?.showOLevel || false
+      : template?.steps?.some((step) => step.type === "olevel") || false;
 
   const apiBaseUrl =
     process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
@@ -537,9 +596,13 @@ export default function ApplicantProfile({
             </div>
 
             <div className="space-y-5">
-              {/* TEMPLATE-DRIVEN SECTIONS - Renders based on program type */}
-              {profileTemplate.sections.map((section) =>
-                renderTemplateSection(section),
+              {profileSections.length > 0 ? (
+                profileSections.map((section) => renderTemplateSection(section))
+              ) : (
+                <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  No profile template is configured for this applicant's
+                  program.
+                </div>
               )}
 
               {/* COURSE RECOMMENDATION SECTION - Only for PG applicants in recommendation status */}
@@ -567,8 +630,8 @@ export default function ApplicantProfile({
 
           {/* Bottom Grid: O'Level and Documents */}
           <div className="grid grid-cols-1 gap-5 items-start xl:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1fr)]">
-            {/* O'Level Column - Only show if profile template requires it */}
-            {profileTemplate.showOLevel && (
+            {/* O'Level Column - Only show if the applicant's program template requires it */}
+            {showOLevel && (
               <div className="min-w-0 space-y-4">
                 {olevelResults.length > 0 ? (
                   olevelResults.map((exam: any, idx: number) =>

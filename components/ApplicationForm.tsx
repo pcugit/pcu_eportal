@@ -1510,7 +1510,7 @@ export default function ApplicationForm({
             <div className="space-y-6">
               <div className="grid md:grid-cols-2 gap-8">
                 <div className="space-y-2">
-                  <Label>First Choice Course</Label>
+                  <Label>PCU First Choice Course</Label>
                   <Select
                     value={formData.first_choice_program_id?.toString() || ""}
                     onValueChange={(val) => {
@@ -1535,7 +1535,7 @@ export default function ApplicationForm({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Second Choice Course</Label>
+                  <Label>PCU Second Choice Course</Label>
                   <Select
                     value={formData.second_choice_program_id?.toString() || ""}
                     onValueChange={(val) => {

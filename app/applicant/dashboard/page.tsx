@@ -1315,7 +1315,8 @@ function ApplicantDashboardInner() {
                   form={submittedFormData}
                   documents={submittedDocuments}
                   acceptanceFeeData={acceptanceFeeData}
-                  program_type_id={currentApp?.program_type_id || 1}
+                  program_type_id={currentApp?.program_type_id}
+                  template={formTemplate}
                 />
               )}
             </div>

@@ -309,10 +309,10 @@ const templateRegistry: Record<number, ProfileTemplate> = {
 
 /**
  * Get profile template for a program type
- * Falls back to UG template if program type not found
  */
-export function getProfileTemplate(programTypeId: number): ProfileTemplate {
-  return templateRegistry[programTypeId] || ugTemplate;
+export function getProfileTemplate(programTypeId?: number): ProfileTemplate | null {
+  if (!programTypeId) return null;
+  return templateRegistry[programTypeId] || null;
 }
 
 /**

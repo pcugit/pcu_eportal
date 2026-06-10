@@ -1089,7 +1089,7 @@ def get_dashboard(payload):
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))           AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted' AND (prog_type != 2 OR prog_type IS NULL)) AS review_applications,
-               COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
+               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')) AS under_review
            FROM applications'''
     )
     row = counts[0] if counts else {}
@@ -1262,7 +1262,7 @@ def get_statistics(payload):
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))           AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')             AS review_applications,
-               COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
+               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')) AS under_review
            FROM applications'''
     )
     row = counts[0] if counts else {}

@@ -38,6 +38,20 @@ function ApplicantInfoTab({
   passportUrl: string | null;
 }) {
   const olevelResults = form?.olevel_results || [];
+  const showJambUtme = Number(applicant?.program_id) !== 2;
+  const displayValue = (value: any) =>
+    value === 0 || value ? String(value) : "N/A";
+  const jambDetails = [
+    { label: "JAMB Registration Number", value: form?.utme_reg_no },
+    { label: "JAMB Score", value: form?.utme_score },
+    { label: "Mode of Entry", value: form?.mode_of_entry },
+    { label: "JAMB First Choice", value: form?.choice1 },
+    { label: "JAMB Second Choice", value: form?.choice2 },
+  ];
+  const jambSubjects = [1, 2, 3, 4].map((idx) => ({
+    subject: form?.[`utme_subject${idx}`],
+    score: form?.[`utme_score${idx}`],
+  }));
 
   return (
     <div className="space-y-8 bg-white border border-slate-100 p-8 shadow-sm rounded-[24px]">
@@ -208,6 +222,52 @@ function ApplicantInfoTab({
           </div>
         </div>
       </div>
+
+      {/* JAMB / UTME Details */}
+      {showJambUtme && (
+        <div className="space-y-4 pt-4">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+            JAMB / UTME Details
+          </h3>
+          <div className="space-y-5 bg-slate-50/30 border border-slate-100/80 rounded-2xl p-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {jambDetails.map((item) => (
+                <div key={item.label} className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                    {item.label}
+                  </span>
+                  <p className="font-bold text-slate-800 text-sm uppercase break-words [overflow-wrap:anywhere]">
+                    {displayValue(item.value)}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/75 border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                    <th className="p-3 font-bold">Subject</th>
+                    <th className="p-3 text-right font-bold">Score</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {jambSubjects.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-3 text-xs font-bold text-slate-600 uppercase">
+                        {displayValue(item.subject)}
+                      </td>
+                      <td className="p-3 text-right font-black text-slate-800">
+                        {displayValue(item.score)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* O'Level Results */}
       <div className="space-y-4 pt-4">

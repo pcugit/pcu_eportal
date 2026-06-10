@@ -90,15 +90,25 @@ export default function ApplicantProfile({
       form?.first_choice_program_id ||
       form?.second_choice_program_id;
 
+    const programChoiceSection = {
+      title: "Proposed Course Choices",
+      fields: [
+        { key: "first_choice_program_name", label: "PCU First Choice Program" },
+        { key: "second_choice_program_name", label: "PCU Second Choice Program" },
+      ],
+      alwaysShow: true,
+    };
+
     if (hasProgramChoices) {
-      sections.push({
-        title: "PCU Application Programme Choice",
-        fields: [
-          { key: "first_choice_program_name", label: "PCU First Choice Program" },
-          { key: "second_choice_program_name", label: "PCU Second Choice Program" },
-        ],
-        alwaysShow: true,
-      });
+      const jambSectionIndex = sections.findIndex((section) =>
+        section.title.toLowerCase().includes("jamb"),
+      );
+
+      if (jambSectionIndex === -1) {
+        sections.push(programChoiceSection);
+      } else {
+        sections.splice(jambSectionIndex + 1, 0, programChoiceSection);
+      }
     }
 
     return sections;

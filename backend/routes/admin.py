@@ -431,7 +431,7 @@ def get_application_details(payload, applicant_id):
 
             # Load university choices from program_choice table
             pc_res = Database.execute_query(
-                '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
+                '''SELECT pc.id AS program_choice_id, pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
                    FROM program_choice pc
                    LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
                    LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
@@ -440,6 +440,7 @@ def get_application_details(payload, applicant_id):
             )
             if pc_res:
                 pc_row = pc_res[0]
+                form_data['program_choice_id'] = pc_row.get('program_choice_id')
                 if pc_row.get('first_choice'):
                     form_data['first_choice_program_id'] = pc_row['first_choice']
                     form_data['first_choice_program_name'] = pc_row['first_choice_name']

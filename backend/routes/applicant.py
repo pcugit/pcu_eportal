@@ -1037,15 +1037,25 @@ def submit_form(payload):
 
     if fc_val is not None or sc_val is not None:
         pc_exists = Database.execute_query('SELECT id FROM program_choice WHERE application_id = %s', (application_id,))
+        pc_id = None
         if pc_exists:
+            pc_id = pc_exists[0].get('id')
             Database.execute_update(
                 'UPDATE program_choice SET first_choice = %s, second_choice = %s WHERE application_id = %s',
                 (fc_val, sc_val, application_id)
             )
         else:
-            Database.execute_update(
-                'INSERT INTO program_choice (application_id, first_choice, second_choice) VALUES (%s, %s, %s)',
+            pc_insert = Database.execute_query(
+                'INSERT INTO program_choice (application_id, first_choice, second_choice) VALUES (%s, %s, %s) RETURNING id',
                 (application_id, fc_val, sc_val)
+            )
+            if pc_insert:
+                pc_id = pc_insert[0].get('id')
+
+        if pc_id:
+            Database.execute_update(
+                'UPDATE applications SET program_choice_id = %s, updated_at = NOW() WHERE id = %s',
+                (pc_id, application_id)
             )
 
         # For the first choice, also write degree_id to the applications row
@@ -2786,7 +2796,7 @@ def get_form(payload, applicant_id):
 
             # Load university choices from program_choice table
             pc_res = Database.execute_query(
-                '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
+                '''SELECT pc.id AS program_choice_id, pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
                    FROM program_choice pc
                    LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
                    LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
@@ -2795,6 +2805,7 @@ def get_form(payload, applicant_id):
             )
             if pc_res:
                 pc_row = pc_res[0]
+                form_data['program_choice_id'] = pc_row.get('program_choice_id')
                 if pc_row.get('first_choice'):
                     form_data['first_choice_program_id'] = pc_row['first_choice']
                     form_data['first_choice_program_name'] = pc_row['first_choice_name']

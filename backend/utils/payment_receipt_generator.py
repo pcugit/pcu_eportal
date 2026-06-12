@@ -75,7 +75,8 @@ class PaymentReceiptGenerator:
         matric_no: str = "",
         form_no: str = "",
         session: str = "",
-        is_pg: bool = False
+        is_pg: bool = False,
+        breakdown: list = None
     ) -> bytes:
         """
         Generate a payment receipt PDF using Precious Cornerstone University branding and styling.
@@ -122,13 +123,6 @@ class PaymentReceiptGenerator:
             leading=16
         )
         
-        doc_title_style = ParagraphStyle(
-            'DocTitle',
-            fontName='Times-Bold',
-            fontSize=12,
-            alignment=TA_CENTER
-        )
-        
         # ── 1. Header Row ──
         # Load logo.png
         logo_path = os.path.join(os.path.dirname(__file__), 'logo.png')
@@ -144,23 +138,6 @@ class PaymentReceiptGenerator:
         if is_pg:
             school_name_para = Paragraph("The Postgraduate School", school_name_style)
             header_text_elements.append(school_name_para)
-            
-        # Format payment type for title
-        payment_type_display = payment_type.replace('_', ' ').title()
-        
-        doc_title_para = Paragraph(payment_type_display.upper(), doc_title_style)
-        doc_title_table = Table([[doc_title_para]], colWidths=[180])
-        doc_title_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOX', (0, 0), (-1, -1), 0.75, colors.black),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-            ('LEFTPADDING', (0, 0), (-1, -1), 18),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 18),
-        ]))
-        doc_title_table.hAlign = 'CENTER'
-        header_text_elements.append(doc_title_table)
         
         header_data = [
             [logo_img, "", header_text_elements]
@@ -340,20 +317,29 @@ class PaymentReceiptGenerator:
             ]
         ]
         
-        if payment_type == 'acceptance_fee':
-            description = 'Admission Acceptance Fee'
-        elif payment_type == 'tuition':
-            description = 'Tuition Fee Payment'
-        elif payment_type == 'application_fee':
-            description = 'Application Form Fee'
+        if breakdown:
+            for idx, item in enumerate(breakdown, 1):
+                fee_data.append([
+                    Paragraph(str(idx), fee_body_center_style),
+                    Paragraph(item['name'], fee_body_style),
+                    Paragraph(f"{item['amount']:,.2f}", fee_body_amt_style)
+                ])
         else:
-            description = payment_type_display
-            
-        fee_data.append([
-            Paragraph("1", fee_body_center_style),
-            Paragraph(description, fee_body_style),
-            Paragraph(f"{amount:,.2f}", fee_body_amt_style)
-        ])
+            if payment_type == 'acceptance_fee':
+                description = 'Admission Acceptance Fee'
+            elif payment_type == 'tuition':
+                description = 'Tuition Fee Payment'
+            elif payment_type == 'application_fee':
+                description = 'Application Form Fee'
+            else:
+                payment_type_display = payment_type.replace('_', ' ').title()
+                description = payment_type_display
+                
+            fee_data.append([
+                Paragraph("1", fee_body_center_style),
+                Paragraph(description, fee_body_style),
+                Paragraph(f"{amount:,.2f}", fee_body_amt_style)
+            ])
         
         fee_data.append([
             "",
@@ -361,8 +347,10 @@ class PaymentReceiptGenerator:
             Paragraph(f"{amount:,.2f}", fee_header_amt_style)
         ])
         
+        num_rows = len(fee_data)
         fee_table = Table(fee_data, colWidths=[40, usable_width - 200, 160])
-        fee_table.setStyle(TableStyle([
+        
+        t_style = [
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f2f2f2')),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('TOPPADDING', (0, 0), (-1, -1), 7),
@@ -371,12 +359,20 @@ class PaymentReceiptGenerator:
             ('RIGHTPADDING', (0, 0), (-1, -1), 10),
             ('BOX', (0, 0), (-1, 0), 0.75, colors.black),
             ('INNERGRID', (0, 0), (-1, 0), 0.75, colors.black),
-            ('BOX', (0, 1), (-1, 1), 0.75, colors.black),
-            ('INNERGRID', (0, 1), (-1, 1), 0.75, colors.black),
+        ]
+        
+        # Apply border box & grid style to all intermediate item rows (from 1 to num_rows-2)
+        for r in range(1, num_rows - 1):
+            t_style.append(('BOX', (0, r), (-1, r), 0.75, colors.black))
+            t_style.append(('INNERGRID', (0, r), (-1, r), 0.75, colors.black))
+            
+        t_style.extend([
             ('LINEABOVE', (1, -1), (-1, -1), 1.2, colors.black),
             ('BOX', (1, -1), (-1, -1), 0.75, colors.black),
             ('INNERGRID', (1, -1), (-1, -1), 0.75, colors.black),
-        ]))
+        ])
+        
+        fee_table.setStyle(TableStyle(t_style))
         
         story.append(fee_table)
         story.append(Spacer(1, 16))

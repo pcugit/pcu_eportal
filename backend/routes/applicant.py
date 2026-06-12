@@ -3070,13 +3070,61 @@ def get_payment_history(payload):
     return jsonify({'payment_history': formatted, 'total_payments': len(formatted)}), 200
 
 
+def _get_student_fee_context(user_id):
+    # 1. Try students table for undergraduate or general student
+    student_res = Database.execute_query(
+        '''SELECT s.current_level_id as level,
+                  app.prog_type as program_type,
+                  ps.faculty_id
+           FROM students s
+           JOIN users u ON u.id = s."UserId"
+           LEFT JOIN applications app ON app.user_id = u.id 
+              AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+           LEFT JOIN program_setup ps ON LOWER(ps.name) = LOWER(COALESCE(app.finalised_course, app.approved_course))
+           WHERE s."UserId" = %s
+           ORDER BY s."CreatedDate" DESC LIMIT 1''',
+        (user_id,)
+    )
+    if student_res and student_res[0].get('level') and student_res[0].get('program_type') and student_res[0].get('faculty_id'):
+        return {
+            'program_type': student_res[0]['program_type'],
+            'level': student_res[0]['level'],
+            'faculty_id': student_res[0]['faculty_id']
+        }
+    
+    # 2. Try students table for postgraduate
+    pg_student_res = Database.execute_query(
+        '''SELECT s.current_level_id as level,
+                  2 as program_type,
+                  pg.proposed_faculty_id as faculty_id
+           FROM students s
+           JOIN users u ON u.id = s."UserId"
+           LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+           WHERE s."UserId" = %s
+           ORDER BY s."CreatedDate" DESC LIMIT 1''',
+        (user_id,)
+    )
+    if pg_student_res and pg_student_res[0].get('level') and pg_student_res[0].get('faculty_id'):
+        return {
+            'program_type': 2,
+            'level': pg_student_res[0]['level'],
+            'faculty_id': pg_student_res[0]['faculty_id']
+        }
+
+    # 3. Fallback to _get_applicant_fee_context
+    try:
+        return _get_applicant_fee_context(user_id)
+    except Exception:
+        return None
+
+
 @applicant_bp.route('/payment-receipt/<path:receipt_no>', methods=['GET'])
 @AuthHandler.token_required
 def get_payment_receipt(payload, receipt_no):
     user_id = payload['user_id']
     transaction = Database.execute_query(
         '''SELECT pt.id, pt.tran_type, pt.amount, pt.created_at,
-                  pt.reference_no, pt.receipt_no, pt.client_name
+                  pt.reference_no, pt.receipt_no, pt.client_name, pt.academic_session_id
            FROM payment_transactions pt
            WHERE pt.receipt_no = %s
              AND pt.user_id = %s
@@ -3168,6 +3216,84 @@ def get_payment_receipt(payload, receipt_no):
             form_no = app_row[0].get('form_no') or ''
             session = app_row[0].get('session_name') or ''
 
+    # ── Resolve fee breakdown ──
+    processing_fee = 0.0
+    try:
+        pf_res = Database.execute_query(
+            "SELECT value FROM system_settings WHERE key = 'processing_fee' LIMIT 1"
+        )
+        if pf_res and pf_res[0].get('value'):
+            processing_fee = float(pf_res[0]['value'])
+    except Exception:
+        processing_fee = 300.0  # fallback
+
+    total_amount = float(trans_data['amount'])
+    base_amount = total_amount - processing_fee
+    
+    if base_amount <= 0:
+        base_amount = total_amount
+        processing_fee = 0.0
+
+    breakdown = []
+    
+    if tran_type == 'application_fee':
+        breakdown = [
+            {'name': 'Application Form Fee', 'amount': base_amount},
+            {'name': 'Processing Fee', 'amount': processing_fee}
+        ]
+    elif tran_type == 'acceptance_fee':
+        breakdown = [
+            {'name': 'Admission Acceptance Fee', 'amount': base_amount},
+            {'name': 'Processing Fee', 'amount': processing_fee}
+        ]
+    elif tran_type == 'tuition':
+        context = _get_student_fee_context(user_id)
+        session_id = trans_data.get('academic_session_id')
+        
+        fees = []
+        if context and session_id:
+            try:
+                # We escape % as %% for psycopg2 query string
+                fees = Database.execute_query(
+                    '''SELECT fc.name AS fee_name, pf.amount
+                       FROM program_fees pf
+                       JOIN fee_components fc ON fc.id = pf.fee_component_id
+                       WHERE pf.program_type = %s
+                         AND pf.level = %s
+                         AND pf.faculty_id = %s
+                         AND pf.academic_session_id = %s
+                         AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+                       ORDER BY fc.name ASC''',
+                    (str(context['program_type']), str(context['level']), str(context['faculty_id']), session_id)
+                )
+            except Exception as e:
+                print(f"[get_payment_receipt] Error fetching tuition fee components: {e}")
+                
+        if fees:
+            total_config_amount = sum(float(f['amount'] or 0) for f in fees)
+            if total_config_amount > 0:
+                for f in fees:
+                    name = f['fee_name'] or 'Tuition & Accommodation'
+                    config_amt = float(f['amount'] or 0)
+                    proportion = config_amt / total_config_amount
+                    scaled_amt = base_amount * proportion
+                    breakdown.append({'name': name, 'amount': scaled_amt})
+                if processing_fee > 0:
+                    breakdown.append({'name': 'Processing Fee', 'amount': processing_fee})
+            else:
+                fees = []
+                
+        if not fees:
+            breakdown = [
+                {'name': 'Tuition Fee Payment', 'amount': base_amount},
+                {'name': 'Processing Fee', 'amount': processing_fee}
+            ]
+    else:
+        payment_type_display = tran_type.replace('_', ' ').title()
+        breakdown = [
+            {'name': payment_type_display, 'amount': base_amount},
+            {'name': 'Processing Fee', 'amount': processing_fee}
+        ]
 
     payment_date = trans_data['created_at'].strftime('%d %B %Y') if trans_data['created_at'] else datetime.now().strftime('%d %B %Y')
     pdf_bytes = PaymentReceiptGenerator.generate_payment_receipt_pdf(
@@ -3175,7 +3301,7 @@ def get_payment_receipt(payload, receipt_no):
         applicant_name=full_name,
         program_name=trans_data['client_name'] or 'N/A',
         payment_type=tran_type,
-        amount=float(trans_data['amount']),
+        amount=total_amount,
         payment_date=payment_date,
         reference_number=trans_data['reference_no'] or '',
         payment_method='Online',
@@ -3187,6 +3313,7 @@ def get_payment_receipt(payload, receipt_no):
         form_no=form_no,
         session=session,
         is_pg=is_pg,
+        breakdown=breakdown,
     )
     return Response(
         pdf_bytes,

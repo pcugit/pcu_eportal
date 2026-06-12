@@ -327,8 +327,8 @@ export default function SendLettersPage() {
                                 key={dept.name}
                                 onClick={() => handleSelectDepartment(dept.name)}
                                 className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${selectedDepartment === dept.name
-                                    ? "!bg-[#c99b45] !text-[#15110a] shadow-sm"
-                                    : "hover:bg-muted"
+                                  ? "!bg-[#c99b45] !text-[#15110a] shadow-sm"
+                                  : "hover:bg-muted"
                                   }`}
                               >
                                 <div className="flex justify-between items-center">
@@ -455,6 +455,7 @@ export default function SendLettersPage() {
                               onClick={handleSendLetters}
                               disabled={sending || selectedApplicants.size === 0}
                               className="w-full gap-2"
+                              style={{ color: 'white' }}
                             >
                               <Mail className="h-4 w-4" />
                               {sending

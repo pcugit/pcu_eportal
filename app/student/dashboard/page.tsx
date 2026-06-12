@@ -341,7 +341,7 @@ export default function StudentDashboard() {
           <Card className="col-span-full md:col-span-2 md:self-start overflow-hidden rounded-2xl border border-[#b98d3d] shadow-sm bg-[#c99b45] text-white relative group">
             {/* User photo on the right */}
             <div className="absolute top-1/2 right-5 -translate-y-1/2 z-10">
-              <div className="w-16 h-16 md:w-20 md:h-20 rounded-xl overflow-hidden border-2 border-white/80 shadow-md bg-white/15 backdrop-blur-sm flex items-center justify-center shrink-0">
+              <div className="w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 border-white/80 shadow-md bg-white/15 backdrop-blur-sm flex items-center justify-center shrink-0">
                 {passportUrl ? (
                   <img
                     src={passportUrl}
@@ -349,11 +349,11 @@ export default function StudentDashboard() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <User className="w-8 h-8 text-white/70" />
+                  <User className="w-10 h-10 text-white/70" />
                 )}
               </div>
             </div>
-            <CardHeader className="relative z-10 p-5 pr-24 md:p-5 md:py-6 md:pr-28">
+            <CardHeader className="relative z-10 p-5 pr-28 md:p-5 md:py-6 md:pr-32">
               <CardTitle className="text-2xl font-black tracking-tight !text-white">
                 Welcome, {user?.name}
               </CardTitle>
@@ -381,26 +381,26 @@ export default function StudentDashboard() {
             </CardContent>
           </Card>
 
-          <Card className="hidden md:flex rounded-2xl border-[#e8dfd2] bg-white shadow-sm flex-col justify-center items-center text-center p-5 space-y-2 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-            <div className="bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] p-3 rounded-2xl mb-1">
-              <BookOpen className="w-6 h-6" />
+          <Card className="hidden md:flex rounded-2xl border-[#e8dfd2] bg-white shadow-sm flex-col justify-center items-center text-center p-4 space-y-1 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+            <div className="bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] p-2 rounded-xl">
+              <BookOpen className="w-5 h-5" />
             </div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Current Level
             </p>
-            <p className="text-2xl font-black text-slate-900">
+            <p className="text-xl font-black text-slate-900 leading-none">
               {student?.current_level}
             </p>
           </Card>
 
-          <Card className="hidden md:flex rounded-2xl border-[#e8dfd2] bg-white shadow-sm flex-col justify-center items-center text-center p-5 space-y-2 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-            <div className="bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] p-3 rounded-2xl mb-1">
-              <Calendar className="w-6 h-6" />
+          <Card className="hidden md:flex rounded-2xl border-[#e8dfd2] bg-white shadow-sm flex-col justify-center items-center text-center p-4 space-y-1 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+            <div className="bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] p-2 rounded-xl">
+              <Calendar className="w-5 h-5" />
             </div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Session
             </p>
-            <p className="text-2xl font-black text-[#15110a]">
+            <p className="text-xl font-black text-[#15110a] leading-none">
               {student?.session}
             </p>
           </Card>

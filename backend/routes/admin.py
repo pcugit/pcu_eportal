@@ -715,11 +715,11 @@ def send_admission_letter(payload):
             name = (fee['name'] or '').lower()
             amount = fee['amount'] or 0
             if 'acceptance' in name:
-                acceptance_fee_str = f"NGN {amount:,.2f}"
+                acceptance_fee_str = f"₦{amount:,.2f}"
             elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"NGN {amount:,.2f}"
+                tuition_fee_str = f"₦{amount:,.2f}"
             elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"NGN {amount:,.2f}"
+                other_fees_str = f"₦{amount:,.2f}"
 
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],
@@ -839,11 +839,11 @@ def preview_admission_letter(payload):
             name = (fee['name'] or '').lower()
             amount = fee['amount'] or 0
             if 'acceptance' in name:
-                acceptance_fee_str = f"NGN {amount:,.2f}"
+                acceptance_fee_str = f"₦{amount:,.2f}"
             elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"NGN {amount:,.2f}"
+                tuition_fee_str = f"₦{amount:,.2f}"
             elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"NGN {amount:,.2f}"
+                other_fees_str = f"₦{amount:,.2f}"
  
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],
@@ -954,11 +954,11 @@ def send_batch_letters(payload):
                     name = (fee['name'] or '').lower()
                     amount = fee['amount'] or 0
                     if 'acceptance' in name:
-                        acceptance_fee_str = f"NGN {amount:,.2f}"
+                        acceptance_fee_str = f"₦{amount:,.2f}"
                     elif 'tuition' in name or 'accommodation' in name:
-                        tuition_fee_str = f"NGN {amount:,.2f}"
+                        tuition_fee_str = f"₦{amount:,.2f}"
                     elif 'sundry' in name or 'other' in name or 'digital' in name:
-                        other_fees_str = f"NGN {amount:,.2f}"
+                        other_fees_str = f"₦{amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidate_name=applicant_data['name'],
@@ -1429,11 +1429,11 @@ def send_department_letters(payload):
                     name = (fee['name'] or '').lower()
                     amount = fee['amount'] or 0
                     if 'acceptance' in name:
-                        acceptance_fee_str = f"NGN {amount:,.2f}"
+                        acceptance_fee_str = f"₦{amount:,.2f}"
                     elif 'tuition' in name or 'accommodation' in name:
-                        tuition_fee_str = f"NGN {amount:,.2f}"
+                        tuition_fee_str = f"₦{amount:,.2f}"
                     elif 'sundry' in name or 'other' in name or 'digital' in name:
-                        other_fees_str = f"NGN {amount:,.2f}"
+                        other_fees_str = f"₦{amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidate_name=applicant_data['name'],
@@ -1640,11 +1640,11 @@ def resend_letter(payload, applicant_id):
                 name = (fee['name'] or '').lower()
                 amount = fee['amount'] or 0
                 if 'acceptance' in name:
-                    acceptance_fee_str = f"NGN {amount:,.2f}"
+                    acceptance_fee_str = f"₦{amount:,.2f}"
                 elif 'tuition' in name or 'accommodation' in name:
-                    tuition_fee_str = f"NGN {amount:,.2f}"
+                    tuition_fee_str = f"₦{amount:,.2f}"
                 elif 'sundry' in name or 'other' in name or 'digital' in name:
-                    other_fees_str = f"NGN {amount:,.2f}"
+                    other_fees_str = f"₦{amount:,.2f}"
 
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
             candidate_name=applicant_data['name'],
@@ -1744,11 +1744,11 @@ def preview_letter(payload, applicant_id):
                 name = (fee['name'] or '').lower()
                 amount = fee['amount'] or 0
                 if 'acceptance' in name:
-                    acceptance_fee_str = f"NGN {amount:,.2f}"
+                    acceptance_fee_str = f"₦{amount:,.2f}"
                 elif 'tuition' in name or 'accommodation' in name:
-                    tuition_fee_str = f"NGN {amount:,.2f}"
+                    tuition_fee_str = f"₦{amount:,.2f}"
                 elif 'sundry' in name or 'other' in name or 'digital' in name:
-                    other_fees_str = f"NGN {amount:,.2f}"
+                    other_fees_str = f"₦{amount:,.2f}"
 
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
             candidate_name=applicant_data['name'],

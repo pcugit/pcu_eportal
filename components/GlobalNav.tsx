@@ -25,7 +25,7 @@ import {
   Lock,
   CreditCard,
   ChevronDown,
-  DollarSign,
+  Wallet,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -70,7 +70,7 @@ const ADMITTED_NAV_ITEMS = [
   {
     label: "Pay Fees",
     href: "/applicant/payment?type=tuition",
-    icon: DollarSign,
+    icon: Wallet,
   },
   { label: "Transactions", href: "/applicant/transactions", icon: CreditCard },
   { label: "Change Password", href: "/applicant/change-password", icon: Lock },

@@ -20,7 +20,6 @@ import {
   AlertCircle,
   ShieldCheck,
   Building,
-  DollarSign,
   Loader2,
   XCircle,
   ArrowLeft,

@@ -28,7 +28,6 @@ import { Label } from "@/components/ui/label";
 import {
   LogOut,
   FileText,
-  DollarSign,
   Download,
   Settings,
   Printer,
@@ -847,7 +846,7 @@ function ApplicantDashboardInner() {
             <div className="bg-gradient-to-br from-slate-50/50 to-transparent border border-slate-100 hover:border-slate-200 transition-all duration-300 rounded-xl p-5 shadow-sm group/doc flex flex-col justify-between">
               <div>
                 <div className="bg-[#f3eee6] w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover/doc:scale-110 transition-transform duration-300 text-[#9a6614] border border-[#e2d6c3]">
-                  <DollarSign className="h-6 w-6" />
+                  <CreditCard className="h-6 w-6" />
                 </div>
                 <h4 className="font-bold text-base text-slate-800 mb-1">
                   Payment Receipts

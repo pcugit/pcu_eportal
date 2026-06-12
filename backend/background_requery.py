@@ -129,7 +129,7 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         else:
             settled = False
 
-        receipt_no = txn['receipt_no'] or (generate_receipt_no() if tran_status == 'successful' else None)
+        receipt_no = txn['receipt_no'] or (generate_receipt_no(payment_type=payment_type) if tran_status == 'successful' else None)
         sql, params = build_update_sql_params(
             tran_status, ref, response_code, response_desc,
             isw_resp, amount_kobo, receipt_no,

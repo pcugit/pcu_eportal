@@ -62,9 +62,6 @@ def generate_reference_no() -> str:
     return f"REF-{date.today().strftime('%Y%m%d')}-{secrets.token_hex(8).upper()}"
 
 
-def generate_receipt_no() -> str:
-    """pcu-{YYYYMMDD}-{16 hex chars uppercase}"""
-    return f"pcu-{date.today().strftime('%Y%m%d')}-{secrets.token_hex(8).upper()}"
 
 
 def _prog_code(pt_id) -> str:
@@ -1657,7 +1654,7 @@ def payment_callback():
     # Find transaction in DB
     txn = Database.execute_query(
         '''SELECT id, user_id, amount_in_kobo, amount, tran_type, tran_status,
-                  response_description,
+                  response_description, academic_session_id,
                   COALESCE(requery_count, 0) AS requery_count
            FROM payment_transactions
            WHERE reference_no = %s
@@ -1673,6 +1670,7 @@ def payment_callback():
     txn = txn[0]
     user_id = txn['user_id']
     payment_type = txn['tran_type']
+    session_id = txn.get('academic_session_id')
     amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
     requery_count = txn['requery_count']
     
@@ -1712,7 +1710,7 @@ def payment_callback():
     if is_successful:
         lock_acquired = atomic_settle_payment(txnref, user_id, payment_type)
         if lock_acquired:
-            receipt_no = generate_receipt_no()
+            receipt_no = generate_receipt_no(payment_type=payment_type, session_id=session_id)
             sql, params = build_update_sql_params(
                 'successful', txnref, response_code, response_desc,
                 isw_resp, amount_kobo, receipt_no
@@ -1829,7 +1827,7 @@ def verify_transaction_by_reference(reference_no: str):
         if latest_status not in ('pending', 'requery_error', 'cancelled') or latest_user_cancelled:
             return latest_status
 
-    receipt_no_val = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
+    receipt_no_val = txn.get('receipt_no') or (generate_receipt_no(payment_type=payment_type, session_id=session_id) if is_successful else '') or ''
 
     if is_successful:
         atomic_settle_payment(reference_no, user_id, payment_type)
@@ -1970,7 +1968,7 @@ def verify_payment(payload):
             
             print(f"[verify-payment] {reference_no} | requery code={response_code!r} → {tran_status}")
             
-            receipt_no = generate_receipt_no() if is_successful else None
+            receipt_no = generate_receipt_no(payment_type=payment_type, session_id=session_id) if is_successful else None
             if is_successful:
                 atomic_settle_payment(reference_no, user_id, payment_type)
 
@@ -2134,7 +2132,7 @@ def payment_webhook():
     if is_successful:
         atomic_settle_payment(reference_no, user_id, payment_type)
 
-    receipt_no: str = txn.get('receipt_no') or (generate_receipt_no() if is_successful else '') or ''
+    receipt_no: str = txn.get('receipt_no') or (generate_receipt_no(payment_type=payment_type) if is_successful else '') or ''
     sql, params = build_update_sql_params(
         tran_status, reference_no, response_code, response_desc,
         isw_resp, amount_kobo, receipt_no,
@@ -3072,7 +3070,7 @@ def get_payment_history(payload):
     return jsonify({'payment_history': formatted, 'total_payments': len(formatted)}), 200
 
 
-@applicant_bp.route('/payment-receipt/<receipt_no>', methods=['GET'])
+@applicant_bp.route('/payment-receipt/<path:receipt_no>', methods=['GET'])
 @AuthHandler.token_required
 def get_payment_receipt(payload, receipt_no):
     user_id = payload['user_id']
@@ -3089,24 +3087,106 @@ def get_payment_receipt(payload, receipt_no):
         return jsonify({'message': 'Payment receipt not found'}), 404
 
     trans_data = transaction[0]
-    user = Database.execute_query(
-        'SELECT firstname || \' \' || COALESCE(middlename || \' \', \'\') || surname AS name FROM users WHERE id = %s LIMIT 1',
+    tran_type  = trans_data['tran_type']
+
+    # ── Fetch user name parts (fallback values) ──
+    user_row = Database.execute_query(
+        'SELECT firstname, surname, middlename, matric_no FROM users WHERE id = %s LIMIT 1',
         (user_id,)
     )
-    if not user:
+    if not user_row:
         return jsonify({'message': 'User not found'}), 404
+    u = user_row[0]
+    surname     = u.get('surname') or ''
+    first_name  = u.get('firstname') or ''
+    middle_name = u.get('middlename') or ''
+
+    # ── Detect PG applicant ──
+    is_pg = bool(Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)
+    ))
+
+    # ── Overwrite with complete name parts from application/biodata if available ──
+    if is_pg:
+        pg_name_row = Database.execute_query(
+            'SELECT first_name, middle_name, surname FROM pg_application WHERE user_id = %s ORDER BY updated_date DESC LIMIT 1',
+            (user_id,)
+        )
+        if pg_name_row:
+            prow = pg_name_row[0]
+            if prow.get('first_name') or prow.get('surname'):
+                first_name  = prow.get('first_name') or first_name
+                middle_name = prow.get('middle_name') or middle_name
+                surname     = prow.get('surname') or surname
+    else:
+        bio_name_row = Database.execute_query(
+            '''SELECT b.first_name, b.middle_name, b.surname 
+               FROM biodata b
+               JOIN applications a ON b.application_id = a.id
+               WHERE a.user_id = %s
+               ORDER BY a.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
+        if bio_name_row:
+            brow = bio_name_row[0]
+            if brow.get('first_name') or brow.get('surname'):
+                first_name  = brow.get('first_name') or first_name
+                middle_name = brow.get('middle_name') or middle_name
+                surname     = brow.get('surname') or surname
+
+    full_name = ' '.join(filter(None, [first_name, middle_name, surname]))
+
+    # ── Fetch matric number, application number, and session ──
+    matric_no  = u.get('matric_no') or ''   # already fetched from users above
+    form_no    = ''
+    session    = ''
+
+    if is_pg:
+        pg_app = Database.execute_query(
+            '''SELECT pg.form_no,
+                      COALESCE(asess.name, CAST(pg.academic_session_id AS TEXT)) AS session_name
+               FROM pg_application pg
+               LEFT JOIN academic_sessions asess ON asess.id = pg.academic_session_id
+               WHERE pg.user_id = %s
+               ORDER BY pg.updated_date DESC LIMIT 1''',
+            (user_id,)
+        )
+        if pg_app:
+            form_no = pg_app[0].get('form_no') or ''
+            session = pg_app[0].get('session_name') or ''
+    else:
+        app_row = Database.execute_query(
+            '''SELECT a.form_no,
+                      COALESCE(asess.name, CAST(a.academic_session_id AS TEXT)) AS session_name
+               FROM applications a
+               LEFT JOIN academic_sessions asess ON asess.id = a.academic_session_id
+               WHERE a.user_id = %s
+               ORDER BY a.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
+        if app_row:
+            form_no = app_row[0].get('form_no') or ''
+            session = app_row[0].get('session_name') or ''
+
 
     payment_date = trans_data['created_at'].strftime('%d %B %Y') if trans_data['created_at'] else datetime.now().strftime('%d %B %Y')
     pdf_bytes = PaymentReceiptGenerator.generate_payment_receipt_pdf(
         receipt_id=trans_data['receipt_no'],
-        applicant_name=user[0]['name'],
+        applicant_name=full_name,
         program_name=trans_data['client_name'] or 'N/A',
-        payment_type=trans_data['tran_type'],
+        payment_type=tran_type,
         amount=float(trans_data['amount']),
         payment_date=payment_date,
         reference_number=trans_data['reference_no'] or '',
         payment_method='Online',
         currency='NGN',
+        surname=surname,
+        first_name=first_name,
+        middle_name=middle_name,
+        matric_no=matric_no,
+        form_no=form_no,
+        session=session,
+        is_pg=is_pg,
     )
     return Response(
         pdf_bytes,

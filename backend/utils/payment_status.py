@@ -59,7 +59,6 @@ DEFINITIVE_FAILURE_CODES = {
     'Z28',  # Transaction not permissible
 }
 
-
 FAIL_AFTER_REQUERIES = 6
 
 STALE_THRESHOLD_MINUTES = 24 * 60  # 24 hours
@@ -67,9 +66,60 @@ STALE_THRESHOLD_MINUTES = 24 * 60  # 24 hours
 
 # ── Core classifier ───────────────────────────────────────────────────────────
 
-def generate_receipt_no() -> str:
-    """pcu-{YYYYMMDD}-{16 hex chars uppercase}"""
-    return f"pcu-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(8).upper()}"
+
+def generate_receipt_no(payment_type: str = '', session_id=None) -> str:
+    """
+    Generate a human-readable, sequential receipt number in the format:
+        PCU/{TYPE}/{SESSION}/{COUNTER}
+    e.g. PCU/ACC/2025-26/000247
+
+    payment_type : 'application_fee' | 'acceptance_fee' | 'tuition' | ''
+    session_id   : FK to academic_sessions.id (used to resolve the session label)
+    """
+    # ── Map payment type → short code ────────────────────────────────────────
+    TYPE_CODES = {
+        'application_fee': 'APP',
+        'acceptance_fee':  'ACC',
+        'tuition':         'TUI',
+    }
+    type_code = TYPE_CODES.get((payment_type or '').lower(), 'PAY')
+
+    # ── Resolve session label ─────────────────────────────────────────────────
+    session_label = str(datetime.now().year)   # sane fallback
+    if session_id:
+        try:
+            sess_res = Database.execute_query(
+                'SELECT name FROM academic_sessions WHERE id = %s LIMIT 1',
+                (session_id,)
+            )
+            if sess_res and sess_res[0].get('name'):
+                raw = sess_res[0]['name'].strip()
+                # Normalize "2026/2027" → "2026-27" and "2026/27" → "2026-27"
+                if '/' in raw:
+                    parts = raw.split('/')
+                    if len(parts) == 2:
+                        start, end = parts[0].strip(), parts[1].strip()
+                        # Shorten end year to last 2 digits if it's a full year
+                        if len(end) == 4:
+                            end = end[2:]
+                        raw = f"{start}-{end}"
+                session_label = raw
+        except Exception:
+            pass
+
+    # ── Build the receipt prefix and get the next sequential number ───────────
+    prefix = f"PCU/{type_code}/{session_label}"
+    try:
+        count_res = Database.execute_query(
+            "SELECT COUNT(*) AS cnt FROM payment_transactions WHERE receipt_no LIKE %s",
+            (f"{prefix}/%",)
+        )
+        seq = (int(count_res[0]['cnt']) if count_res else 0) + 1
+    except Exception:
+        # Fallback: use a random 6-digit number to avoid collisions
+        seq = int(secrets.token_hex(3), 16) % 900000 + 100000
+
+    return f"{prefix}/{seq:06d}"
 
 
 def classify_response(

@@ -51,7 +51,7 @@ def dashboard(payload):
     # Aggregate counts — PG only
     counts = Database.execute_query(
         '''SELECT
-               COUNT(*)                                                                    AS total_applications,
+               COUNT(*) FILTER (WHERE applicant_stage NOT IN ('started', 'in_progress')) AS total_applications,
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))        AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')                        AS new_applications,
@@ -64,9 +64,10 @@ def dashboard(payload):
 
     # Status breakdown
     by_status = Database.execute_query(
-        '''SELECT applicant_stage AS application_status, COUNT(*) AS count
+        '''SELECT CASE WHEN applicant_stage = 'in_progress' THEN 'started' ELSE applicant_stage END AS application_status,
+                  COUNT(*) AS count
            FROM pg_application
-           GROUP BY applicant_stage
+           GROUP BY 1
            ORDER BY count DESC''',
         ()
     )
@@ -174,6 +175,8 @@ def get_applications(payload):
                              2 AS program_id,
                              COALESCE(
                                  CASE
+                                     WHEN pg.applicant_stage IN ('started', 'in_progress')
+                                     THEN pt.name
                                      WHEN pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
                                      THEN pg.finalised_course
                                  END,
@@ -188,6 +191,7 @@ def get_applications(payload):
                        FROM pg_application pg
                        JOIN users u ON pg.user_id = u.id
                        LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+                       LEFT JOIN program_types pt ON pt.id = 2
                        LEFT JOIN degrees dg ON pg.degree_id = dg.id
                        LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
                        LEFT JOIN pg_dean_evaluation pde ON pde.application_id = pg.uuid'''
@@ -197,6 +201,12 @@ def get_applications(payload):
         params = []
     elif status == 'screening':
         where_clause = " WHERE pg.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')"
+        params = []
+    elif status == 'all':
+        where_clause = " WHERE pg.applicant_stage IN ('submitted', 'screening', 'accepted_recommendation', 'applicant_recommended', 'admitted', 'accepted', 'enrolled', 'recommended', 'rejected')"
+        params = []
+    elif status == 'started':
+        where_clause = " WHERE pg.applicant_stage IN ('started', 'in_progress')"
         params = []
     else:
         where_clause = " WHERE pg.applicant_stage = %s"

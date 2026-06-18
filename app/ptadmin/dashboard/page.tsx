@@ -111,7 +111,7 @@ export default function PtAdminDashboard() {
       accent: "text-slate-700",
       iconBg: "bg-[#f3eee6]",
       iconBorder: "border-[#e2d6c3]",
-      href: "/ptadmin/applications",
+      href: "/ptadmin/applications?status=all",
     },
     {
       label: "Admitted Candidates",
@@ -132,13 +132,13 @@ export default function PtAdminDashboard() {
       href: "/ptadmin/applications?status=screening",
     },
     {
-      label: "Pending Submission",
+      label: "Started Applications",
       value: stats?.pending_submission ?? 0,
       icon: AlertCircle,
       accent: "text-[#9a6614]",
       iconBg: "bg-[#fff7e8]",
       iconBorder: "border-[#efd9a8]",
-      href: null,
+      href: "/ptadmin/applications?status=started",
     },
     {
       label: "Rejected",

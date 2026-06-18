@@ -19,6 +19,7 @@ import {
   XCircle,
   ChevronRight,
   ClipboardList,
+  AlertCircle,
 } from "lucide-react";
 
 interface PgStats {
@@ -107,6 +108,7 @@ export default function PgAdminDashboard() {
       icon: FileText,
       accent: "text-slate-600",
       iconBg: "bg-slate-100",
+      href: "/pgadmin/applications?status=all",
     },
     {
       label: "New Submissions",
@@ -114,6 +116,7 @@ export default function PgAdminDashboard() {
       icon: ClipboardList,
       accent: "text-blue-600",
       iconBg: "bg-blue-50",
+      href: "/pgadmin/applications?status=submitted",
     },
     {
       label: "Under Review",
@@ -121,6 +124,7 @@ export default function PgAdminDashboard() {
       icon: Eye,
       accent: "text-amber-600",
       iconBg: "bg-amber-50",
+      href: "/pgadmin/applications?status=screening",
     },
     {
       label: "Admitted",
@@ -128,6 +132,7 @@ export default function PgAdminDashboard() {
       icon: UserCheck,
       accent: "text-emerald-600",
       iconBg: "bg-emerald-50",
+      href: "/pgadmin/applications?status=admitted",
     },
     {
       label: "Rejected",
@@ -135,6 +140,15 @@ export default function PgAdminDashboard() {
       icon: XCircle,
       accent: "text-rose-600",
       iconBg: "bg-rose-50",
+      href: "/pgadmin/applications?status=rejected",
+    },
+    {
+      label: "Started Applications",
+      value: stats?.pending_submission ?? 0,
+      icon: AlertCircle,
+      accent: "text-[#9a6614]",
+      iconBg: "bg-[#fff7e8]",
+      href: "/pgadmin/applications?status=started",
     },
   ];
 
@@ -185,21 +199,37 @@ export default function PgAdminDashboard() {
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
-          {statCards.map(({ label, value, icon: Icon, accent, iconBg }) => (
-            <Card
-              key={label}
-              className="bg-white border border-gray-200 shadow-none rounded-xl"
-            >
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+          {statCards.map(({ label, value, icon: Icon, accent, iconBg, href }) => {
+            const cardContent = (
               <CardContent className="p-4">
-                <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center mb-3`}>
+                <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center mb-3 group-hover:scale-105 transition-transform duration-300`}>
                   <Icon className={`w-4 h-4 ${accent}`} />
                 </div>
                 <p className={`text-2xl font-bold ${accent}`}>{value}</p>
                 <p className="text-xs text-slate-500 font-medium mt-0.5 leading-tight">{label}</p>
               </CardContent>
-            </Card>
-          ))}
+            );
+
+            if (href) {
+              return (
+                <Link key={label} href={href} className="block group">
+                  <Card className="bg-white border border-gray-200 hover:border-slate-400 hover:shadow-sm transition-all duration-150 rounded-xl cursor-pointer">
+                    {cardContent}
+                  </Card>
+                </Link>
+              );
+            }
+
+            return (
+              <Card
+                key={label}
+                className="bg-white border border-gray-200 shadow-none rounded-xl"
+              >
+                {cardContent}
+              </Card>
+            );
+          })}
         </div>
 
         {/* Main grid */}

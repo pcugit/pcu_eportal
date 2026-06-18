@@ -57,12 +57,12 @@ function ApplicationsContent() {
   const [status, setStatus] = useState<string>(() => {
     const urlStatus = searchParams.get("status");
     return [
+      "all",
       "submitted",
       "screening",
       "admitted",
       "rejected",
-      "incomplete",
-      "payment_pending",
+      "started",
     ].includes(urlStatus || "")
       ? (urlStatus as string)
       : "submitted";
@@ -152,12 +152,12 @@ function ApplicationsContent() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-white/95 backdrop-blur-md rounded-xl border-slate-100 shadow-xl">
+              <SelectItem value="all" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">All Applications</SelectItem>
+              <SelectItem value="started" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Started Applications</SelectItem>
               <SelectItem value="submitted" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Submitted</SelectItem>
               <SelectItem value="screening" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Under Review</SelectItem>
               <SelectItem value="admitted" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Admitted</SelectItem>
               <SelectItem value="rejected" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Rejected</SelectItem>
-              <SelectItem value="incomplete" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Docs Incomplete</SelectItem>
-              <SelectItem value="payment_pending" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Awaiting Payment</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -188,13 +188,10 @@ function ApplicationsContent() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {applications.map((app) => (
-              <Link
-                key={app.id}
-                href={`/ptadmin/application/${app.id}?status=${status}`}
-                className="block"
-              >
-                <Card className="hover:shadow-lg hover:border-[#d8c29a] border-[#e8dfd2] transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden shadow-sm">
+            {applications.map((app) => {
+              const isStarted = status === "started";
+              const cardContent = (
+                <Card className={`border-[#e8dfd2] transition-all duration-300 bg-white rounded-2xl group relative overflow-hidden shadow-sm ${!isStarted ? "hover:shadow-lg hover:border-[#d8c29a] hover:-translate-y-0.5" : ""}`}>
                   {/* Left accent strip */}
                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#c99b45] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   <CardContent className="p-5 sm:p-6">
@@ -217,44 +214,77 @@ function ApplicationsContent() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
-                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
-                            <span className="text-xs text-slate-500 font-bold">Form No.</span>
-                            <p className="mt-1 font-bold text-slate-800 font-mono text-sm break-words">
-                              {app.form_no || "N/A"}
-                            </p>
+                        {isStarted ? (
+                          <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                              <span className="text-xs text-slate-500 font-bold">Email Address</span>
+                              <p className="mt-1 font-bold text-slate-800 text-sm break-words">{app.email}</p>
+                            </div>
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                              <span className="text-xs text-slate-500 font-bold">Phone Number</span>
+                              <p className="mt-1 font-bold text-slate-800 text-sm break-words">{app.phone_number || "N/A"}</p>
+                            </div>
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3 sm:col-span-2 lg:col-span-1">
+                              <span className="text-xs text-slate-500 font-bold">Programme Choice</span>
+                              <p className="mt-1 font-black text-slate-900 text-sm break-words">{app.program_name || "N/A"}</p>
+                            </div>
                           </div>
-                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
-                            <span className="text-xs text-slate-500 font-bold">Email Address</span>
-                            <p className="mt-1 font-bold text-slate-800 text-sm break-words">
-                              {app.email}
-                            </p>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                              <span className="text-xs text-slate-500 font-bold">Form No.</span>
+                              <p className="mt-1 font-bold text-slate-800 font-mono text-sm break-words">
+                                {app.form_no || "N/A"}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                              <span className="text-xs text-slate-500 font-bold">Email Address</span>
+                              <p className="mt-1 font-bold text-slate-800 text-sm break-words">
+                                {app.email}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3 sm:col-span-2 xl:col-span-1">
+                              <span className="text-xs text-slate-500 font-bold">Programme</span>
+                              <p className="mt-1 font-black text-slate-900 text-sm break-words">
+                                {app.program_name}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                              <span className="text-xs text-slate-500 font-bold">Session</span>
+                              <p className="mt-1 font-bold text-slate-800 text-sm">
+                                {app.session || "N/A"}
+                              </p>
+                            </div>
                           </div>
-                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3 sm:col-span-2 xl:col-span-1">
-                            <span className="text-xs text-slate-500 font-bold">Programme</span>
-                            <p className="mt-1 font-black text-slate-900 text-sm break-words">
-                              {app.program_name}
-                            </p>
-                          </div>
-                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
-                            <span className="text-xs text-slate-500 font-bold">Session</span>
-                            <p className="mt-1 font-bold text-slate-800 text-sm">
-                              {app.session || "N/A"}
-                            </p>
-                          </div>
-                        </div>
+                        )}
                       </div>
 
-                      <div className="flex items-center justify-end lg:justify-center">
-                        <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
-                          <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
+                      {!isStarted && (
+                        <div className="flex items-center justify-end lg:justify-center">
+                          <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
+                            <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
-              </Link>
-            ))}
+              );
+
+              if (isStarted) {
+                return <div key={app.id} className="block">{cardContent}</div>;
+              }
+
+              return (
+                <Link
+                  key={app.id}
+                  href={`/ptadmin/application/${app.id}?status=${status}`}
+                  className="block"
+                >
+                  {cardContent}
+                </Link>
+              );
+            })}
 
             {/* Pagination */}
             {totalPages > 1 && (

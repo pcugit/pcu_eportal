@@ -91,7 +91,11 @@ def get_applications(payload):
         elif status == 'screening':
             non_pg_where.append("app.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')")
         elif status == 'submitted':
-            non_pg_where.append("app.applicant_stage = 'submitted' AND (app.prog_type NOT IN (2, 7) OR app.prog_type IS NULL)")
+            non_pg_where.append("app.applicant_stage = 'submitted' AND (app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)")
+        elif status == 'all':
+            non_pg_where.append("app.applicant_stage IN ('submitted', 'screening', 'accepted_recommendation', 'applicant_recommended', 'admitted', 'accepted', 'enrolled', 'recommended', 'rejected') AND (app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)")
+        elif status == 'started':
+            non_pg_where.append("app.applicant_stage IN ('started', 'in_progress') AND (app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)")
         else:
             non_pg_where.append("app.applicant_stage = %s")
             non_pg_params.append(status)
@@ -100,7 +104,7 @@ def get_applications(payload):
             non_pg_where.append("app.prog_type = %s")
             non_pg_params.append(program_id)
         else:
-            non_pg_where.append("(app.prog_type != 7 OR app.prog_type IS NULL)")
+            non_pg_where.append("(app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)")
 
         if search:
             non_pg_where.append(f"(({USER_NAME_EXPR}) ILIKE %s OR app.form_no ILIKE %s)")
@@ -117,6 +121,8 @@ def get_applications(payload):
                    app.prog_type AS program_id,
                    (
                        CASE 
+                           WHEN app.applicant_stage IN ('started', 'in_progress') THEN 
+                               pt.name
                            WHEN app.applicant_stage = 'submitted' THEN 
                                COALESCE(dg.code || ' ', '') || COALESCE(ps1.name, '')
                            WHEN app.applicant_stage = 'screening' THEN 
@@ -137,6 +143,7 @@ def get_applications(payload):
             FROM applications app
             JOIN users u ON app.user_id = u.id
             LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+            LEFT JOIN program_types pt ON app.prog_type = pt.id
             LEFT JOIN degrees dg ON app.degree_id = dg.id
             LEFT JOIN program_choice pc ON pc.application_id = app.id
             LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
@@ -149,6 +156,10 @@ def get_applications(payload):
         pg_params = []
         if status == 'admitted':
             pg_where.append("pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')")
+        elif status == 'all':
+            pg_where.append("pg.applicant_stage IN ('submitted', 'screening', 'accepted_recommendation', 'applicant_recommended', 'admitted', 'accepted', 'enrolled', 'recommended', 'rejected')")
+        elif status == 'started':
+            pg_where.append("pg.applicant_stage IN ('started', 'in_progress')")
         else:
             pg_where.append("pg.applicant_stage = %s")
             pg_params.append(status)
@@ -166,7 +177,12 @@ def get_applications(payload):
                    {USER_NAME_EXPR} AS name,
                    u.email, u.phone_number,
                    2 AS program_id,
-                   COALESCE(dg.code || ' ', '') || COALESCE(pg.finalised_course, pg.approved_course, pgps.name, '') AS program_name,
+                   COALESCE(
+                       CASE
+                           WHEN pg.applicant_stage IN ('started', 'in_progress') THEN pt.name
+                       END,
+                       COALESCE(dg.code || ' ', '') || COALESCE(pg.finalised_course, pg.approved_course, pgps.name, '')
+                   ) AS program_name,
                    pg.applicant_stage AS application_status,
                    pg.updated_date AS submitted_at,
                    pg.form_no,
@@ -174,6 +190,7 @@ def get_applications(payload):
             FROM pg_application pg
             JOIN users u ON pg.user_id = u.id
             LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+            LEFT JOIN program_types pt ON pt.id = 2
             LEFT JOIN degrees dg ON pg.degree_id = dg.id
             LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
             {where_str}
@@ -692,7 +709,7 @@ def send_admission_letter(payload):
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
                 LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
-                WHERE app.id = %s AND app.prog_type != 7 AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
+                WHERE app.id = %s AND app.prog_type NOT IN (4, 7) AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
             (applicant_id,)
         )
 
@@ -819,7 +836,7 @@ def preview_admission_letter(payload):
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
                 LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
-                WHERE app.id = %s AND app.prog_type != 7 AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
+                WHERE app.id = %s AND app.prog_type NOT IN (4, 7) AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
             (applicant_id,)
         )
  
@@ -933,7 +950,7 @@ def send_batch_letters(payload):
                         JOIN users u ON app.user_id = u.id
                         LEFT JOIN program_types pt ON app.prog_type = pt.id
                         LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
-                        WHERE app.id = %s AND app.prog_type != 7 AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
+                        WHERE app.id = %s AND app.prog_type NOT IN (4, 7) AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
                     (applicant_id,)
                 )
 
@@ -1096,21 +1113,22 @@ def get_dashboard(payload):
     # ── 1. All scalar counts in one aggregation pass ─────────────────────────
     counts = Database.execute_query(
         '''SELECT
-               COUNT(*) FILTER (WHERE prog_type != 7 OR prog_type IS NULL) AS total_applications,
-               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled') AND (prog_type != 7 OR prog_type IS NULL)) AS total_admitted,
-               COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress') AND (prog_type != 7 OR prog_type IS NULL)) AS pending_submission,
-               COUNT(*) FILTER (WHERE applicant_stage = 'submitted' AND (prog_type NOT IN (2, 7) OR prog_type IS NULL)) AS review_applications,
-               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended') AND (prog_type != 7 OR prog_type IS NULL)) AS under_review
+               COUNT(*) FILTER (WHERE applicant_stage NOT IN ('started', 'in_progress') AND (prog_type NOT IN (2, 4, 7) OR prog_type IS NULL)) AS total_applications,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled') AND (prog_type NOT IN (2, 4, 7) OR prog_type IS NULL)) AS total_admitted,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress') AND (prog_type NOT IN (2, 4, 7) OR prog_type IS NULL)) AS pending_submission,
+               COUNT(*) FILTER (WHERE applicant_stage = 'submitted' AND (prog_type NOT IN (2, 4, 7) OR prog_type IS NULL)) AS review_applications,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended') AND (prog_type NOT IN (2, 4, 7) OR prog_type IS NULL)) AS under_review
            FROM applications'''
     )
     row = counts[0] if counts else {}
 
     # ── 2. Status + program breakdowns (two GROUP BY queries) ────────────────
     by_status = Database.execute_query(
-        '''SELECT applicant_stage AS application_status, COUNT(*) AS count
+        '''SELECT CASE WHEN applicant_stage = 'in_progress' THEN 'started' ELSE applicant_stage END AS application_status,
+                  COUNT(*) AS count
            FROM applications
-           WHERE prog_type != 7 OR prog_type IS NULL
-           GROUP BY applicant_stage
+           WHERE prog_type NOT IN (2, 4, 7) OR prog_type IS NULL
+           GROUP BY 1
            ORDER BY count DESC'''
     )
 
@@ -1118,7 +1136,7 @@ def get_dashboard(payload):
         '''SELECT pt.name, COUNT(*) AS count
            FROM applications app
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE app.prog_type != 7 OR app.prog_type IS NULL
+           WHERE app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL
            GROUP BY pt.name
            ORDER BY count DESC'''
     )
@@ -1135,7 +1153,7 @@ def get_dashboard(payload):
                 JOIN users u ON app.user_id = u.id
                 WHERE app.decision IS NOT NULL
                   AND app.decision_date IS NOT NULL
-                  AND (app.prog_type != 7 OR app.prog_type IS NULL)
+                  AND (app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)
 
                 UNION ALL
 
@@ -1146,7 +1164,7 @@ def get_dashboard(payload):
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 WHERE app.applicant_stage = 'submitted'
-                  AND (app.prog_type != 7 OR app.prog_type IS NULL)
+                  AND (app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)
 
                 UNION ALL
 
@@ -1157,7 +1175,7 @@ def get_dashboard(payload):
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 WHERE app.applicant_stage = 'accepted'
-                  AND (app.prog_type != 7 OR app.prog_type IS NULL)
+                  AND (app.prog_type NOT IN (2, 4, 7) OR app.prog_type IS NULL)
             ) combined
             ORDER BY event_time DESC NULLS LAST
             LIMIT %s''',

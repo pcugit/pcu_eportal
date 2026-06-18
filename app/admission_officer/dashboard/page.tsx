@@ -132,7 +132,7 @@ export default function AdminDashboard() {
         {/* Stats */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 mb-6">
           {/* Total Applications → all applications */}
-          <Link href="/admission_officer/applications?status=submitted" className="block group">
+          <Link href="/admission_officer/applications?status=all" className="block group">
             <Card className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm cursor-pointer hover:border-[#c99b45]">
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
@@ -177,17 +177,19 @@ export default function AdminDashboard() {
           </Link>
 
           {/* Pending Submission — not clickable */}
-          <Card className="border-[#e8dfd2] bg-white rounded-2xl overflow-hidden shadow-sm">
-            <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
-              <div className="min-w-0 space-y-1">
-                <p className="text-xs font-bold text-slate-500 leading-snug">Pending Submission</p>
-                <p className="text-3xl font-black text-[#9a6614]">{stats?.pending_submission ?? 0}</p>
-              </div>
-              <div className="shrink-0 p-3 rounded-2xl bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8]">
-                <AlertCircle className="w-6 h-6 shrink-0" />
-              </div>
-            </CardContent>
-          </Card>
+          <Link href="/admission_officer/applications?status=started" className="block group">
+            <Card className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm cursor-pointer hover:border-[#9a6614]">
+              <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-bold text-slate-500 leading-snug">Pending Submission</p>
+                  <p className="text-3xl font-black text-[#9a6614]">{stats?.pending_submission ?? 0}</p>
+                </div>
+                <div className="shrink-0 p-3 rounded-2xl bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] group-hover:scale-105 transition-transform duration-300">
+                  <AlertCircle className="w-6 h-6 shrink-0" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
 
         {/* Main grid: Recent Activity + Breakdown */}

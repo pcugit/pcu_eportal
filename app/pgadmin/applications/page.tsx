@@ -76,6 +76,11 @@ function PgApplicationsPageInner() {
   const [status, setStatus] = useState<string>(
     searchParams?.get("status") || "submitted"
   );
+  // Ensure 'all' is accepted as a valid status from URL
+  const validStatuses = ["all", "submitted", "screening", "recommended", "admitted", "rejected", "started"];
+  const [currentStatus, setCurrentStatus] = useState<string>(
+    validStatuses.includes(searchParams?.get("status") || "") ? (searchParams?.get("status") as string) : "submitted"
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -112,7 +117,7 @@ function PgApplicationsPageInner() {
     } finally {
       setLoading(false);
     }
-  };
+  };;
 
   const handleDownload = async (app: PgApplication, e: React.MouseEvent) => {
     e.preventDefault();
@@ -177,6 +182,8 @@ function PgApplicationsPageInner() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-white border-gray-200 rounded-lg shadow-lg">
+              <SelectItem value="all" className="text-slate-700 font-medium cursor-pointer">All Applications</SelectItem>
+              <SelectItem value="started" className="text-slate-700 font-medium cursor-pointer">Started Applications</SelectItem>
               <SelectItem value="submitted" className="text-slate-700 font-medium cursor-pointer">New Submissions</SelectItem>
               <SelectItem value="screening" className="text-slate-700 font-medium cursor-pointer">Awaiting Decision</SelectItem>
               <SelectItem value="recommended" className="text-slate-700 font-medium cursor-pointer">Recommended</SelectItem>
@@ -230,13 +237,10 @@ function PgApplicationsPageInner() {
           </div>
         ) : (
           <div className="space-y-2">
-            {applications.map((app) => (
-              <Link
-                key={app.id}
-                href={`/pgadmin/application/${app.id}`}
-                className="block"
-              >
-                <Card className="bg-white border border-gray-200 hover:border-slate-400 hover:shadow-sm transition-all duration-150 rounded-xl group">
+            {applications.map((app) => {
+              const isStarted = status === "started";
+              const cardContent = (
+                <Card className={`bg-white border border-gray-200 transition-all duration-150 rounded-xl group ${!isStarted ? "hover:border-slate-400 hover:shadow-sm" : ""}`}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 min-w-0 space-y-2">
@@ -247,53 +251,86 @@ function PgApplicationsPageInner() {
                           <Badge
                             className={`${statusColors[app.application_status] || "bg-gray-100 text-gray-600"} font-medium text-[10px] uppercase tracking-wide py-0.5 px-2 rounded-md`}
                           >
+                            {app.application_status.replace(/_/g, " ")}
                           </Badge>
-                          
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                          <div>
-                            <span className="text-slate-400 block">Form No.</span>
-                            <p className="font-mono font-semibold text-slate-700">{app.form_no || "N/A"}</p>
+                        {isStarted ? (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                            <div>
+                              <span className="text-slate-400 block">Email</span>
+                              <p className="text-slate-600 truncate max-w-[160px]">{app.email}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Phone Number</span>
+                              <p className="font-semibold text-slate-700">{app.phone_number || "N/A"}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Programme Choice</span>
+                              <p className="font-semibold text-slate-700 truncate max-w-[200px]">{app.program_name || "N/A"}</p>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-slate-400 block">Email</span>
-                            <p className="text-slate-600 truncate max-w-[160px]">{app.email}</p>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                            <div>
+                              <span className="text-slate-400 block">Form No.</span>
+                              <p className="font-mono font-semibold text-slate-700">{app.form_no || "N/A"}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Email</span>
+                              <p className="text-slate-600 truncate max-w-[160px]">{app.email}</p>
+                            </div>
+                            <div className="col-span-2 md:col-span-1">
+                              <span className="text-slate-400 block">Programme</span>
+                              <p className="font-semibold text-slate-700 truncate max-w-[200px]">{app.program_name}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Session</span>
+                              <p className="text-slate-600">{app.session || "N/A"}</p>
+                            </div>
                           </div>
-                          <div className="col-span-2 md:col-span-1">
-                            <span className="text-slate-400 block">Programme</span>
-                            <p className="font-semibold text-slate-700 truncate max-w-[200px]">{app.program_name}</p>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 block">Session</span>
-                            <p className="text-slate-600">{app.session || "N/A"}</p>
-                          </div>
-                        </div>
+                        )}
                       </div>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={(e) => handleDownload(app, e)}
-                          disabled={downloading === app.id}
-                          title="Download Application"
-                          className="flex items-center gap-1 p-2 bg-gray-100 hover:bg-gray-200 text-slate-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {downloading === app.id ? (
-                            <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
-                          ) : (
-                            <Download className="h-4 w-4" />
-                          )}
-                        </button>
-                        <div className="p-2 text-slate-400 group-hover:text-slate-700 transition-colors">
-                          <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                      {!isStarted && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={(e) => handleDownload(app, e)}
+                            disabled={downloading === app.id}
+                            title="Download Application"
+                            className="flex items-center gap-1 p-2 bg-gray-100 hover:bg-gray-200 text-slate-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {downloading === app.id ? (
+                              <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </button>
+                          <div className="p-2 text-slate-400 group-hover:text-slate-700 transition-colors">
+                            <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
-              </Link>
-            ))}
+              );
+
+              if (isStarted) {
+                return <div key={app.id} className="block">{cardContent}</div>;
+              }
+
+              return (
+                <Link
+                  key={app.id}
+                  href={`/pgadmin/application/${app.id}`}
+                  className="block"
+                >
+                  {cardContent}
+                </Link>
+              );
+            })}
 
             {/* Pagination */}
             {totalPages > 1 && (

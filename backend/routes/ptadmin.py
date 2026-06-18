@@ -25,7 +25,7 @@ def dashboard(payload):
     # Aggregate counts — PT and HND Conversion
     counts = Database.execute_query(
         '''SELECT
-               COUNT(*)                                                                    AS total_applications,
+               COUNT(*) FILTER (WHERE applicant_stage NOT IN ('started', 'in_progress')) AS total_applications,
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))        AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')                        AS new_applications,
@@ -39,10 +39,11 @@ def dashboard(payload):
 
     # Status breakdown
     by_status = Database.execute_query(
-        '''SELECT applicant_stage AS application_status, COUNT(*) AS count
+        '''SELECT CASE WHEN applicant_stage = 'in_progress' THEN 'started' ELSE applicant_stage END AS application_status,
+                  COUNT(*) AS count
            FROM applications
            WHERE prog_type IN (4, 7)
-           GROUP BY applicant_stage
+           GROUP BY 1
            ORDER BY count DESC''',
         ()
     )
@@ -143,6 +144,8 @@ def get_applications(payload):
                              app.prog_type AS program_id,
                              COALESCE(
                                  CASE
+                                     WHEN app.applicant_stage IN ('started', 'in_progress')
+                                     THEN pt.name
                                      WHEN app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
                                      THEN app.finalised_course
                                  END,
@@ -156,6 +159,7 @@ def get_applications(payload):
                        FROM applications app
                        JOIN users u ON app.user_id = u.id
                        LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+                       LEFT JOIN program_types pt ON app.prog_type = pt.id
                        LEFT JOIN degrees dg ON app.degree_id = dg.id
                        LEFT JOIN program_choice pc ON pc.application_id = app.id
                        LEFT JOIN program_setup ps ON pc.first_choice = ps.id'''
@@ -167,6 +171,10 @@ def get_applications(payload):
         where_clauses.append("app.applicant_stage IN ('admitted', 'accepted', 'enrolled')")
     elif status == 'screening':
         where_clauses.append("app.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended', 'shortlisted')")
+    elif status == 'all':
+        where_clauses.append("app.applicant_stage IN ('submitted', 'screening', 'accepted_recommendation', 'applicant_recommended', 'shortlisted', 'admitted', 'accepted', 'enrolled', 'recommended', 'rejected', 'incomplete')")
+    elif status == 'started':
+        where_clauses.append("app.applicant_stage IN ('started', 'in_progress')")
     else:
         where_clauses.append("app.applicant_stage = %s")
         params.append(status)

@@ -35,7 +35,7 @@ interface Application {
 }
 
 const PROG_PART_TIME = 7;
-const PROG_HND_CONV  = 4;
+const PROG_HND_CONV = 4;
 
 function ProgTypePill({ programId }: { programId: number }) {
   if (programId === PROG_HND_CONV) {
@@ -180,8 +180,6 @@ function ApplicationsContent() {
               <SelectItem value="submitted" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Submitted</SelectItem>
               <SelectItem value="screening" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Under Review</SelectItem>
               <SelectItem value="recommended" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Recommended</SelectItem>
-              <SelectItem value="accepted_recommendation" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Accepted Recommendation</SelectItem>
-              <SelectItem value="applicant_recommended" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Applicant Counter-Recommended</SelectItem>
               <SelectItem value="admitted" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Admitted</SelectItem>
               <SelectItem value="rejected" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Rejected</SelectItem>
             </SelectContent>
@@ -237,10 +235,10 @@ function ApplicationsContent() {
                               {app.application_status === "accepted"
                                 ? "Admitted"
                                 : app.application_status === "accepted_recommendation"
-                                ? "Accepted Recommendation"
-                                : app.application_status === "applicant_recommended"
-                                ? "Counter-Recommended"
-                                : app.application_status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                                  ? "Accepted Recommendation"
+                                  : app.application_status === "applicant_recommended"
+                                    ? "Counter-Recommended"
+                                    : app.application_status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                             </Badge>
                           </div>
                         </div>
@@ -344,11 +342,10 @@ function ApplicationsContent() {
                         <button
                           key={item}
                           onClick={() => handlePageChange(item as number)}
-                          className={`w-9 h-9 rounded-xl text-sm font-black transition-all duration-200 ${
-                            item === page
+                          className={`w-9 h-9 rounded-xl text-sm font-black transition-all duration-200 ${item === page
                               ? "bg-[#c99b45] text-white border border-[#b98d3d] shadow-sm"
                               : "bg-white border border-[#e8dfd2] text-slate-600 hover:bg-[#f7f1e8] hover:border-[#c99b45]"
-                          }`}
+                            }`}
                         >
                           {item}
                         </button>

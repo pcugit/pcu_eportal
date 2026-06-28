@@ -1,4 +1,6 @@
 """routes/pgdean.py — PG Dean: postgraduate applications portal."""
+import base64
+import mimetypes
 import os
 import math
 from datetime import datetime
@@ -14,6 +16,39 @@ pgdean_bp = Blueprint('pgdean', __name__)
 USER_NAME_EXPR = "u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname"
 
 PG_PROG_TYPE = 2  # prog_type id for Postgraduate in program_types table
+
+
+def _file_to_data_url(file_path):
+    if not file_path:
+        return None
+
+    resolved_path = file_path
+    if not os.path.exists(resolved_path):
+        normalized_path = file_path.replace('\\', '/')
+        parts = normalized_path.split('/uploads/')
+        if len(parts) > 1:
+            local_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'uploads',
+                parts[1].replace('/', os.sep),
+            )
+            if os.path.exists(local_path):
+                resolved_path = local_path
+        elif normalized_path.startswith('uploads/'):
+            local_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                normalized_path.replace('/', os.sep),
+            )
+            if os.path.exists(local_path):
+                resolved_path = local_path
+
+    if not os.path.exists(resolved_path):
+        return None
+
+    mime_type = mimetypes.guess_type(resolved_path)[0] or 'image/png'
+    with open(resolved_path, 'rb') as f:
+        encoded = base64.b64encode(f.read()).decode('utf-8')
+    return f'data:{mime_type};base64,{encoded}'
 
 
 # ─── Dashboard ─────────────────────────────────────────────────────────────────
@@ -264,7 +299,7 @@ def get_application_detail(payload, application_id):
             "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'signature'",
             (application_id,)
         )
-        signature_file = sig_res[0]['file_url'] if sig_res else None
+        signature_file = _file_to_data_url(sig_res[0]['file_url']) if sig_res else None
 
         trans_res = Database.execute_query(
             "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'transcript'",
@@ -332,7 +367,7 @@ def get_application_detail(payload, application_id):
 
     # Uploaded documents
     documents = Database.execute_query(
-        '''SELECT id, document_type, file_type, file_name AS original_filename, file_size
+        '''SELECT id, document_type, file_type, file_name AS original_filename, file_size, status, remark
            FROM pg_document WHERE pg_application_id = %s''',
         (application_id,)
     )
@@ -589,6 +624,3 @@ def print_application(payload, application_id):
         import traceback
         traceback.print_exc()
         return jsonify({'message': f'PDF generation failed: {str(e)}'}), 500
-
-
-

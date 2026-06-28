@@ -23,16 +23,19 @@ import {
   RotateCcw,
   AlertTriangle,
   Send,
+  Eye,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdmissionLetterPreviewModal from "@/components/AdmissionLetterPreviewModal";
 
 interface FacultyData {
   [faculty: string]: Array<{
     name: string;
     pending_count: number;
+    degree_type?: string;
   }>;
 }
 
@@ -50,6 +53,7 @@ export default function PgAdminSendLettersPage() {
   const [faculties, setFaculties] = useState<FacultyData>({});
   const [expandedFaculty, setExpandedFaculty] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
+  const [selectedDegreeType, setSelectedDegreeType] = useState<string | null>(null);
   const [departmentApplicants, setDepartmentApplicants] = useState<DepartmentApplicant[]>([]);
   const [selectedApplicants, setSelectedApplicants] = useState<Set<number | string>>(new Set());
 
@@ -60,6 +64,7 @@ export default function PgAdminSendLettersPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [admissionDate, setAdmissionDate] = useState<string>("");
+  const [previewApplicantId, setPreviewApplicantId] = useState<number | string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -92,9 +97,9 @@ export default function PgAdminSendLettersPage() {
     }
   };
 
-  const loadDepartmentApplicants = async (department: string) => {
+  const loadDepartmentApplicants = async (department: string, degreeType?: string) => {
     try {
-      const response = await ApiClient.getPgDepartmentApplicants(department);
+      const response = await ApiClient.getPgDepartmentApplicants(department, degreeType);
       setDepartmentApplicants(response.applicants || []);
       setSelectedApplicants(new Set());
     } catch (err) {
@@ -102,9 +107,10 @@ export default function PgAdminSendLettersPage() {
     }
   };
 
-  const handleSelectDepartment = async (department: string) => {
+  const handleSelectDepartment = async (department: string, degreeType?: string) => {
     setSelectedDepartment(department);
-    await loadDepartmentApplicants(department);
+    setSelectedDegreeType(degreeType || null);
+    await loadDepartmentApplicants(department, degreeType);
   };
 
   const handleSelectApplicant = (id: number | string, checked: boolean) => {
@@ -162,6 +168,15 @@ export default function PgAdminSendLettersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+      {previewApplicantId !== null && (
+        <AdmissionLetterPreviewModal
+          applicantId={previewApplicantId}
+          admissionDate={admissionDate}
+          portal="pgadmin"
+          onClose={() => setPreviewApplicantId(null)}
+        />
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -283,10 +298,11 @@ export default function PgAdminSendLettersPage() {
                           <div className="ml-4 space-y-1">
                             {departments.map((dept) => (
                               <button
-                                key={dept.name}
-                                onClick={() => handleSelectDepartment(dept.name)}
+                                key={`${faculty}-${dept.name}`}
+                                onClick={() => handleSelectDepartment(dept.name, dept.degree_type || faculty)}
                                 className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
-                                  selectedDepartment === dept.name
+                                  selectedDepartment === dept.name &&
+                                  selectedDegreeType === (dept.degree_type || faculty)
                                     ? "!bg-[#c99b45] !text-[#15110a] shadow-sm"
                                     : "hover:bg-muted"
                                 }`}
@@ -294,7 +310,8 @@ export default function PgAdminSendLettersPage() {
                                 <div className="flex justify-between items-center">
                                   <span
                                     className={
-                                      selectedDepartment === dept.name
+                                      selectedDepartment === dept.name &&
+                                      selectedDegreeType === (dept.degree_type || faculty)
                                         ? "!text-[#15110a] font-semibold"
                                         : undefined
                                     }
@@ -304,7 +321,8 @@ export default function PgAdminSendLettersPage() {
                                   <Badge
                                     variant="secondary"
                                     className={
-                                      selectedDepartment === dept.name
+                                      selectedDepartment === dept.name &&
+                                      selectedDegreeType === (dept.degree_type || faculty)
                                         ? "!bg-white !text-[#15110a]"
                                         : undefined
                                     }
@@ -384,6 +402,15 @@ export default function PgAdminSendLettersPage() {
                                     {app.email} • {app.program_name}
                                   </p>
                                 </label>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setPreviewApplicantId(app.id)}
+                                  disabled={sending}
+                                  title="Preview admission letter"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
                               </div>
                             ))
                           )}
@@ -470,14 +497,23 @@ export default function PgAdminSendLettersPage() {
                           : "—"}
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleResend(letter.applicant_id)}
-                      disabled={sending}
-                      title="Resend letter"
-                      className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => setPreviewApplicantId(letter.applicant_id)}
+                        title="Preview letter"
+                        className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleResend(letter.applicant_id)}
+                        disabled={sending}
+                        title="Resend letter"
+                        className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -525,15 +561,25 @@ export default function PgAdminSendLettersPage() {
                                 Attempts: {letter.retry_count}
                               </p>
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() => handleResend(letter.applicant_id)}
-                              disabled={sending}
-                              className="gap-2"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              Retry
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setPreviewApplicantId(letter.applicant_id)}
+                                title="Preview letter"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleResend(letter.applicant_id)}
+                                disabled={sending}
+                                className="gap-2"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Retry
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>

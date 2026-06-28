@@ -154,9 +154,6 @@ export default function CourseRecommendation({
                   </p>
                 </div>
               )}
-              <p className="text-xs text-emerald-700 mt-3">
-                Status: Awaiting admin finalization
-              </p>
             </div>
           </div>
         </div>

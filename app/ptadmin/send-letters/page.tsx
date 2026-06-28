@@ -23,11 +23,13 @@ import {
   RotateCcw,
   AlertTriangle,
   Send,
+  Eye,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdmissionLetterPreviewModal from "@/components/AdmissionLetterPreviewModal";
 
 interface FacultyData {
   [faculty: string]: Array<{
@@ -60,6 +62,7 @@ export default function PtAdminSendLettersPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [admissionDate, setAdmissionDate] = useState<string>("");
+  const [previewApplicantId, setPreviewApplicantId] = useState<number | string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -165,6 +168,15 @@ export default function PtAdminSendLettersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+      {previewApplicantId !== null && (
+        <AdmissionLetterPreviewModal
+          applicantId={previewApplicantId}
+          admissionDate={admissionDate}
+          portal="ptadmin"
+          onClose={() => setPreviewApplicantId(null)}
+        />
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -388,6 +400,15 @@ export default function PtAdminSendLettersPage() {
                                     {app.email} • {app.program_name}
                                   </p>
                                 </label>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setPreviewApplicantId(app.id)}
+                                  disabled={sending}
+                                  title="Preview admission letter"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
                               </div>
                             ))
                           )}
@@ -474,14 +495,23 @@ export default function PtAdminSendLettersPage() {
                           : "—"}
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleResend(letter.applicant_id)}
-                      disabled={sending}
-                      title="Resend letter"
-                      className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => setPreviewApplicantId(letter.applicant_id)}
+                        title="Preview letter"
+                        className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleResend(letter.applicant_id)}
+                        disabled={sending}
+                        title="Resend letter"
+                        className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -529,15 +559,25 @@ export default function PtAdminSendLettersPage() {
                                 Attempts: {letter.retry_count}
                               </p>
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() => handleResend(letter.applicant_id)}
-                              disabled={sending}
-                              className="gap-2"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              Retry
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setPreviewApplicantId(letter.applicant_id)}
+                                title="Preview letter"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleResend(letter.applicant_id)}
+                                disabled={sending}
+                                className="gap-2"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Retry
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>

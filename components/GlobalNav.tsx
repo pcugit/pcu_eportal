@@ -188,15 +188,40 @@ export function GlobalNav() {
     isPtAdminSection;
 
   React.useEffect(() => {
-    const fetchCount = () => {
-      if (isAdminPortal) {
-        ApiClient.getApplications("submitted")
-          .then((res) => {
-            if (res && res.applications) {
-              setPendingCount(res.applications.length);
-            }
-          })
-          .catch((err) => console.error(err));
+    const fetchCount = async () => {
+      if (!isAuthenticated) {
+        setPendingCount(0);
+        return;
+      }
+
+      try {
+        if (user?.role === "admissionofficer") {
+          const res = await ApiClient.getDashboard(1);
+          setPendingCount(res.statistics?.review_applications ?? 0);
+          return;
+        }
+
+        if (user?.role === "pgadmin") {
+          const res = await ApiClient.getPgAdminDashboard(1);
+          setPendingCount(res.statistics?.new_applications ?? 0);
+          return;
+        }
+
+        if (user?.role === "pgdean") {
+          const res = await ApiClient.getPgDeanDashboard(1);
+          setPendingCount(res.statistics?.new_applications ?? 0);
+          return;
+        }
+
+        if (user?.role === "ptadmin") {
+          const res = await ApiClient.getPtAdminDashboard(1);
+          setPendingCount(res.statistics?.new_applications ?? 0);
+          return;
+        }
+
+        setPendingCount(0);
+      } catch (err) {
+        console.error(err);
       }
     };
 
@@ -204,7 +229,7 @@ export function GlobalNav() {
 
     window.addEventListener("application-reviewed", fetchCount);
     return () => window.removeEventListener("application-reviewed", fetchCount);
-  }, [isAdminPortal]);
+  }, [isAuthenticated, user?.role]);
 
   // Close mobile sidebar drawer on path change
   React.useEffect(() => {

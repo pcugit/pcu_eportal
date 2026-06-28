@@ -9,6 +9,7 @@ import React, {
   useRef,
 } from "react";
 import { ApiClient, StudentData } from "@/lib/api";
+import { clearSessionImageCache } from "@/lib/sessionImageCache";
 
 type StaffRole =
   | "lecturer"
@@ -138,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Auto-logout on inactivity
       ApiClient.setToken(null);
+      clearSessionImageCache();
       localStorage.removeItem("auth_user");
       localStorage.removeItem("last_active");
 
@@ -200,6 +202,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       ) {
         // Session expired while browser was closed — clear everything and don't verify
         ApiClient.setToken(null);
+        clearSessionImageCache();
         saveUserAndRole(null);
         setApplicant(null);
         setStudent(null);
@@ -257,6 +260,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     } catch (err) {
       ApiClient.setToken(null);
+      clearSessionImageCache();
       saveUserAndRole(null);
       setApplicant(null);
       setStudent(null);
@@ -408,6 +412,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Logout error:", err);
       } finally {
         ApiClient.setToken(null);
+        clearSessionImageCache();
         localStorage.removeItem("auth_user");
         localStorage.removeItem("last_active");
         saveUserAndRole(null);

@@ -1,4 +1,6 @@
 """routes/pgadmin.py — PG Admin: postgraduate applications portal."""
+import base64
+import mimetypes
 import os
 import math
 from datetime import datetime
@@ -14,6 +16,39 @@ pgadmin_bp = Blueprint('pgadmin', __name__)
 USER_NAME_EXPR = "u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname"
 
 PG_PROG_TYPE = 2  # prog_type id for Postgraduate in program_types table
+
+
+def _file_to_data_url(file_path):
+    if not file_path:
+        return None
+
+    resolved_path = file_path
+    if not os.path.exists(resolved_path):
+        normalized_path = file_path.replace('\\', '/')
+        parts = normalized_path.split('/uploads/')
+        if len(parts) > 1:
+            local_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'uploads',
+                parts[1].replace('/', os.sep),
+            )
+            if os.path.exists(local_path):
+                resolved_path = local_path
+        elif normalized_path.startswith('uploads/'):
+            local_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                normalized_path.replace('/', os.sep),
+            )
+            if os.path.exists(local_path):
+                resolved_path = local_path
+
+    if not os.path.exists(resolved_path):
+        return None
+
+    mime_type = mimetypes.guess_type(resolved_path)[0] or 'image/png'
+    with open(resolved_path, 'rb') as f:
+        encoded = base64.b64encode(f.read()).decode('utf-8')
+    return f'data:{mime_type};base64,{encoded}'
 
 
 def _ensure_recommendation_columns():
@@ -36,6 +71,79 @@ def get_pg_admission_ref(applicant_id):
     session_name = res[0]['session_name'] if res and res[0]['session_name'] else '2025/2026'
     session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
     return f"PCU/PG/ADM/{session_year}"
+
+
+def _display_admission_date(admission_date_str):
+    try:
+        date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+        return date_obj.strftime('%d %B, %Y')
+    except Exception:
+        return admission_date_str
+
+
+def _build_pg_admission_letter_pdf(applicant_id, admission_date_str):
+    from utils.pdf_generator import PDFGenerator
+
+    admission_date_display = _display_admission_date(admission_date_str)
+    ref_no = get_pg_admission_ref(applicant_id)
+
+    session_res = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    default_session = session_res[0]['value'] if session_res else '2025/2026'
+
+    applicant = Database.execute_query(
+        f'''SELECT pg.uuid AS id,
+                   {USER_NAME_EXPR} AS name,
+                   u.email,
+                   COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                   COALESCE(s.name, %s) AS session
+            FROM pg_application pg
+            JOIN users u ON pg.user_id = u.id
+            LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+            WHERE pg.uuid = %s
+              AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
+        (default_session, applicant_id)
+    )
+
+    if not applicant:
+        return None
+
+    applicant_data = applicant[0]
+
+    fees = Database.execute_query(
+        '''SELECT fc.name, pf.amount
+           FROM program_fees pf
+           JOIN fee_components fc ON pf.fee_component_id = fc.id
+           WHERE pf.program_type = 2'''
+    )
+    acceptance_fee_str = tuition_fee_str = other_fees_str = ''
+    if fees:
+        for fee in fees:
+            name = (fee['name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in name:
+                acceptance_fee_str = f"NGN {amount:,.2f}"
+            elif 'tuition' in name or 'accommodation' in name:
+                tuition_fee_str = f"NGN {amount:,.2f}"
+            elif 'sundry' in name or 'other' in name or 'digital' in name:
+                other_fees_str = f"NGN {amount:,.2f}"
+
+    return PDFGenerator.generate_admission_letter_pdf(
+        candidate_name=applicant_data['name'],
+        email=applicant_data['email'],
+        programme=applicant_data['program_name'] or 'Postgraduate',
+        level='100 Level',
+        department='',
+        faculty='',
+        session=applicant_data.get('session') or default_session,
+        mode='Postgraduate',
+        date=admission_date_display,
+        acceptanceFee=acceptance_fee_str,
+        tuition=tuition_fee_str,
+        otherFees=other_fees_str,
+        resumptionDate='',
+        reference=ref_no,
+        body_html=''
+    )
 
 
 # ─── Dashboard ─────────────────────────────────────────────────────────────────
@@ -314,7 +422,7 @@ def get_application_detail(payload, application_id):
             "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'signature'",
             (application_id,)
         )
-        signature_file = sig_res[0]['file_url'] if sig_res else None
+        signature_file = _file_to_data_url(sig_res[0]['file_url']) if sig_res else None
 
         trans_res = Database.execute_query(
             "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'transcript'",
@@ -382,7 +490,7 @@ def get_application_detail(payload, application_id):
 
     # Uploaded documents
     documents = Database.execute_query(
-        '''SELECT id, document_type, file_type, file_name AS original_filename, file_size
+        '''SELECT id, document_type, file_type, file_name AS original_filename, file_size, status, remark
            FROM pg_document WHERE pg_application_id = %s''',
         (application_id,)
     )
@@ -894,12 +1002,14 @@ def get_pg_faculty_departments(payload):
     """Return PG admitted applicants grouped by finalised/approved course."""
     query = f'''
         SELECT COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS programme,
+               COALESCE(NULLIF(dg.code, ''), dg.name, 'Postgraduate') AS degree_type,
                COUNT(pg.uuid) AS pending_count
         FROM pg_application pg
+        LEFT JOIN degrees dg ON pg.degree_id = dg.id
         WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
           AND (pg.admission_letter_sent IS NULL OR pg.admission_letter_sent = FALSE)
-        GROUP BY 1
-        ORDER BY 1
+        GROUP BY 1, 2
+        ORDER BY 2, 1
     '''
     results = Database.execute_query(query)
 
@@ -907,9 +1017,14 @@ def get_pg_faculty_departments(payload):
     if results:
         for row in results:
             prog = row['programme'] or 'Postgraduate'
-            if 'Postgraduate' not in faculties:
-                faculties['Postgraduate'] = []
-            faculties['Postgraduate'].append({'name': prog, 'pending_count': int(row['pending_count'])})
+            degree_type = row['degree_type'] or 'Postgraduate'
+            if degree_type not in faculties:
+                faculties[degree_type] = []
+            faculties[degree_type].append({
+                'name': prog,
+                'pending_count': int(row['pending_count']),
+                'degree_type': degree_type
+            })
 
     return jsonify({'faculties': faculties}), 200
 
@@ -919,20 +1034,45 @@ def get_pg_faculty_departments(payload):
 @AuthHandler.pgadmin_required
 def get_pg_department_applicants(payload, department_name):
     """Return PG admitted applicants for a given programme group."""
+    degree_type = request.args.get('degree_type')
     query = f'''
         SELECT pg.uuid AS id,
                {USER_NAME_EXPR} AS name,
                u.email,
-               COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name
+               COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+               COALESCE(NULLIF(dg.code, ''), dg.name, 'Postgraduate') AS degree_type
         FROM pg_application pg
         JOIN users u ON pg.user_id = u.id
+        LEFT JOIN degrees dg ON pg.degree_id = dg.id
         WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
           AND (pg.admission_letter_sent IS NULL OR pg.admission_letter_sent = FALSE)
           AND COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') = %s
-        ORDER BY u.firstname ASC
     '''
-    applicants = Database.execute_query(query, (department_name,))
+    params = [department_name]
+    if degree_type:
+        query += " AND COALESCE(NULLIF(dg.code, ''), dg.name, 'Postgraduate') = %s"
+        params.append(degree_type)
+    query += " ORDER BY u.firstname ASC"
+    applicants = Database.execute_query(query, tuple(params))
     return jsonify({'department': department_name, 'applicants': applicants or []}), 200
+
+
+@pgadmin_bp.route('/preview-letter/<applicant_id>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def preview_pg_letter(payload, applicant_id):
+    admission_date_str = request.args.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    try:
+        pdf_bytes = _build_pg_admission_letter_pdf(applicant_id, admission_date_str)
+        if not pdf_bytes:
+            return jsonify({'message': 'PG applicant not found or not admitted/accepted/enrolled'}), 404
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': f'inline; filename=pg_admission_letter_{applicant_id}.pdf'}
+        )
+    except Exception as e:
+        return jsonify({'message': 'Error generating preview', 'error': str(e)}), 500
 
 
 @pgadmin_bp.route('/send-department-letters', methods=['POST'])
@@ -1245,4 +1385,3 @@ def resend_pg_letter(payload, applicant_id):
 
     except Exception as e:
         return jsonify({'message': 'Error resending letter', 'error': str(e)}), 500
-

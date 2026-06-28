@@ -352,6 +352,35 @@ function DocumentsTab({
   applicantName: string;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const visibleDocuments = documents.filter(
+    (doc) => (doc.document_type || "").toLowerCase() !== "signature",
+  );
+  const downloadableDocuments = visibleDocuments.filter(
+    (doc) => doc.status !== "unavailable",
+  );
+  const unavailableDocuments = visibleDocuments.filter(
+    (doc) => doc.status === "unavailable",
+  );
+  const orderedDocuments = [...unavailableDocuments, ...downloadableDocuments];
+  const getZipFileName = (doc: any, index: number, usedNames: Set<string>) => {
+    const originalName =
+      doc.original_filename || `document_${doc.id || doc.document_id || index}`;
+    const extension = originalName.includes(".")
+      ? originalName.slice(originalName.lastIndexOf("."))
+      : "";
+    const typeName = (doc.document_type || "document")
+      .replace(/[^a-z0-9_\-]+/gi, "_")
+      .replace(/^_+|_+$/g, "");
+    const docId = String(doc.id || doc.document_id || index).slice(0, 8);
+    let fileName = `${String(index + 1).padStart(2, "0")}_${typeName}_${docId}${extension}`;
+    let suffix = 2;
+    while (usedNames.has(fileName)) {
+      fileName = `${String(index + 1).padStart(2, "0")}_${typeName}_${docId}_${suffix}${extension}`;
+      suffix += 1;
+    }
+    usedNames.add(fileName);
+    return fileName;
+  };
 
   const handleDownload = async (doc: any) => {
     try {
@@ -380,17 +409,18 @@ function DocumentsTab({
   };
 
   const handleDownloadAll = async () => {
-    if (documents.length === 0) return;
+    if (downloadableDocuments.length === 0) return;
     setDownloading(true);
     try {
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
       const sanitizedName = applicantName.replace(/[^a-z0-9_\-]/gi, "_");
       const folder = zip.folder(sanitizedName);
+      const usedNames = new Set<string>();
 
       if (!folder) throw new Error("Failed to create zip folder");
 
-      for (const doc of documents) {
+      for (const [index, doc] of downloadableDocuments.entries()) {
         try {
           const token = localStorage.getItem("auth_token");
           const baseUrl =
@@ -402,10 +432,7 @@ function DocumentsTab({
           );
           if (res.ok) {
             const blob = await res.blob();
-            folder.file(
-              doc.original_filename || `document_${doc.id || doc.document_id}`,
-              blob,
-            );
+            folder.file(getZipFileName(doc, index, usedNames), blob);
           }
         } catch (err) {
           console.error(
@@ -437,13 +464,13 @@ function DocumentsTab({
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div>
           <p className="font-semibold text-slate-700 text-sm">
-            Uploaded Documents
+            Application Documents
           </p>
           <p className="text-slate-400 text-xs mt-0.5">
-            {documents.length} document(s)
+            {downloadableDocuments.length} document(s)
           </p>
         </div>
-        {documents.length > 0 && (
+        {downloadableDocuments.length > 0 && (
           <Button
             onClick={handleDownloadAll}
             disabled={downloading}
@@ -465,16 +492,22 @@ function DocumentsTab({
         )}
       </div>
       <div className="p-4">
-        {documents.length > 0 ? (
+        {orderedDocuments.length > 0 ? (
           <div className="space-y-2">
-            {documents.map((doc) => (
+            {orderedDocuments.map((doc) => (
               <div
                 key={doc.id || doc.document_id}
-                className="flex items-center justify-between p-3.5 bg-gray-50 border border-gray-200 rounded-lg"
+                className={`flex items-center justify-between p-3.5 border rounded-lg ${
+                  doc.status === "unavailable"
+                    ? "bg-red-50 border-red-200"
+                    : "bg-gray-50 border-gray-200"
+                }`}
               >
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-700 text-sm truncate">
-                    {doc.original_filename}
+                    {doc.status === "unavailable"
+                      ? "Document unavailable"
+                      : doc.original_filename}
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5 capitalize">
                     {(doc.document_type || "").replace(/_/g, " ")}
@@ -482,14 +515,24 @@ function DocumentsTab({
                       ? ` · ${(doc.file_size / 1024).toFixed(1)} KB`
                       : ""}
                   </p>
+                  {doc.status === "unavailable" && (
+                    <p className="text-xs font-semibold text-red-700 mt-1">
+                      Applicant marked this document as unavailable.
+                    </p>
+                  )}
                 </div>
                 <Button
                   size="sm"
-                  onClick={() => handleDownload(doc)}
-                  className="ml-3 gap-1.5 shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700 border-0 shadow-none"
+                  disabled={doc.status === "unavailable"}
+                  onClick={() => doc.status !== "unavailable" && handleDownload(doc)}
+                  className={`ml-3 gap-1.5 shrink-0 border-0 shadow-none ${
+                    doc.status === "unavailable"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                  }`}
                 >
                   <Download className="h-3.5 w-3.5" />
-                  Download
+                  {doc.status === "unavailable" ? "Unavailable" : "Download"}
                 </Button>
               </div>
             ))}
@@ -507,9 +550,11 @@ function DocumentsTab({
 function SectionBTab({
   application,
   onSaveSuccess,
+  currentUserName,
 }: {
   application: ApplicationDetail;
   onSaveSuccess: () => void;
+  currentUserName?: string;
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -745,7 +790,7 @@ function SectionBTab({
                     Will be signed as
                   </p>
                   <p className="font-semibold text-slate-700 text-sm">
-                    Dean of Postgraduate School
+                    {currentUserName || "Current user"}
                   </p>
                 </div>
               )}
@@ -1043,7 +1088,11 @@ export default function PgApplicationDetailPage() {
           </TabsContent>
 
           <TabsContent value="section-b">
-            <SectionBTab application={application} onSaveSuccess={loadDetail} />
+            <SectionBTab
+              application={application}
+              onSaveSuccess={loadDetail}
+              currentUserName={user?.name}
+            />
           </TabsContent>
         </Tabs>
       </div>

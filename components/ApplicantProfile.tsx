@@ -38,6 +38,10 @@ import {
   ProfileField,
 } from "@/lib/profileTemplates";
 import CourseRecommendationSection from "@/components/CourseRecommendationSection";
+import {
+  getSessionImageUrl,
+  setSessionImageUrl,
+} from "@/lib/sessionImageCache";
 
 interface ApplicantProfileProps {
   applicant: any;
@@ -411,41 +415,55 @@ export default function ApplicantProfile({
       d.document_type?.toLowerCase().includes("passport") ||
       d.display_name?.toLowerCase().includes("passport"),
   );
+  const passportDocId = passportDoc?.document_id || passportDoc?.id;
 
   // Fetch passport image with auth
   React.useEffect(() => {
-    if (passportDoc?.document_id) {
-      const fetchPassport = async () => {
-        try {
-          const token = localStorage.getItem("auth_token");
-          const baseUrl =
-            process.env.NEXT_PUBLIC_API_URL ||
-            "http://localhost:5000/e-portal/api";
-          const response = await fetch(
-            `${baseUrl}/applicant/download-document/${passportDoc.document_id}`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            },
-          );
-
-          if (response.ok) {
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            setPassportUrl(url);
-          }
-        } catch (e) {
-          console.error("Failed to fetch passport", e);
-        }
-      };
-      fetchPassport();
+    if (!passportDocId) {
+      setPassportUrl(null);
+      return;
     }
 
-    return () => {
-      if (passportUrl) URL.revokeObjectURL(passportUrl);
+    let active = true;
+    const fetchPassport = async () => {
+      try {
+        const token = localStorage.getItem("auth_token") || "";
+        const cacheKey = `applicant-passport:${token}:${passportDocId}`;
+        const cachedUrl = getSessionImageUrl(cacheKey);
+
+        if (cachedUrl) {
+          setPassportUrl(cachedUrl);
+          return;
+        }
+
+        const baseUrl =
+          process.env.NEXT_PUBLIC_API_URL ||
+          "http://localhost:5000/e-portal/api";
+        const response = await fetch(
+          `${baseUrl}/applicant/download-document/${passportDocId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          setSessionImageUrl(cacheKey, url);
+          if (active) setPassportUrl(url);
+        }
+      } catch (e) {
+        console.error("Failed to fetch passport", e);
+      }
     };
-  }, [passportDoc?.document_id]);
+    fetchPassport();
+
+    return () => {
+      active = false;
+    };
+  }, [passportDocId]);
 
   // Build formatted name: SURNAME, FIRSTNAME MIDDLENAME
   const formatName = () => {
@@ -579,7 +597,7 @@ export default function ApplicantProfile({
         <h3 className="text-lg font-medium text-slate-700 border-b border-slate-100 pb-3 mb-5">
           Referees
         </h3>
-        <div className="space-y-4">
+      <div className="space-y-4">
           {referees.map((ref, idx) => (
             <div
               key={idx}
@@ -653,9 +671,7 @@ export default function ApplicantProfile({
 
       <div className="grid grid-cols-1 gap-5 items-start lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
         {/* Left Column: Actions Sidebar */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-medium text-slate-700 px-1">Actions</h2>
-
+          <div className="lg:sticky lg:top-4 lg:self-start">
           <div className="bg-white border border-slate-200 overflow-hidden">
             {/* Header with Mountain/Banner */}
             <div className="h-32 w-full relative">

@@ -6,14 +6,16 @@ import { X, Download, Printer, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface AdmissionLetterPreviewModalProps {
-  applicantId: number;
+  applicantId: number | string;
   admissionDate?: string;
+  portal?: "admission_officer" | "pgadmin" | "ptadmin";
   onClose: () => void;
 }
 
 export default function AdmissionLetterPreviewModal({
   applicantId,
   admissionDate,
+  portal = "admission_officer",
   onClose,
 }: AdmissionLetterPreviewModalProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -34,7 +36,9 @@ export default function AdmissionLetterPreviewModal({
 
         const blob = await ApiClient.previewAdmissionLetter(
           applicantId,
-          date
+          date,
+          undefined,
+          portal,
         );
 
         if (cancelled) return;
@@ -60,7 +64,7 @@ export default function AdmissionLetterPreviewModal({
         objectUrlRef.current = null;
       }
     };
-  }, [applicantId, admissionDate]);
+  }, [applicantId, admissionDate, portal]);
 
   // Close on Escape key
   useEffect(() => {

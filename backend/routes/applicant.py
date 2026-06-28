@@ -934,18 +934,21 @@ def submit_form(payload):
             tuple(pg_app_vals)
         )
 
-        course_name = None
-        if proposed_course_id:
-            course_res = Database.execute_query('SELECT name FROM pg_program_setup WHERE id = %s', (proposed_course_id,))
-            if course_res:
-                course_name = course_res[0]['name']
-
-        # Update pg_application table
+        # Applicant form saves must not finalize the course. That is strictly
+        # an admin review decision, so clear any pre-review value left by older saves.
         Database.execute_update(
             '''UPDATE pg_application 
-               SET degree_id = %s, finalised_course = %s, applicant_stage = 'in_progress', updated_date = NOW()
+               SET degree_id = %s,
+                   finalised_course = CASE
+                       WHEN decision IS NULL
+                        AND applicant_stage IN ('started', 'in_progress', 'submitted')
+                       THEN NULL
+                       ELSE finalised_course
+                   END,
+                   applicant_stage = 'in_progress',
+                   updated_date = NOW()
                WHERE uuid = %s''',
-            (deg_id_val, course_name, application_id)
+            (deg_id_val, application_id)
         )
 
         return jsonify({'message': 'Postgraduate form saved successfully', 'form_id': application_id}), 200
@@ -1247,8 +1250,13 @@ def upload_document(payload):
     if DocumentHandler.get_file_size(file) > Config.MAX_CONTENT_LENGTH:
         return jsonify({'message': f'File size exceeds {Config.MAX_CONTENT_LENGTH/(1024*1024):.0f}MB limit'}), 400
 
+    document_id = str(uuid.uuid4())
     upload_folder   = os.path.join(Config.UPLOAD_FOLDER, f'applicant_{user_id}')
-    stored_filename, original_size, compressed_size, is_compressed = DocumentHandler.save_document(file, upload_folder)
+    stored_filename, original_size, compressed_size, is_compressed = DocumentHandler.save_document(
+        file,
+        upload_folder,
+        stored_basename=document_id,
+    )
     if not stored_filename:
         return jsonify({'message': 'Failed to save document'}), 500
 
@@ -1274,18 +1282,23 @@ def upload_document(payload):
     file_ext  = stored_filename.split('.')[-1] if '.' in stored_filename else ''
 
     if is_pg:
+        Database.execute_update(
+            '''DELETE FROM pg_document
+               WHERE pg_application_id = %s AND document_type = %s AND status = 'unavailable' ''',
+            (form_id_uuid, document_type)
+        )
         doc_result = Database.execute_query(
             '''INSERT INTO pg_document
-                   (pg_application_id, document_type, file_name, file_url, file_size, file_type, status)
-               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-            (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
+                   (id, pg_application_id, document_type, file_name, file_url, file_size, file_type, status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+            (document_id, form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
         )
     else:
         doc_result = Database.execute_query(
             '''INSERT INTO documents
-                   (application_id, document_type, file_name, file_url, file_size, file_type, status)
-               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-            (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
+                   (id, application_id, document_type, file_name, file_url, file_size, file_type, status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+            (document_id, form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
         )
     doc_id = doc_result[0]['id'] if doc_result else None
     if not doc_id:
@@ -1301,6 +1314,59 @@ def upload_document(payload):
         'is_compressed': is_compressed,
         'compression_ratio': f'{compression_ratio:.1f}%',
     }), 201
+
+
+@applicant_bp.route('/pg-document-unavailable', methods=['POST'])
+@AuthHandler.token_required
+def set_pg_document_unavailable(payload):
+    user_id = payload['user_id']
+    data = request.get_json() or {}
+    form_id = data.get('form_id')
+    document_type = data.get('document_type')
+    unavailable = bool(data.get('unavailable'))
+
+    if not form_id or not document_type:
+        return jsonify({'message': 'form_id and document_type are required'}), 400
+
+    pg_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE uuid = %s AND user_id = %s',
+        (form_id, user_id)
+    )
+    if not pg_check:
+        return jsonify({'message': 'PG application not found or access denied'}), 404
+
+    if unavailable:
+        uploaded = Database.execute_query(
+            '''SELECT id FROM pg_document
+               WHERE pg_application_id = %s AND document_type = %s
+                 AND COALESCE(status, '') <> 'unavailable'
+               LIMIT 1''',
+            (form_id, document_type)
+        )
+        if uploaded:
+            return jsonify({'message': 'Delete the uploaded document before marking it unavailable'}), 409
+
+        Database.execute_update(
+            '''DELETE FROM pg_document
+               WHERE pg_application_id = %s AND document_type = %s AND status = 'unavailable' ''',
+            (form_id, document_type)
+        )
+        doc_result = Database.execute_query(
+            '''INSERT INTO pg_document
+                   (pg_application_id, document_type, file_name, file_url, file_size, file_type, status, remark)
+               VALUES (%s, %s, %s, NULL, 0, NULL, 'unavailable', %s)
+               RETURNING id, document_type, file_name AS original_filename, file_size, status, remark''',
+            (form_id, document_type, 'Unavailable', 'Marked unavailable by applicant')
+        )
+        doc = dict(doc_result[0]) if doc_result else None
+        return jsonify({'message': 'Document marked unavailable', 'document': doc}), 200
+
+    Database.execute_update(
+        '''DELETE FROM pg_document
+           WHERE pg_application_id = %s AND document_type = %s AND status = 'unavailable' ''',
+        (form_id, document_type)
+    )
+    return jsonify({'message': 'Document availability restored'}), 200
 
 
 @applicant_bp.route('/delete-document/<document_id>', methods=['DELETE'])
@@ -1330,14 +1396,14 @@ def delete_document(payload, document_id):
         return jsonify({'message': 'Document not found'}), 404
 
     file_path = doc[0]['file_path']
-    if not os.path.exists(file_path):
+    if file_path and not os.path.exists(file_path):
         parts = file_path.replace('\\', '/').split('/uploads/')
         if len(parts) > 1:
             local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', parts[1].replace('/', os.sep))
             if os.path.exists(local_path):
                 file_path = local_path
 
-    if os.path.exists(file_path):
+    if file_path and os.path.exists(file_path):
         os.remove(file_path)
 
     if is_pg_doc:
@@ -1371,6 +1437,8 @@ def download_document(payload, document_id):
     if not doc:
         return jsonify({'message': 'Document not found or access denied'}), 404
     file_path = doc[0]['file_path']
+    if not file_path:
+        return jsonify({'message': 'No file is available for this document'}), 404
     if not os.path.exists(file_path):
         parts = file_path.replace('\\', '/').split('/uploads/')
         if len(parts) > 1:
@@ -3004,7 +3072,7 @@ def get_form(payload, applicant_id):
     if prog_type == 2:
         documents = Database.execute_query(
             '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
-                      d.file_name AS original_filename, d.file_size, d.status
+                      d.file_name AS original_filename, d.file_size, d.status, d.remark
                FROM pg_document d
                WHERE d.pg_application_id = %s''',
             (application_id,)
@@ -3039,7 +3107,16 @@ def submit_application(payload):
     )
     if pg_check:
         success = Database.execute_update(
-            "UPDATE pg_application SET applicant_stage = 'submitted', updated_date = NOW() WHERE uuid = %s AND user_id = %s",
+            '''UPDATE pg_application
+               SET applicant_stage = 'submitted',
+                   finalised_course = CASE
+                       WHEN decision IS NULL
+                        AND applicant_stage IN ('started', 'in_progress', 'submitted')
+                       THEN NULL
+                       ELSE finalised_course
+                   END,
+                   updated_date = NOW()
+               WHERE uuid = %s AND user_id = %s''',
             (applicant_id, user_id)
         )
     else:

@@ -60,7 +60,7 @@ class DocumentHandler:
             return file, original_size, original_size, False
     
     @staticmethod
-    def save_document(file, folder_path, compress=True):
+    def save_document(file, folder_path, compress=True, stored_basename=None):
         """
         Save document to disk with optional compression
         Returns: (stored_filename, file_size, compressed_size, is_compressed)
@@ -72,9 +72,11 @@ class DocumentHandler:
             original_filename = secure_filename(file.filename)
             file_ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'bin'
             
-            # Generate unique filename
+            # Generate unique filename. When a document row UUID is supplied,
+            # use it as the physical filename so DB id and stored file align.
             import uuid
-            stored_filename = f"{uuid.uuid4()}.{file_ext}"
+            stored_basename = stored_basename or str(uuid.uuid4())
+            stored_filename = f"{stored_basename}.{file_ext}"
             file_path = os.path.join(folder_path, stored_filename)
             
             original_size = DocumentHandler.get_file_size(file)

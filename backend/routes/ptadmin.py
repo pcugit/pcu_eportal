@@ -643,7 +643,7 @@ def print_application(payload, application_id):
     app_row = Database.execute_query(
         f'''SELECT app.id, app.user_id,
                    {USER_NAME_EXPR} AS name, u.email, u.phone_number,
-                   app.form_no, app.applicant_stage,
+                   app.form_no, app.applicant_stage, app.prog_type,
                    COALESCE(asess.name, '') AS session
             FROM applications app
             JOIN users u ON app.user_id = u.id
@@ -813,6 +813,82 @@ def _get_pt_admission_ref(applicant_id):
     return f"PCU/{code}/ADM/{session_year}"
 
 
+def _display_admission_date(admission_date_str):
+    try:
+        date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+        return date_obj.strftime('%d %B, %Y')
+    except Exception:
+        return admission_date_str
+
+
+def _build_pt_admission_letter_pdf(applicant_id, admission_date_str):
+    from utils.pdf_generator import PDFGenerator
+
+    admission_date_display = _display_admission_date(admission_date_str)
+    ref_no = _get_pt_admission_ref(applicant_id)
+
+    session_res = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    default_session = session_res[0]['value'] if session_res else '2025/2026'
+
+    applicant = Database.execute_query(
+        f'''SELECT app.id,
+                   {USER_NAME_EXPR} AS name,
+                   u.email,
+                   app.prog_type AS program_id,
+                   COALESCE(app.finalised_course, app.approved_course, 'Part Time') AS program_name,
+                   COALESCE(s.name, %s) AS session
+            FROM applications app
+            JOIN users u ON app.user_id = u.id
+            LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+            WHERE app.id = %s
+              AND app.prog_type IN (4, 7)
+              AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
+        (default_session, applicant_id)
+    )
+
+    if not applicant:
+        return None
+
+    applicant_data = applicant[0]
+
+    fees = Database.execute_query(
+        '''SELECT fc.name, pf.amount
+           FROM program_fees pf
+           JOIN fee_components fc ON pf.fee_component_id = fc.id
+           WHERE pf.program_type = %s''',
+        (applicant_data['program_id'],)
+    )
+    acceptance_fee_str = tuition_fee_str = other_fees_str = ''
+    if fees:
+        for fee in fees:
+            name = (fee['name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in name:
+                acceptance_fee_str = f"NGN {amount:,.2f}"
+            elif 'tuition' in name or 'accommodation' in name:
+                tuition_fee_str = f"NGN {amount:,.2f}"
+            elif 'sundry' in name or 'other' in name or 'digital' in name:
+                other_fees_str = f"NGN {amount:,.2f}"
+
+    return PDFGenerator.generate_admission_letter_pdf(
+        candidate_name=applicant_data['name'],
+        email=applicant_data['email'],
+        programme=applicant_data['program_name'] or 'Part Time',
+        level='100 Level',
+        department='',
+        faculty='',
+        session=applicant_data.get('session') or default_session,
+        mode='Part Time' if applicant_data['program_id'] == 7 else 'HND Conversion',
+        date=admission_date_display,
+        acceptanceFee=acceptance_fee_str,
+        tuition=tuition_fee_str,
+        otherFees=other_fees_str,
+        resumptionDate='',
+        reference=ref_no,
+        body_html=''
+    )
+
+
 @ptadmin_bp.route('/faculty-departments', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.ptadmin_required
@@ -864,6 +940,24 @@ def get_pt_department_applicants(payload, department_name):
     '''
     applicants = Database.execute_query(query, (department_name,))
     return jsonify({'department': department_name, 'applicants': applicants or []}), 200
+
+
+@ptadmin_bp.route('/preview-letter/<applicant_id>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.ptadmin_required
+def preview_pt_letter(payload, applicant_id):
+    admission_date_str = request.args.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    try:
+        pdf_bytes = _build_pt_admission_letter_pdf(applicant_id, admission_date_str)
+        if not pdf_bytes:
+            return jsonify({'message': 'Applicant not found or not admitted/accepted/enrolled'}), 404
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': f'inline; filename=pt_admission_letter_{applicant_id}.pdf'}
+        )
+    except Exception as e:
+        return jsonify({'message': 'Error generating preview', 'error': str(e)}), 500
 
 
 @ptadmin_bp.route('/send-department-letters', methods=['POST'])

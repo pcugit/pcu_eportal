@@ -360,6 +360,25 @@ function DocumentsTab({
   applicantName: string;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const getZipFileName = (doc: any, index: number, usedNames: Set<string>) => {
+    const originalName =
+      doc.original_filename || `document_${doc.document_id || doc.id || index}`;
+    const extension = originalName.includes(".")
+      ? originalName.slice(originalName.lastIndexOf("."))
+      : "";
+    const typeName = (doc.document_type || "document")
+      .replace(/[^a-z0-9_\-]+/gi, "_")
+      .replace(/^_+|_+$/g, "");
+    const docId = String(doc.document_id || doc.id || index).slice(0, 8);
+    let fileName = `${String(index + 1).padStart(2, "0")}_${typeName}_${docId}${extension}`;
+    let suffix = 2;
+    while (usedNames.has(fileName)) {
+      fileName = `${String(index + 1).padStart(2, "0")}_${typeName}_${docId}_${suffix}${extension}`;
+      suffix += 1;
+    }
+    usedNames.add(fileName);
+    return fileName;
+  };
 
   const handleDownload = async (doc: any) => {
     try {
@@ -393,10 +412,11 @@ function DocumentsTab({
       const zip = new JSZip();
       const sanitizedName = applicantName.replace(/[^a-z0-9_\-]/gi, "_");
       const folder = zip.folder(sanitizedName);
+      const usedNames = new Set<string>();
 
       if (!folder) throw new Error("Failed to create zip folder");
 
-      for (const doc of documents) {
+      for (const [index, doc] of documents.entries()) {
         try {
           const token = localStorage.getItem("auth_token");
           const baseUrl =
@@ -408,10 +428,7 @@ function DocumentsTab({
           );
           if (res.ok) {
             const blob = await res.blob();
-            folder.file(
-              doc.original_filename || `document_${doc.document_id || doc.id}`,
-              blob,
-            );
+            folder.file(getZipFileName(doc, index, usedNames), blob);
           }
         } catch (err) {
           console.error(

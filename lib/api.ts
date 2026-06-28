@@ -543,6 +543,7 @@ export class ApiClient {
       throw new Error(data.message || "Upload failed");
     }
 
+    this.clearCache();
     return data;
   }
 
@@ -577,13 +578,27 @@ export class ApiClient {
     return data;
   }
 
-  static async deleteDocument(document_id: number) {
+  static async deleteDocument(document_id: string | number) {
     const { data } = await this.fetch(
-      `/applicant/delete-document/${document_id}`,
+      `/applicant/delete-document/${encodeURIComponent(String(document_id))}`,
       {
         method: "DELETE",
       },
     );
+    this.clearCache();
+    return data;
+  }
+
+  static async setPgDocumentUnavailable(
+    form_id: string | number,
+    document_type: string,
+    unavailable: boolean,
+  ) {
+    const { data } = await this.fetch("/applicant/pg-document-unavailable", {
+      method: "POST",
+      body: JSON.stringify({ form_id, document_type, unavailable }),
+    });
+    this.clearCache();
     return data;
   }
 
@@ -653,24 +668,36 @@ export class ApiClient {
   }
 
   static async previewAdmissionLetter(
-    applicantId: number,
+    applicantId: number | string,
     admissionDate?: string,
     templateId?: string,
+    portal: "admission_officer" | "pgadmin" | "ptadmin" = "admission_officer",
   ) {
     const token = this.getToken();
+    const encodedApplicantId = encodeURIComponent(String(applicantId));
+    const url =
+      portal === "admission_officer"
+        ? `${API_BASE_URL}/admission_officer/preview-admission-letter`
+        : `${API_BASE_URL}/${portal}/preview-letter/${encodedApplicantId}?admission_date=${encodeURIComponent(
+            admissionDate || "",
+          )}`;
     const res = await fetch(
-      `${API_BASE_URL}/admission_officer/preview-admission-letter`,
+      url,
       {
-        method: "POST",
+        method: portal === "admission_officer" ? "POST" : "GET",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({
-          applicant_id: applicantId,
-          admission_date: admissionDate,
-          template_id: templateId,
-        }),
+        ...(portal === "admission_officer"
+          ? {
+              body: JSON.stringify({
+                applicant_id: applicantId,
+                admission_date: admissionDate,
+                template_id: templateId,
+              }),
+            }
+          : {}),
       },
     );
 
@@ -690,7 +717,7 @@ export class ApiClient {
     const { data } = await this.fetch<{
       applicant: ApplicantStatus;
       applicants: ApplicantStatus[];
-    }>("/applicant/get-applicant-status");
+    }>(`/applicant/get-applicant-status?_=${Date.now()}`);
     return data;
   }
 
@@ -1056,9 +1083,11 @@ export class ApiClient {
     return data;
   }
 
-  // Compatibility alias
   static async getPgDeanDashboard(activityLimit = 10) {
-    return this.getPgAdminDashboard(activityLimit);
+    const { data } = await this.fetch<any>(
+      `/pgdean/dashboard?limit=${activityLimit}`,
+    );
+    return data;
   }
 
   // =================== PT Admin Endpoints ===================
@@ -1403,9 +1432,11 @@ export class ApiClient {
 
   static async getPgDepartmentApplicants(
     departmentName: string,
+    degreeType?: string,
   ): Promise<DepartmentApplicantsResponse> {
+    const qs = degreeType ? `?degree_type=${encodeURIComponent(degreeType)}` : "";
     const { data } = await this.fetch<DepartmentApplicantsResponse>(
-      `/pgadmin/department-applicants/${encodeURIComponent(departmentName)}`,
+      `/pgadmin/department-applicants/${encodeURIComponent(departmentName)}${qs}`,
     );
     return data;
   }

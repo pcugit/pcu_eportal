@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -381,6 +382,15 @@ interface ApplicationFormProps {
   initialPassportUrl?: string;
 }
 
+const normalizeUploadedDocument = (doc: any) => ({
+  ...doc,
+  document_id: doc?.document_id ?? doc?.id ?? doc?.documentId,
+  original_filename:
+    doc?.original_filename ?? doc?.file_name ?? doc?.filename ?? doc?.name,
+});
+
+const isUnavailableDocument = (doc: any) => doc?.status === "unavailable";
+
 export default function ApplicationForm({
   template,
   applicantId,
@@ -402,7 +412,19 @@ export default function ApplicationForm({
     if (!initialDocuments?.length) return {};
     const docs: Record<string, any> = {};
     initialDocuments.forEach((doc: any) => {
-      docs[doc.document_type] = doc;
+      if (!isUnavailableDocument(doc)) {
+        docs[doc.document_type] = normalizeUploadedDocument(doc);
+      }
+    });
+    return docs;
+  });
+  const [unavailableDocuments, setUnavailableDocuments] = useState<Record<string, boolean>>(() => {
+    if (!initialDocuments?.length) return {};
+    const docs: Record<string, boolean> = {};
+    initialDocuments.forEach((doc: any) => {
+      if (isUnavailableDocument(doc)) {
+        docs[doc.document_type] = true;
+      }
     });
     return docs;
   });
@@ -592,7 +614,6 @@ export default function ApplicationForm({
       // If initialFormData was passed as a prop, state is already populated — skip fetch
       if (initialFormData) {
         setMaxStepReached(steps.length - 1);
-        return;
       }
 
       if (!applicantId) return;
@@ -619,10 +640,19 @@ export default function ApplicationForm({
         }
         if (response.documents && response.documents.length > 0) {
           const docs: Record<string, any> = {};
+          const unavailableDocs: Record<string, boolean> = {};
           response.documents.forEach((doc: any) => {
-            docs[doc.document_type] = doc;
+            if (isUnavailableDocument(doc)) {
+              unavailableDocs[doc.document_type] = true;
+            } else {
+              docs[doc.document_type] = normalizeUploadedDocument(doc);
+            }
           });
           setUploadedDocuments(docs);
+          setUnavailableDocuments(unavailableDocs);
+        } else {
+          setUploadedDocuments({});
+          setUnavailableDocuments({});
         }
         if (response.form) {
           setMaxStepReached(steps.length - 1);
@@ -1042,7 +1072,7 @@ export default function ApplicationForm({
         { type: 'referee_letter_3',  label: 'Referee Letter 3' },
       ];
       const missing = PG_REQUIRED
-        .filter(d => !uploadedDocuments[d.type])
+        .filter(d => !uploadedDocuments[d.type] && !unavailableDocuments[d.type])
         .map(d => d.label);
       if (missing.length > 0) {
         setError(`Please upload the following required documents before submitting: ${missing.join(', ')}`);
@@ -1587,11 +1617,43 @@ export default function ApplicationForm({
               return resp;
             };
 
-            const doDelete = async (docId: string, docType: string) => {
+            const toggleUnavailable = async (docType: string, checked: boolean) => {
+              if (!formId) {
+                alert("Please save your form first.");
+                return;
+              }
+
+              setUnavailableDocuments((prev) => ({
+                ...prev,
+                [docType]: checked,
+              }));
+
+              try {
+                await ApiClient.setPgDocumentUnavailable(formId, docType, checked);
+              } catch (err) {
+                setUnavailableDocuments((prev) => ({
+                  ...prev,
+                  [docType]: !checked,
+                }));
+                const message =
+                  err instanceof Error
+                    ? err.message
+                    : "Failed to update document availability.";
+                alert(message);
+              }
+            };
+
+            const doDelete = async (docId: string | number | undefined, docType: string) => {
+              const documentId = String(docId || "").trim();
+              if (!documentId) {
+                alert("Unable to delete this document because its document ID is missing.");
+                return;
+              }
+
               if (confirm("Are you sure you want to delete this document?")) {
                 try {
                   setSaving(true);
-                  await ApiClient.deleteDocument(parseInt(docId, 10));
+                  await ApiClient.deleteDocument(documentId);
                   setUploadedDocuments((prev) => {
                     const next = { ...prev };
                     delete next[docType];
@@ -1606,9 +1668,11 @@ export default function ApplicationForm({
               }
             };
 
-            const done = checklistDocs.filter(d => uploadedDocuments[d.type]).length;
+            const uploadedCount = checklistDocs.filter((d) => uploadedDocuments[d.type]).length;
+            const unavailableCount = checklistDocs.filter((d) => unavailableDocuments[d.type]).length;
+            const readyCount = uploadedCount + unavailableCount;
             const total = checklistDocs.length;
-            const allDone = done === total;
+            const allReady = readyCount === total;
 
             return (
               <div className="space-y-6">
@@ -1630,6 +1694,7 @@ export default function ApplicationForm({
                       {checklistDocs.map((doc, i) => {
                         const uploadedDoc = uploadedDocuments[doc.type];
                         const uploaded = !!uploadedDoc;
+                        const unavailable = !!unavailableDocuments[doc.type];
                         const isUploading = uploadingDocType === doc.type;
                         
                         // Referee special note if PG
@@ -1642,7 +1707,11 @@ export default function ApplicationForm({
                           <li
                             key={doc.type}
                             className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-4 transition-colors ${
-                              uploaded ? "bg-emerald-50/30" : "hover:bg-slate-50/40"
+                              uploaded
+                                ? "bg-emerald-50/30"
+                                : unavailable
+                                  ? "bg-amber-50/40"
+                                  : "hover:bg-slate-50/40"
                             }`}
                           >
                             {/* Left: Indicator & Info */}
@@ -1651,10 +1720,12 @@ export default function ApplicationForm({
                                 className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold transition-all ${
                                   uploaded
                                     ? "bg-emerald-500 text-white shadow-sm shadow-emerald-200"
-                                    : "bg-slate-100 border border-slate-200 text-slate-400"
+                                    : unavailable
+                                      ? "bg-amber-100 border border-amber-200 text-amber-700"
+                                      : "bg-slate-100 border border-slate-200 text-slate-400"
                                 }`}
                               >
-                                {uploaded ? "✓" : i + 1}
+                                {uploaded ? "✓" : unavailable ? "!" : i + 1}
                               </span>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -1662,7 +1733,9 @@ export default function ApplicationForm({
                                     className={`font-semibold ${
                                       uploaded
                                         ? "text-emerald-700 line-through decoration-emerald-300"
-                                        : "text-slate-700"
+                                        : unavailable
+                                          ? "text-amber-800"
+                                          : "text-slate-700"
                                     }`}
                                   >
                                     {doc.label}
@@ -1674,6 +1747,23 @@ export default function ApplicationForm({
                                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
                                     {noteText}
                                   </p>
+                                )}
+
+                                {hasPgStudy && !uploaded && (
+                                  <label
+                                    htmlFor={`unavailable-${doc.type}`}
+                                    className="flex items-center gap-2 pt-1 text-xs font-medium text-slate-500"
+                                  >
+                                    <Checkbox
+                                      id={`unavailable-${doc.type}`}
+                                      checked={unavailable}
+                                      onCheckedChange={(checked) => {
+                                        void toggleUnavailable(doc.type, checked === true);
+                                      }}
+                                      className="h-4 w-4"
+                                    />
+                                    Unavailable
+                                  </label>
                                 )}
 
                                 {uploaded && (
@@ -1688,6 +1778,11 @@ export default function ApplicationForm({
                                     )}
                                   </div>
                                 )}
+                                {!uploaded && unavailable && (
+                                  <p className="text-xs font-semibold text-amber-700">
+                                    Marked unavailable. Admin will see that this document was not provided.
+                                  </p>
+                                )}
                               </div>
                             </div>
 
@@ -1698,7 +1793,7 @@ export default function ApplicationForm({
                                   disabled={saving}
                                   variant="outline"
                                   className="h-9 px-4 rounded-xl border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 font-bold text-xs"
-                                  onClick={() => doDelete(uploadedDoc.document_id, doc.type)}
+                                  onClick={() => doDelete(uploadedDoc.document_id || uploadedDoc.id, doc.type)}
                                 >
                                   Delete
                                 </Button>
@@ -1712,7 +1807,7 @@ export default function ApplicationForm({
                                   ) : (
                                     <>
                                       <Button
-                                        disabled={saving}
+                                        disabled={saving || unavailable}
                                         className="h-9 px-4 rounded-xl bg-[#6b21a8] hover:bg-purple-800 text-white font-bold text-xs transition-colors"
                                         onClick={() => {
                                           const inputEl = document.getElementById(`file-input-${doc.type}`);
@@ -1737,6 +1832,10 @@ export default function ApplicationForm({
                                             setUploadingDocType(doc.type);
                                             setSaving(true);
                                             await doUpload(file, doc.type, doc.label);
+                                            setUnavailableDocuments((prev) => ({
+                                              ...prev,
+                                              [doc.type]: false,
+                                            }));
                                           } catch (err) {
                                             console.error("Upload failed", err);
                                           } finally {
@@ -1764,22 +1863,27 @@ export default function ApplicationForm({
                   {/* Progress footer */}
                   {checklistDocs.length > 0 && (
                     <div className={`flex items-center gap-4 px-6 py-4 border-t border-slate-100 ${
-                      allDone ? "bg-emerald-50/30" : "bg-slate-50/30"
+                      uploadedCount === total ? "bg-emerald-50/30" : allReady ? "bg-amber-50/30" : "bg-slate-50/30"
                     }`}>
                       <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${
-                            allDone ? "bg-emerald-500" : "bg-[#6b21a8]"
+                            uploadedCount === total ? "bg-emerald-500" : "bg-[#6b21a8]"
                           }`}
-                          style={{ width: `${(done / total) * 100}%` }}
+                          style={{ width: `${(uploadedCount / total) * 100}%` }}
                         />
                       </div>
                       <span
                         className={`text-xs font-bold shrink-0 ${
-                          allDone ? "text-emerald-700" : "text-[#6b21a8]"
+                          uploadedCount === total
+                            ? "text-emerald-700"
+                            : allReady
+                              ? "text-amber-700"
+                              : "text-[#6b21a8]"
                         }`}
                       >
-                        {done}/{total} {allDone ? "— All documents uploaded! ✓" : "uploaded"}
+                        {uploadedCount}/{total} uploaded
+                        {unavailableCount > 0 ? ` · ${unavailableCount} unavailable` : ""}
                       </span>
                     </div>
                   )}
@@ -1807,7 +1911,7 @@ export default function ApplicationForm({
                               disabled={saving}
                               variant="outline"
                               className="h-8 px-3 rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 font-bold text-xs"
-                              onClick={() => doDelete(doc.document_id, doc.document_type)}
+                              onClick={() => doDelete(doc.document_id || doc.id, doc.document_type)}
                             >
                               Delete
                             </Button>

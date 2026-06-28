@@ -166,7 +166,9 @@ class PTApplicationPDFGenerator:
         story.append(Spacer(1, 0.1 * cm))
 
         # ── Form Title ────────────────────────────────────────────────────────────
-        story.append(Paragraph("PART-TIME / HND CONVERSION APPLICATION FORM", form_title_style))
+        prog_type = str(app_data.get('prog_type') or app_data.get('program_id') or '')
+        form_title = "HND CONVERSION APPLICATION FORM" if prog_type == '4' else "PART-TIME APPLICATION FORM"
+        story.append(Paragraph(form_title, form_title_style))
 
         form_no = app_data.get('form_no', 'N/A') or 'N/A'
         session = app_data.get('session', '') or 'N/A'
@@ -247,20 +249,8 @@ class PTApplicationPDFGenerator:
             ("Degree in View", degree_view),
             ("Proposed Course", course_name or 'N/A'),
             ("Mode of Study", form.get('mode_of_study', 'Part-Time') or 'Part-Time'),
-            ("Entry Mode", form.get('mode_of_entry', form.get('entry_mode', 'N/A')) or 'N/A'),
         ]
         story.append(_field_table(prog_data))
-        story.append(Spacer(1, 0.3 * cm))
-
-        # ── SECTION 3: Academic Background ────────────────────────────────────────
-        story.append(Paragraph("<b>ACADEMIC BACKGROUND</b>", section_heading_style))
-        acad_data = [
-            ("Previous Institution", form.get('previous_institution', 'N/A') or 'N/A'),
-            ("Course of Study", form.get('previous_course', 'N/A') or 'N/A'),
-        ]
-        if form.get('utme_score'):
-            acad_data.append(("UTME Score", str(form.get('utme_score'))))
-        story.append(_field_table(acad_data))
         story.append(Spacer(1, 0.3 * cm))
 
         # ── SECTION 4: O'Level Results ────────────────────────────────────────────

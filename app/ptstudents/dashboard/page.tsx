@@ -1,5 +1,7 @@
+"use client";
+
 import Image from "next/image";
-import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 import {
   ChevronDown,
   CreditCard,
@@ -72,6 +74,12 @@ const profileDetails = [
 ];
 
 export default function PtStudentsDashboardPage() {
+  const { logout, isLoggingOut } = useAuth();
+
+  const handleLogout = async () => {
+    await logout("/ptstudents/login");
+  };
+
   return (
     <div className="min-h-screen bg-[#102943] text-white">
       <header className="bg-[#202833]">
@@ -114,9 +122,14 @@ export default function PtStudentsDashboardPage() {
           <p className="italic text-slate-700">Welcome Part-Time Student</p>
           <div className="font-semibold uppercase tracking-wide md:tracking-wider">
             <p className="text-red-500">2026/2027 Academic Session</p>
-            <Link href="/ptstudents/login" className="text-slate-950">
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
               Logout
-            </Link>
+            </button>
           </div>
         </div>
       </div>

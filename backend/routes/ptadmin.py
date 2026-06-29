@@ -972,8 +972,7 @@ def preview_pt_letter(payload, applicant_id):
 @AuthHandler.ptadmin_required
 def send_pt_department_letters(payload):
     """Send admission letters to selected PT applicants."""
-    import resend as _resend
-    from config import Config
+    from email_utils import send_email
     from utils.pdf_generator import PDFGenerator
 
     data = request.get_json()
@@ -1073,36 +1072,26 @@ def send_pt_department_letters(payload):
     if not applicants_with_pdfs:
         return jsonify({'message': 'No valid applicants to send letters', 'sent': 0, 'failed': len(failed_list)}), 400
 
-    try:
-        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
-            raise ValueError("Resend not configured")
-
-        _resend.api_key = Config.RESEND_API_KEY
-        from_email_str  = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
-
-        for a in applicants_with_pdfs:
-            try:
-                resp = _resend.Emails.send({
-                    "from":    from_email_str,
-                    "to":      [a['email']],
-                    "subject": "Provisional Part-Time Admission Letter",
-                    "html":    f"<p>Dear {a['name']},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Part-Time Admissions Office</p>",
-                    "attachments": [{"filename": "admission_letter.pdf", "content": list(a['pdf_bytes'])}]
-                })
-                if resp and resp.get("id"):
-                    Database.execute_update(
-                        'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
-                        (a['applicant_id'],)
-                    )
-                    sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
-                else:
-                    failed_list.append({'applicant_id': a['applicant_id'], 'error': f"Resend error: {resp}"})
-            except Exception as _e:
-                failed_list.append({'applicant_id': a['applicant_id'], 'error': str(_e)})
-
-    except Exception as e:
-        for a in applicants_with_pdfs:
-            failed_list.append({'applicant_id': a['applicant_id'], 'error': str(e)})
+    for a in applicants_with_pdfs:
+        try:
+            body_text = f"Dear {a['name']},\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nPart-Time Admissions Office"
+            email_sent = send_email(
+                to_email=a['email'],
+                subject="Provisional Part-Time Admission Letter",
+                body_text=body_text,
+                attachments=[("admission_letter.pdf", a['pdf_bytes'])],
+                sender_profile="pt"
+            )
+            if email_sent:
+                Database.execute_update(
+                    'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+                    (a['applicant_id'],)
+                )
+                sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
+            else:
+                failed_list.append({'applicant_id': a['applicant_id'], 'error': "Email send failed"})
+        except Exception as _e:
+            failed_list.append({'applicant_id': a['applicant_id'], 'error': str(_e)})
 
     return jsonify({
         'message':     'Batch send completed',
@@ -1193,8 +1182,7 @@ def get_pt_letter_status_summary(payload):
 @AuthHandler.ptadmin_required
 def resend_pt_letter(payload, applicant_id):
     """Resend admission letter to a single PT applicant."""
-    import resend as _resend
-    from config import Config
+    from email_utils import send_email
     from utils.pdf_generator import PDFGenerator
 
     data = request.get_json() or {}
@@ -1261,28 +1249,23 @@ def resend_pt_letter(payload, applicant_id):
     )
 
     try:
-        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
-            raise ValueError("Resend not configured")
+        body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nPart-Time Admissions Office"
+        email_sent = send_email(
+            to_email=applicant_data['email'],
+            subject="Provisional Part-Time Admission Letter - Resend",
+            body_text=body_text,
+            attachments=[("admission_letter.pdf", pdf_bytes)],
+            sender_profile="pt"
+        )
 
-        _resend.api_key = Config.RESEND_API_KEY
-        from_email_str  = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
-
-        resp = _resend.Emails.send({
-            "from":    from_email_str,
-            "to":      [applicant_data['email']],
-            "subject": "Provisional Part-Time Admission Letter - Resend",
-            "html":    f"<p>Dear {applicant_data['name']},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Part-Time Admissions Office</p>",
-            "attachments": [{"filename": "admission_letter.pdf", "content": list(pdf_bytes)}]
-        })
-
-        if resp and resp.get("id"):
+        if email_sent:
             Database.execute_update(
                 'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
                 (applicant_id,)
             )
             return jsonify({'message': 'Letter resent successfully', 'applicant_id': applicant_id}), 200
         else:
-            return jsonify({'message': 'Failed to resend letter', 'error': str(resp)}), 500
+            return jsonify({'message': 'Failed to resend letter', 'error': 'Email send failed'}), 500
 
     except Exception as e:
         return jsonify({'message': 'Error resending letter', 'error': str(e)}), 500

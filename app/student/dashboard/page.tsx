@@ -32,6 +32,10 @@ import {
 
 import FirstLoginPasswordChange from "@/components/FirstLoginPasswordChange";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
+import {
+  getSessionImageUrl,
+  setSessionImageUrl,
+} from "@/lib/sessionImageCache";
 
 export default function StudentDashboard() {
   const router = useRouter();
@@ -158,7 +162,6 @@ export default function StudentDashboard() {
 
   useEffect(() => {
     let active = true;
-    let localUrl: string | null = null;
 
     const fetchPassport = async () => {
       if (!isAuthenticated || isLoading) return;
@@ -172,7 +175,15 @@ export default function StudentDashboard() {
         );
 
         if (passportDoc?.document_id && active) {
-          const token = localStorage.getItem("auth_token");
+          const token = localStorage.getItem("auth_token") || "";
+          const cacheKey = `student-passport:${user?.id ?? "current"}:${passportDoc.document_id}`;
+          const cachedUrl = getSessionImageUrl(cacheKey);
+
+          if (cachedUrl) {
+            setPassportUrl(cachedUrl);
+            return;
+          }
+
           const baseUrl = ApiClient.getBaseUrl();
           const response = await fetch(
             `${baseUrl}/applicant/download-document/${passportDoc.document_id}`,
@@ -185,9 +196,12 @@ export default function StudentDashboard() {
 
           if (response.ok && active) {
             const blob = await response.blob();
-            localUrl = URL.createObjectURL(blob);
-            setPassportUrl(localUrl);
+            const url = URL.createObjectURL(blob);
+            setSessionImageUrl(cacheKey, url);
+            setPassportUrl(url);
           }
+        } else if (active) {
+          setPassportUrl(null);
         }
       } catch (e) {
         console.error("Failed to fetch passport in dashboard", e);
@@ -198,11 +212,8 @@ export default function StudentDashboard() {
 
     return () => {
       active = false;
-      if (localUrl) {
-        URL.revokeObjectURL(localUrl);
-      }
     };
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, user?.id]);
 
   const handlePrintPDF = async () => {
     try {

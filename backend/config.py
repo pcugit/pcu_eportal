@@ -15,11 +15,6 @@ class Config:
     TARGET_COMPRESSION_SIZE = 5 * 1024
     ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'}
 
-    # Resend Configuration
-    RESEND_API_KEY = os.getenv('RESEND_API_KEY')
-    RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL')
-    RESEND_FROM_NAME = os.getenv('RESEND_FROM_NAME', 'PCU Admissions Office')
-
     PROGRAMS = ['Undergraduate', 'Postgraduate', 'HND', 'Part time', 'Jupeb']
 
     # ── Interswitch Payment Gateway ───────────────────────────────────────────

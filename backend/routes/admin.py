@@ -774,7 +774,8 @@ def send_admission_letter(payload):
         to_email=applicant_data['email'],
         subject='Provisional Admission Letter',
         body_text=body_text,
-        attachments=[('admission_letter.pdf', pdf_bytes)]
+        attachments=[('admission_letter.pdf', pdf_bytes)],
+        sender_profile="ug"
     )
 
     return jsonify({
@@ -1031,37 +1032,22 @@ def send_batch_letters(payload):
 
     email_result = {'success': 0, 'failed': 0, 'total': len(applicants_with_pdfs), 'errors': []}
 
-    try:
-        import resend as _resend
-        from config import Config
+    from email_utils import send_email
 
-        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
-            raise ValueError("Resend API key or sender email not configured")
-
-        _resend.api_key   = Config.RESEND_API_KEY
-        from_email_str    = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
-
-        for a in applicants_with_pdfs:
-            try:
-                resp = _resend.Emails.send({
-                    "from":    from_email_str,
-                    "to":      [a['email']],
-                    "subject": "Provisional Admission Letter",
-                    "html":    "<p>Dear " + a['name'] + ",</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>",
-                    "attachments": [{"filename": "admission_letter.pdf", "content": list(a['pdf_bytes'])}]
-                })
-                if resp and resp.get("id"):
-                    email_result['success'] += 1
-                else:
-                    email_result['failed'] += 1
-                    email_result['errors'].append(f"Resend error for {a['email']}: {resp}")
-            except Exception as _e:
-                email_result['failed'] += 1
-                email_result['errors'].append(f"Error sending to {a['email']}: {str(_e)}")
-
-    except Exception as e:
-        email_result['failed'] = len(applicants_with_pdfs)
-        email_result['errors'] = [str(e)]
+    for a in applicants_with_pdfs:
+        body_text = f"Dear {a['name']},\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nAdmissions Office"
+        email_sent = send_email(
+            to_email=a['email'],
+            subject="Provisional Admission Letter",
+            body_text=body_text,
+            attachments=[("admission_letter.pdf", a['pdf_bytes'])],
+            sender_profile="ug"
+        )
+        if email_sent:
+            email_result['success'] += 1
+        else:
+            email_result['failed'] += 1
+            email_result['errors'].append(f"Email to {a['email']} failed")
 
     return jsonify({
         'message':         'Batch letters sent successfully',
@@ -1392,8 +1378,7 @@ def get_department_applicants(payload, department_name):
 @AuthHandler.admissions_officer_required
 def send_department_letters(payload):
     """Send admission letters to all pending applicants in a department"""
-    import resend as _resend
-    from config import Config
+    from email_utils import send_email
 
     data            = request.get_json()
     department_name = data.get('department_name')
@@ -1493,36 +1478,26 @@ def send_department_letters(payload):
     if not applicants_with_pdfs:
         return jsonify({'message': 'No valid applicants to send letters', 'sent': sent_list, 'failed': failed_list}), 400
 
-    try:
-        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
-            raise ValueError("Resend not configured")
-
-        _resend.api_key  = Config.RESEND_API_KEY
-        from_email_str   = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
-
-        for a in applicants_with_pdfs:
-            try:
-                resp = _resend.Emails.send({
-                    "from":    from_email_str,
-                    "to":      [a['email']],
-                    "subject": "Provisional Admission Letter",
-                    "html":    "<p>Dear " + a['name'] + ",</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>",
-                    "attachments": [{"filename": "admission_letter.pdf", "content": list(a['pdf_bytes'])}]
-                })
-                if resp and resp.get("id"):
-                    Database.execute_update(
-                        'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
-                        (a['applicant_id'],)
-                    )
-                    sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
-                else:
-                    failed_list.append({'applicant_id': a['applicant_id'], 'error': f"Resend error: {resp}"})
-            except Exception as _e:
-                failed_list.append({'applicant_id': a['applicant_id'], 'error': str(_e)})
-
-    except Exception as e:
-        for a in applicants_with_pdfs:
-            failed_list.append({'applicant_id': a['applicant_id'], 'error': str(e)})
+    for a in applicants_with_pdfs:
+        try:
+            body_text = f"Dear {a['name']},\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nAdmissions Office"
+            email_sent = send_email(
+                to_email=a['email'],
+                subject="Provisional Admission Letter",
+                body_text=body_text,
+                attachments=[("admission_letter.pdf", a['pdf_bytes'])],
+                sender_profile="ug"
+            )
+            if email_sent:
+                Database.execute_update(
+                    'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+                    (a['applicant_id'],)
+                )
+                sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
+            else:
+                failed_list.append({'applicant_id': a['applicant_id'], 'error': "Email send failed"})
+        except Exception as _e:
+            failed_list.append({'applicant_id': a['applicant_id'], 'error': str(_e)})
 
     return jsonify({
         'message':     'Batch send completed',
@@ -1618,8 +1593,7 @@ def get_letter_status_summary(payload):
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def resend_letter(payload, applicant_id):
-    import resend as _resend
-    from config import Config
+    from email_utils import send_email
 
     data = request.get_json()
     admission_date_str = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
@@ -1686,28 +1660,23 @@ def resend_letter(payload, applicant_id):
             resumptionDate='', reference=ref_no, body_html=''
         )
 
-        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
-            raise ValueError("Resend not configured")
+        body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nAdmissions Office"
+        email_sent = send_email(
+            to_email=applicant_data['email'],
+            subject="Provisional Admission Letter - Resend",
+            body_text=body_text,
+            attachments=[("admission_letter.pdf", pdf_bytes)],
+            sender_profile="ug"
+        )
 
-        _resend.api_key = Config.RESEND_API_KEY
-        from_email_str  = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
-
-        resp = _resend.Emails.send({
-            "from":    from_email_str,
-            "to":      [applicant_data['email']],
-            "subject": "Provisional Admission Letter - Resend",
-            "html":    f"<p>Dear {applicant_data['name']},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>",
-            "attachments": [{"filename": "admission_letter.pdf", "content": list(pdf_bytes)}]
-        })
-
-        if resp and resp.get("id"):
+        if email_sent:
             Database.execute_update(
                 "UPDATE admission_letter_tracking SET status = 'sent', sent_at = NOW(), retry_count = retry_count + 1 WHERE applicant_id = %s",
                 (applicant_id,)
             )
             return jsonify({'message': 'Letter resent successfully', 'applicant_id': applicant_id, 'status': 'sent'}), 200
         else:
-            error_msg = f"Resend error: {resp}"
+            error_msg = "Email send failed"
             Database.execute_update(
                 "UPDATE admission_letter_tracking SET status = 'failed', error_message = %s, retry_count = retry_count + 1 WHERE applicant_id = %s",
                 (error_msg, applicant_id)

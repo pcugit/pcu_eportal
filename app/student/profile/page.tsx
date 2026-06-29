@@ -8,6 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { User, Mail, Phone, Loader2, Calendar } from "lucide-react";
 import FirstLoginPasswordChange from "@/components/FirstLoginPasswordChange";
+import {
+  getSessionImageUrl,
+  setSessionImageUrl,
+} from "@/lib/sessionImageCache";
 
 export default function StudentProfilePage() {
   const router = useRouter();
@@ -50,36 +54,49 @@ export default function StudentProfilePage() {
   );
 
   useEffect(() => {
-    if (passportDoc?.document_id) {
-      const fetchPassport = async () => {
-        try {
-          const token = localStorage.getItem("auth_token");
-          const baseUrl = ApiClient.getBaseUrl();
-          const response = await fetch(
-            `${baseUrl}/applicant/download-document/${passportDoc.document_id}`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            },
-          );
-
-          if (response.ok) {
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            setPassportUrl(url);
-          }
-        } catch (e) {
-          console.error("Failed to fetch passport", e);
-        }
-      };
-      fetchPassport();
+    if (!passportDoc?.document_id) {
+      setPassportUrl(null);
+      return;
     }
 
-    return () => {
-      if (passportUrl) URL.revokeObjectURL(passportUrl);
+    let active = true;
+    const fetchPassport = async () => {
+      try {
+        const token = localStorage.getItem("auth_token") || "";
+        const cacheKey = `student-passport:${user?.id ?? "current"}:${passportDoc.document_id}`;
+        const cachedUrl = getSessionImageUrl(cacheKey);
+
+        if (cachedUrl) {
+          setPassportUrl(cachedUrl);
+          return;
+        }
+
+        const baseUrl = ApiClient.getBaseUrl();
+        const response = await fetch(
+          `${baseUrl}/applicant/download-document/${passportDoc.document_id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          setSessionImageUrl(cacheKey, url);
+          if (active) setPassportUrl(url);
+        }
+      } catch (e) {
+        console.error("Failed to fetch passport", e);
+      }
     };
-  }, [passportDoc?.document_id]);
+    fetchPassport();
+
+    return () => {
+      active = false;
+    };
+  }, [passportDoc?.document_id, user?.id]);
 
   if (isLoading || pageLoading) {
     return (

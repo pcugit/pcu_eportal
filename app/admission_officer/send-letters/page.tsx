@@ -159,6 +159,7 @@ export default function SendLettersPage() {
       );
       setSelectedApplicants(new Set());
       await loadData();
+      window.dispatchEvent(new Event("admission-letters-updated"));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to send letters";
       setError(message);
@@ -172,6 +173,7 @@ export default function SendLettersPage() {
       await ApiClient.resendLetter(applicantId, admissionDate);
       setSuccessMessage("Letter resent successfully");
       await loadData();
+      window.dispatchEvent(new Event("admission-letters-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resend letter");
     }

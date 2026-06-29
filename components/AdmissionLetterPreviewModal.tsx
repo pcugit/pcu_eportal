@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { AlertCircle, Loader2, Printer, X } from "lucide-react";
 import { ApiClient } from "@/lib/api";
-import { X, Download, Printer, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface AdmissionLetterPreviewModalProps {
@@ -31,9 +31,7 @@ export default function AdmissionLetterPreviewModal({
         setLoading(true);
         setError(null);
 
-        const date =
-          admissionDate || new Date().toISOString().split("T")[0];
-
+        const date = admissionDate || new Date().toISOString().split("T")[0];
         const blob = await ApiClient.previewAdmissionLetter(
           applicantId,
           date,
@@ -66,16 +64,15 @@ export default function AdmissionLetterPreviewModal({
     };
   }, [applicantId, admissionDate, portal]);
 
-  // Close on Escape key
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
     };
+
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  // Prevent body scroll while modal is open
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => {
@@ -83,66 +80,50 @@ export default function AdmissionLetterPreviewModal({
     };
   }, []);
 
+  const handlePrint = () => {
+    if (!pdfUrl) return;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = pdfUrl;
+    document.body.appendChild(iframe);
+    iframe.onload = () => {
+      iframe.contentWindow?.print();
+      setTimeout(() => document.body.removeChild(iframe), 1000);
+    };
+  };
+
   return (
-    /* Backdrop */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      className="fixed inset-0 z-[150] flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-md animate-in fade-in duration-300"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
       }}
     >
-      {/* Modal panel */}
-      <div className="relative flex flex-col w-full max-w-5xl bg-background rounded-xl shadow-2xl overflow-hidden"
-        style={{ height: "90vh" }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-          <h2 className="text-lg font-semibold text-foreground">
+      <div className="relative my-8 flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px] bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="mb-4 flex shrink-0 flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">
             Admission Letter Preview
           </h2>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {pdfUrl && (
-              <>
-                <a
-                  href={pdfUrl}
-                  download={`admission_letter_${applicantId}.pdf`}
-                  className="inline-flex"
-                >
-                  <Button size="sm" variant="outline" className="gap-2">
-                    <Download className="h-4 w-4" />
-                    Download
-                  </Button>
-                </a>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => {
-                    // Open in a hidden iframe and print
-                    const iframe = document.createElement("iframe");
-                    iframe.style.display = "none";
-                    iframe.src = pdfUrl;
-                    document.body.appendChild(iframe);
-                    iframe.onload = () => {
-                      iframe.contentWindow?.print();
-                      // Clean up after print dialog closes
-                      setTimeout(() => document.body.removeChild(iframe), 1000);
-                    };
-                  }}
-                >
-                  <Printer className="h-4 w-4" />
-                  Print
-                </Button>
-              </>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2 rounded-full border-slate-200 px-4 font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={handlePrint}
+              >
+                <Printer className="h-4 w-4" />
+                Print
+              </Button>
             )}
 
             <Button
               size="sm"
               variant="ghost"
               onClick={onClose}
-              className="gap-2"
+              className="gap-2 rounded-full px-4 font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800"
             >
               <X className="h-4 w-4" />
               Close
@@ -150,25 +131,25 @@ export default function AdmissionLetterPreviewModal({
           </div>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-hidden bg-muted/30">
+        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50">
           {loading && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
-              <Loader2 className="h-10 w-10 animate-spin text-primary" />
-              <p className="text-sm">Generating admission letter preview…</p>
+            <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-500">
+              <Loader2 className="h-10 w-10 animate-spin text-[#9a6614]" />
+              <p className="text-sm">Generating admission letter preview...</p>
             </div>
           )}
 
           {!loading && error && (
-            <div className="flex flex-col items-center justify-center h-full gap-4">
-              <AlertCircle className="h-10 w-10 text-destructive" />
-              <p className="text-sm text-destructive max-w-sm text-center">{error}</p>
+            <div className="flex h-full flex-col items-center justify-center gap-4">
+              <AlertCircle className="h-10 w-10 text-red-600" />
+              <p className="max-w-sm text-center text-sm text-red-600">
+                {error}
+              </p>
               <Button
                 variant="outline"
                 onClick={() => {
                   setError(null);
                   setLoading(true);
-                  // Re-trigger by remounting — parent can also handle this
                   window.location.reload();
                 }}
               >
@@ -181,7 +162,7 @@ export default function AdmissionLetterPreviewModal({
             <iframe
               src={pdfUrl}
               title="Admission Letter PDF Preview"
-              className="w-full h-full border-0"
+              className="h-full w-full border-0 bg-white"
             />
           )}
         </div>

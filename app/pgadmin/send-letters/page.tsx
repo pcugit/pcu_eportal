@@ -147,6 +147,7 @@ export default function PgAdminSendLettersPage() {
       );
       setSelectedApplicants(new Set());
       await loadData();
+      window.dispatchEvent(new Event("admission-letters-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send letters");
     } finally {
@@ -159,6 +160,7 @@ export default function PgAdminSendLettersPage() {
       await ApiClient.resendPgLetter(applicantId, admissionDate);
       setSuccessMessage("Letter resent successfully");
       await loadData();
+      window.dispatchEvent(new Event("admission-letters-updated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resend letter");
     }

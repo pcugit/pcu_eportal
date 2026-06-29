@@ -152,11 +152,28 @@ const ICT_NAV_ITEMS = [
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
+type LetterClassificationMap = Record<string, Array<{ pending_count: number }>>;
+
+function countPendingLetterRows(classifications: LetterClassificationMap = {}) {
+  return Object.values(classifications).reduce(
+    (total, groups) =>
+      total + groups.filter((group) => group.pending_count > 0).length,
+    0,
+  );
+}
+
+function countPendingDegreeTypes(classifications: LetterClassificationMap = {}) {
+  return Object.values(classifications).filter((groups) =>
+    groups.some((group) => group.pending_count > 0),
+  ).length;
+}
+
 export function GlobalNav() {
   const pathname = usePathname();
   const { isAuthenticated, user, logout, isLoading, isLoggingOut } = useAuth();
   const { isOpen, toggle } = useSidebar();
   const [pendingCount, setPendingCount] = React.useState(0);
+  const [pendingLetterGroupCount, setPendingLetterGroupCount] = React.useState(0);
 
   const handleLogout = async () => {
     await logout();
@@ -199,35 +216,56 @@ export function GlobalNav() {
     const fetchCount = async () => {
       if (!isAuthenticated) {
         setPendingCount(0);
+        setPendingLetterGroupCount(0);
         return;
       }
 
       try {
         if (user?.role === "admissionofficer") {
-          const res = await ApiClient.getDashboard(1);
+          const [res, letterGroups] = await Promise.all([
+            ApiClient.getDashboard(1),
+            ApiClient.getFacultyDepartments(),
+          ]);
           setPendingCount(res.statistics?.review_applications ?? 0);
+          setPendingLetterGroupCount(
+            countPendingLetterRows(letterGroups.faculties),
+          );
           return;
         }
 
         if (user?.role === "pgadmin") {
-          const res = await ApiClient.getPgAdminDashboard(1);
+          const [res, letterGroups] = await Promise.all([
+            ApiClient.getPgAdminDashboard(1),
+            ApiClient.getPgFacultyDepartments(),
+          ]);
           setPendingCount(res.statistics?.new_applications ?? 0);
+          setPendingLetterGroupCount(
+            countPendingDegreeTypes(letterGroups.faculties),
+          );
           return;
         }
 
         if (user?.role === "pgdean") {
           const res = await ApiClient.getPgDeanDashboard(1);
           setPendingCount(res.statistics?.new_applications ?? 0);
+          setPendingLetterGroupCount(0);
           return;
         }
 
         if (user?.role === "ptadmin") {
-          const res = await ApiClient.getPtAdminDashboard(1);
+          const [res, letterGroups] = await Promise.all([
+            ApiClient.getPtAdminDashboard(1),
+            ApiClient.getPtFacultyDepartments(),
+          ]);
           setPendingCount(res.statistics?.new_applications ?? 0);
+          setPendingLetterGroupCount(
+            countPendingLetterRows(letterGroups.faculties),
+          );
           return;
         }
 
         setPendingCount(0);
+        setPendingLetterGroupCount(0);
       } catch (err) {
         console.error(err);
       }
@@ -236,8 +274,12 @@ export function GlobalNav() {
     fetchCount();
 
     window.addEventListener("application-reviewed", fetchCount);
-    return () => window.removeEventListener("application-reviewed", fetchCount);
-  }, [isAuthenticated, user?.role]);
+    window.addEventListener("admission-letters-updated", fetchCount);
+    return () => {
+      window.removeEventListener("application-reviewed", fetchCount);
+      window.removeEventListener("admission-letters-updated", fetchCount);
+    };
+  }, [isAuthenticated, user?.role, pathname]);
 
   // Close mobile sidebar drawer on path change
   React.useEffect(() => {
@@ -500,6 +542,14 @@ export function GlobalNav() {
                         {pendingCount > 99 ? "99+" : pendingCount}
                       </div>
                     )}
+                    {item.label === "Send Letters" &&
+                      pendingLetterGroupCount > 0 && (
+                        <div className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white leading-none shadow-sm z-50 border-2 border-white">
+                          {pendingLetterGroupCount > 99
+                            ? "99+"
+                            : pendingLetterGroupCount}
+                        </div>
+                      )}
                   </div>
 
                   <span

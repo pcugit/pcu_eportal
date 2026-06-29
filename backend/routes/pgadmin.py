@@ -820,11 +820,11 @@ def send_admission_letter(payload):
             name = (fee['name'] or '').lower()
             amount = fee['amount'] or 0
             if 'acceptance' in name:
-                acceptance_fee_str = f"₦{amount:,.2f}"
+                acceptance_fee_str = f"NGN {amount:,.2f}"
             elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"₦{amount:,.2f}"
+                tuition_fee_str = f"NGN {amount:,.2f}"
             elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"₦{amount:,.2f}"
+                other_fees_str = f"NGN {amount:,.2f}"
 
     session_res = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     default_session = session_res[0]['value'] if session_res else '2025/2026'
@@ -1149,11 +1149,11 @@ def send_pg_department_letters(payload):
                     name   = (fee['name'] or '').lower()
                     amount = fee['amount'] or 0
                     if 'acceptance' in name:
-                        acceptance_fee_str = f"₦{amount:,.2f}"
+                        acceptance_fee_str = f"NGN {amount:,.2f}"
                     elif 'tuition' in name or 'accommodation' in name:
-                        tuition_fee_str = f"₦{amount:,.2f}"
+                        tuition_fee_str = f"NGN {amount:,.2f}"
                     elif 'sundry' in name or 'other' in name or 'digital' in name:
-                        other_fees_str = f"₦{amount:,.2f}"
+                        other_fees_str = f"NGN {amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidate_name=applicant_data['name'],
@@ -1337,11 +1337,11 @@ def resend_pg_letter(payload, applicant_id):
             name   = (fee['name'] or '').lower()
             amount = fee['amount'] or 0
             if 'acceptance' in name:
-                acceptance_fee_str = f"₦{amount:,.2f}"
+                acceptance_fee_str = f"NGN {amount:,.2f}"
             elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"₦{amount:,.2f}"
+                tuition_fee_str = f"NGN {amount:,.2f}"
             elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"₦{amount:,.2f}"
+                other_fees_str = f"NGN {amount:,.2f}"
 
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],

@@ -25,7 +25,7 @@ template = {
                 {'name': 'previous_institution', 'type': 'text', 'label': 'Previous Institution Attended', 'required': True},
                 {'name': 'previous_course', 'type': 'text', 'label': 'Previous Course of Study', 'required': True},
                 {'name': 'department', 'type': 'text', 'label': 'Department', 'required': True},
-                {'name': 'class_of_degree', 'type': 'select', 'label': 'Class of First Degree', 'options': ['First Class', 'Second Class Upper', 'Second Class Lower', 'Third Class', 'Pass', 'Distinction', 'Upper Credit', 'Lower Credit'], 'required': True},
+                {'name': 'class_of_degree', 'type': 'text', 'label': 'Class of First Degree', 'required': True},
             ]
         },
         {

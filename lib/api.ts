@@ -45,6 +45,7 @@ export interface StudentData {
   current_level: string;
   session: string;
   is_first_login: boolean;
+  is_pg_student?: boolean;
 }
 
 export interface CourseData {

@@ -327,6 +327,57 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
 
 # ── Downstream business effects ───────────────────────────────────────────────
 
+PG_MATRIC_PREFIX = "207"
+PG_MATRIC_SEQUENCE_WIDTH = 3
+
+
+def generate_undergraduate_matric_no(year_of_entry: str) -> str:
+    """Generate a unique undergraduate MatricNo: PCU/YYYY/XXXXXX."""
+    while True:
+        suffix = ''.join(secrets.choice(string.digits) for _ in range(6))
+        matric_no = f"PCU/{year_of_entry}/{suffix}"
+        clash = Database.execute_query(
+            'SELECT "Id" FROM students WHERE "MatricNo" = %s', (matric_no,)
+        )
+        if not clash:
+            return matric_no
+
+
+def generate_pg_matric_no() -> str:
+    """Generate a sequential postgraduate MatricNo: 207001, 207002, ..."""
+    latest = Database.execute_query(
+        '''SELECT COALESCE(MAX(seq), 0) AS last_seq
+             FROM (
+                   SELECT CAST(SUBSTRING("MatricNo" FROM 4) AS INTEGER) AS seq
+                     FROM students
+                    WHERE "MatricNo" ~ %s
+                   UNION ALL
+                   SELECT CAST(SUBSTRING(matric_no FROM 4) AS INTEGER) AS seq
+                     FROM users
+                    WHERE matric_no ~ %s
+                  ) pg_matric_numbers''',
+        (f'^{PG_MATRIC_PREFIX}[0-9]+$', f'^{PG_MATRIC_PREFIX}[0-9]+$')
+    )
+    next_seq = int(latest[0]['last_seq']) + 1 if latest else 1
+
+    while True:
+        matric_no = f"{PG_MATRIC_PREFIX}{next_seq:0{PG_MATRIC_SEQUENCE_WIDTH}d}"
+        clash = Database.execute_query(
+            '''SELECT 1
+                 FROM students
+                WHERE "MatricNo" = %s
+                UNION ALL
+               SELECT 1
+                 FROM users
+                WHERE matric_no = %s
+                LIMIT 1''',
+            (matric_no, matric_no)
+        )
+        if not clash:
+            return matric_no
+        next_seq += 1
+
+
 def apply_downstream_success(user_id: int, payment_type: str, reference_no: str | None = None) -> None:
     """
     Apply business-logic side-effects of a confirmed successful payment.
@@ -425,7 +476,8 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                           pg.degree_id, 2 AS prog_type, pg.proposed_course AS program_setup_id,
                           pt.level_id,
                           pg.middle_name, pg.address, pg.gender, pg.date_of_birth,
-                          'Single' AS marital_status, 'Nigerian' AS nationality, '' AS state, '' AS lga
+                          'Single' AS marital_status, 'Nigerian' AS nationality, '' AS state, '' AS lga,
+                          pg.pg_reference_id
                    FROM users u
                    LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage = 'enrolled'
                    LEFT JOIN program_types pt ON pt.id = 2
@@ -438,7 +490,8 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                 '''SELECT u.surname, u.firstname, u.email, u.phone_number,
                           a.degree_id, a.prog_type, a.program_setup_id, a.level_id,
                           b.middle_name, b.address, b.gender, b.date_of_birth,
-                          b.marital_status, b.nationality, b.state, b.lga
+                          b.marital_status, b.nationality, b.state, b.lga,
+                          NULL AS pg_reference_id
                    FROM users u
                    LEFT JOIN applications a ON a.user_id = u.id AND a.applicant_stage = 'enrolled'
                    LEFT JOIN biodata b ON b.id = a.bio_data_id
@@ -495,15 +548,8 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                     if dept_res:
                         department_name = dept_res[0]['name']
 
-                # ── Generate a unique MatricNo: PCU/YYYY/XXXXXX ───────────────
-                while True:
-                    suffix    = ''.join(secrets.choice(string.digits) for _ in range(6))
-                    matric_no = f"PCU/{year_of_entry}/{suffix}"
-                    clash = Database.execute_query(
-                        'SELECT "Id" FROM students WHERE "MatricNo" = %s', (matric_no,)
-                    )
-                    if not clash:
-                        break
+                # Generate a unique MatricNo using the programme-specific format.
+                matric_no = generate_pg_matric_no() if is_pg else generate_undergraduate_matric_no(year_of_entry)
 
                 # Set default password to surname (lowercase) for first student portal login;
                 # is_first_login in student_auth will force a password change.
@@ -518,7 +564,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                     '''INSERT INTO students (
                            "LastName", "FirstName", "OtherName", "Email", "MobileNumber",
                            "Address", "Gender", "DOB", "MaritalStatus", "Nationality",
-                           "State", "LGA", "MatricNo",
+                           "State", "LGA", "MatricNo", "RefNo",
                            "UserId", "CurrentUserId", "DegreeId", department, "YearOfEntry", "IsGraduate",
                            current_level_id,
                            "CreatedDate", "UpdatedDate"
@@ -526,6 +572,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                            %s, %s, %s, %s, %s,
                            %s, %s, %s, %s, %s,
                            %s, %s, %s,
+                           %s,
                            %s, %s, %s, %s, %s, %s,
                            %s,
                            NOW(), NOW()
@@ -534,6 +581,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                         last_name, first_name, ud['middle_name'], email, ud['phone_number'],
                         ud['address'], ud['gender'], ud['date_of_birth'], ud['marital_status'], ud['nationality'],
                         ud['state'], ud['lga'], matric_no,
+                        str(ud.get('pg_reference_id')) if ud.get('pg_reference_id') else None,
                         user_id, user_id, ud['degree_id'], department_name, year_of_entry, False,
                         entry_level_id,
                     )
@@ -550,6 +598,14 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                            ON CONFLICT (userid) DO NOTHING''',
                         (user_id, student_id)
                     )
+            elif is_pg and ud.get('pg_reference_id'):
+                Database.execute_update(
+                    '''UPDATE students
+                       SET "RefNo" = COALESCE("RefNo", %s::text),
+                           "UpdatedDate" = NOW()
+                       WHERE "UserId" = %s''',
+                    (str(ud['pg_reference_id']), user_id)
+                )
 
 
 # ── Shared DB update helper ───────────────────────────────────────────────────

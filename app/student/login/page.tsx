@@ -18,7 +18,7 @@ import { AlertCircle, X } from "lucide-react";
 
 export default function StudentLoginPage() {
   const router = useRouter();
-  const { login, isLoading, error, isAuthenticated, user } = useAuth();
+  const { login, isLoading, error, isAuthenticated, user, student } = useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
@@ -51,7 +51,9 @@ export default function StudentLoginPage() {
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    if (user.role === "student") {
+    if (user.role === "student" && student?.is_pg_student) {
+      router.replace("/pgstudents/dashboard");
+    } else if (user.role === "student") {
       router.replace("/student/dashboard");
     } else if (user.role === "admitted") {
       router.replace("/applicant/dashboard");
@@ -60,7 +62,7 @@ export default function StudentLoginPage() {
     } else if (user.role === "applicant") {
       router.replace("/applicant/dashboard");
     }
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated, user, student, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

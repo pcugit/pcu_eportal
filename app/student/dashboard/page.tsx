@@ -63,7 +63,7 @@ export default function StudentDashboard() {
   const [feeLoadingDone, setFeeLoadingDone] = useState(false);
 
   const fetchStatus = async () => {
-    if (isAuthenticated && !student?.is_first_login) {
+    if (isAuthenticated && student && !student.is_pg_student && !student.is_first_login) {
       try {
         setLoadingStatus(true);
         const data = await ApiClient.getStudentCourses();
@@ -122,7 +122,7 @@ export default function StudentDashboard() {
   };
 
   const fetchExtraData = async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !student || student.is_pg_student) return;
     try {
       const statusRes = await ApiClient.getApplicantStatus();
       setApplicantStatus(statusRes.applicant);
@@ -154,6 +154,19 @@ export default function StudentDashboard() {
     }
   }, [isLoading, isAuthenticated, student]);
 
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!isAuthenticated || user?.role !== "student" || !student) {
+      router.replace("/student/login");
+      return;
+    }
+
+    if (student.is_pg_student) {
+      router.replace("/pgstudents/dashboard");
+    }
+  }, [isLoading, isAuthenticated, user?.role, student, router]);
+
 
   useEffect(() => {
     fetchStatus();
@@ -164,7 +177,7 @@ export default function StudentDashboard() {
     let active = true;
 
     const fetchPassport = async () => {
-      if (!isAuthenticated || isLoading) return;
+      if (!isAuthenticated || isLoading || !student || student.is_pg_student) return;
       try {
         const profile = await ApiClient.getStudentProfile();
         const documents = profile?.documents || [];
@@ -213,7 +226,7 @@ export default function StudentDashboard() {
     return () => {
       active = false;
     };
-  }, [isAuthenticated, isLoading, user?.id]);
+  }, [isAuthenticated, isLoading, student, user?.id]);
 
   const handlePrintPDF = async () => {
     try {
@@ -322,7 +335,13 @@ export default function StudentDashboard() {
     router.replace("/student/login");
   };
 
-  if (isLoading) {
+  if (
+    isLoading ||
+    !isAuthenticated ||
+    user?.role !== "student" ||
+    !student ||
+    student.is_pg_student
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">

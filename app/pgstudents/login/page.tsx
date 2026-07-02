@@ -1,13 +1,171 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
-import { Lock, UserRound } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { AlertCircle, X } from "lucide-react";
 
 export default function PgStudentsLoginPage() {
+  const router = useRouter();
+  const { login, isLoading, error, isAuthenticated, user, student } = useAuth();
+  const [formData, setFormData] = useState({ email: "", password: "" });
+  const [localError, setLocalError] = useState("");
+  const [showError, setShowError] = useState(false);
+
+  useEffect(() => {
+    if (error) {
+      setLocalError(error);
+      setShowError(true);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    setShowError(false);
+    setLocalError("");
+  }, []);
+
+  useEffect(() => {
+    if (!showError) return;
+
+    const timer = setTimeout(() => {
+      setShowError(false);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [showError]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+
+    if (user.role === "student" && student?.is_pg_student) {
+      router.replace("/pgstudents/dashboard");
+    } else if (user.role === "student" && student && !student.is_pg_student) {
+      router.replace("/student/dashboard");
+    } else if (user.role === "admitted") {
+      router.replace("/applicant/dashboard");
+    } else if (user.role === "admin") {
+      router.replace("/ict/dashboard");
+    } else if (user.role === "applicant") {
+      router.replace("/applicant/dashboard");
+    }
+  }, [isAuthenticated, user, student, router]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setShowError(false);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError("");
+    setShowError(false);
+
+    if (!formData.email) {
+      setLocalError("Matric number is required");
+      setShowError(true);
+      return;
+    }
+    if (!formData.password) {
+      setLocalError("Surname is required");
+      setShowError(true);
+      return;
+    }
+
+    try {
+      await login(formData.email, formData.password, "student");
+    } catch (err: any) {
+      const msg =
+        err instanceof Error ? err.message : "Login failed. Please try again.";
+      const responseData = err?.response;
+      if (responseData?.locked_until) {
+        const unlockTime = new Date(responseData.locked_until).toLocaleString();
+        setLocalError(
+          `Account locked due to too many failed attempts. Try again after ${unlockTime}.`,
+        );
+      } else {
+        setLocalError(msg);
+      }
+      setShowError(true);
+    }
+  };
+
+  const displayError = localError || error;
+
   return (
     <div className="portal-login-root">
-      <div className="portal-login-card">
-        <div className="portal-login-header">
-          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
+      {showError && displayError && (
+        <div
+          className="fixed top-6 right-6 z-50 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300"
+          style={{
+            animation: "slideInDown 0.4s ease-out forwards",
+          }}
+        >
+          <style>{`
+            @keyframes slideInDown {
+              from {
+                opacity: 0;
+                transform: translateY(-20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+          `}</style>
+          <div className="overflow-hidden rounded-lg bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg">
+            <div className="flex items-start gap-3 p-4">
+              <div className="mt-0.5 flex-shrink-0">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-400">
+                  <AlertCircle className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">Error</p>
+                <p className="mt-1 text-sm opacity-95">{displayError}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowError(false)}
+                className="flex-shrink-0 text-red-200 transition-colors hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div
+              className="h-1 bg-red-400 opacity-50"
+              style={{
+                animation: "shrinkBar 5s linear forwards",
+                transformOrigin: "left",
+              }}
+            />
+          </div>
+          <style>{`
+            @keyframes shrinkBar {
+              from {
+                transform: scaleX(1);
+              }
+              to {
+                transform: scaleX(0);
+              }
+            }
+          `}</style>
+        </div>
+      )}
+
+      <Card className="portal-login-card relative">
+        <CardHeader className="portal-login-header p-0">
+          <div className="flex justify-center rounded-2xl bg-white p-1.5 shadow-md">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"
@@ -17,46 +175,59 @@ export default function PgStudentsLoginPage() {
             />
           </div>
           <div>
-            <h1 className="portal-login-title">Postgraduate Portal</h1>
-            <p className="portal-login-subtitle">
-              Precious Cornerstone University
-            </p>
+            <CardTitle className="portal-login-title">
+              Postgraduate Portal
+            </CardTitle>
+            <CardDescription className="portal-login-subtitle">
+              Log in using your matric number and surname.
+            </CardDescription>
           </div>
-        </div>
+        </CardHeader>
 
-        <form className="portal-login-form">
-          <div className="portal-login-field">
-            <label className="portal-login-label">Matric Number</label>
-            <div className="relative">
-              <UserRound className="portal-login-input-icon absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
-              <input
+        <CardContent className="p-0">
+          <form noValidate onSubmit={handleSubmit} className="portal-login-form">
+            <div className="portal-login-field">
+              <Label htmlFor="email" className="portal-login-label">
+                Matric Number
+              </Label>
+              <Input
+                id="email"
+                name="email"
                 type="text"
-                placeholder="Enter matric number"
-                className="portal-login-input portal-login-icon-input w-full"
+                placeholder="Enter your matric number"
+                value={formData.email}
+                onChange={handleChange}
+                disabled={isLoading}
+                className="portal-login-input"
               />
             </div>
-          </div>
 
-          <div className="portal-login-field">
-            <label className="portal-login-label">Password</label>
-            <div className="relative">
-              <Lock className="portal-login-input-icon absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
-              <input
+            <div className="portal-login-field">
+              <Label htmlFor="password" className="portal-login-label">
+                Surname
+              </Label>
+              <Input
+                id="password"
+                name="password"
                 type="password"
-                placeholder="Enter password"
-                className="portal-login-input portal-login-icon-input w-full"
+                placeholder="Enter your surname"
+                value={formData.password}
+                onChange={handleChange}
+                disabled={isLoading}
+                className="portal-login-input"
               />
             </div>
-          </div>
 
-          <Link
-            href="/pgstudents/dashboard"
-            className="portal-login-btn text-center"
-          >
-            Sign In
-          </Link>
-        </form>
-      </div>
+            <Button
+              type="submit"
+              className="portal-login-btn"
+              disabled={isLoading}
+            >
+              {isLoading ? "Logging in..." : "Log In"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from database import Database
 from utils.auth import AuthHandler
 from datetime import datetime, timedelta
+from functools import wraps
 import re
 
 auth_bp = Blueprint('auth', __name__)
@@ -154,15 +155,23 @@ def login():
     if not identifier:
         return jsonify({'message': 'Missing email or password'}), 400
 
-    # Query user by email or matric number, joining user_types and roles to get the role string
+    # Query user by email or matric number, joining user_types and roles to get the role string.
+    # The students join keeps login working if the matric number exists on students
+    # before users.matric_no has been synced.
     users = Database.execute_query(
         '''SELECT u.id, u.firstname, u.surname, u.middlename, u.email, u.username, 
-                  u.password_hash, u.user_type_id, u.phone_number, r.name AS role 
+                  u.password_hash, u.user_type_id, u.phone_number, r.name AS role,
+                  EXISTS (
+                      SELECT 1 FROM pg_application pg WHERE pg.user_id = u.id
+                  ) AS is_pg_student
            FROM users u
+           LEFT JOIN students s ON s."UserId" = u.id
            LEFT JOIN user_types ut ON ut.id = u.user_type_id
            LEFT JOIN roles r ON r.id = ut.role_id
-           WHERE u.email = %s OR u.matric_no = %s''',
-        (identifier, identifier)
+           WHERE u.email = %s OR u.matric_no = %s OR s."MatricNo" = %s
+           ORDER BY s."CreatedDate" DESC NULLS LAST
+           LIMIT 1''',
+        (identifier, identifier, identifier)
     )
     
     if not users:
@@ -197,7 +206,26 @@ def login():
                 'locked_until': student_auth['locked_until'].isoformat() if student_auth and student_auth.get('locked_until') else None,
             }), 403
 
-    if not AuthHandler.verify_password(data['password'], user['password_hash']):
+    password = data['password']
+    verified_hash_password = AuthHandler.verify_password(password, user['password_hash'])
+    password_ok = verified_hash_password
+
+    can_use_initial_pg_password = (
+        role == 'student'
+        and user.get('is_pg_student')
+        and (not student_auth or student_auth.get('is_first_login'))
+    )
+    if not password_ok and can_use_initial_pg_password:
+        surname = (user.get('surname') or '').strip()
+        if surname and password.strip().casefold() == surname.casefold():
+            password_ok = True
+            student_auth = student_auth or create_student_auth(user['id'], is_first_login=True)
+            Database.execute_update(
+                'UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s',
+                (AuthHandler.hash_password(surname.lower()), user['id'])
+            )
+
+    if not password_ok:
         if role == 'student':
             student_auth = student_auth or create_student_auth(user['id'])
             failed_attempts = ((student_auth['failed_attempts'] if student_auth and 'failed_attempts' in student_auth else 0) or 0) + 1
@@ -223,7 +251,8 @@ def login():
     token = AuthHandler.generate_token(user['id'], role)
 
     # ── Silently upgrade SHA-256 → bcrypt on first successful login ───────────
-    AuthHandler.maybe_upgrade_hash(user['id'], data['password'], user['password_hash'])
+    if verified_hash_password:
+        AuthHandler.maybe_upgrade_hash(user['id'], password, user['password_hash'])
 
     if role == 'student':
         update_student_auth_on_success(user['id'])
@@ -265,6 +294,7 @@ def login():
                           COALESCE(pg.proposed_course, 0) as program_id,
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          TRUE as is_pg_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
@@ -283,6 +313,7 @@ def login():
                           COALESCE(a.program_setup_id, 0) as program_id,
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          FALSE as is_pg_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
@@ -388,6 +419,7 @@ def verify_token(payload):
                           COALESCE(pg.proposed_course, 0) as program_id,
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          TRUE as is_pg_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
@@ -406,6 +438,7 @@ def verify_token(payload):
                           COALESCE(a.program_setup_id, 0) as program_id,
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
+                          FALSE as is_pg_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id

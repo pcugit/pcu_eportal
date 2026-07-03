@@ -213,6 +213,39 @@ export default function ApplicantProfile({
     applicant?.admission_status === "recommend"
       ? "recommend"
       : applicant?.application_status || applicant?.admission_status || "";
+  const hasCourseRecommendationState = [
+    "recommended",
+    "recommend",
+    "accepted_recommendation",
+    "applicant_recommended",
+  ].includes(recommendationStatus);
+  const hasApplicantAlternativeRecommendation =
+    !!applicant?.applicant_recommended_course;
+  const admittedCourse =
+    applicant?.finalised_course || applicant?.approved_course || "";
+  const formatDegreeCourse = (course: string, degreeCode?: string | null) => {
+    const cleanCourse = (course || "").trim();
+    const cleanDegree = (degreeCode || "").trim();
+
+    if (!cleanCourse || !cleanDegree) return cleanCourse;
+
+    const degreeWithPeriod = /[.]$/.test(cleanDegree)
+      ? cleanDegree
+      : `${cleanDegree}.`;
+    const escapedDegree = cleanDegree.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const alreadyPrefixed = new RegExp(
+      `^${escapedDegree}\\.?\\s+`,
+      "i",
+    ).test(cleanCourse);
+
+    return alreadyPrefixed
+      ? cleanCourse
+      : `${degreeWithPeriod} ${cleanCourse}`;
+  };
+  const admittedCourseDisplay = formatDegreeCourse(
+    admittedCourse,
+    applicant?.degree_code || form?.degree_code,
+  );
 
   const handleUpload = async () => {
     if (!selectedFile) {
@@ -737,13 +770,13 @@ export default function ApplicantProfile({
                 </Badge>
               </div>
               {/* Admitted/Finalised Course info, if available */}
-              {(applicant?.finalised_course || applicant?.approved_course) && (
+              {admittedCourseDisplay && (
                 <div className="mt-4 pt-4 border-t border-slate-100 w-full text-center">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                     Admitted Course
                   </span>
                   <p className="text-sm font-bold text-[#6b357d] break-words [overflow-wrap:anywhere]">
-                    {applicant?.finalised_course || applicant?.approved_course}
+                    {admittedCourseDisplay}
                   </p>
                 </div>
               )}
@@ -780,9 +813,9 @@ export default function ApplicantProfile({
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
                   Admitted / Finalised Course
                 </span>
-                {applicant?.finalised_course || applicant?.approved_course ? (
+                {admittedCourseDisplay ? (
                   <p className="font-bold text-emerald-700 text-base">
-                    {applicant?.finalised_course || applicant?.approved_course}
+                    {admittedCourseDisplay}
                   </p>
                 ) : (
                   <p className="font-medium text-slate-500 italic">
@@ -825,14 +858,8 @@ export default function ApplicantProfile({
               )}
 
               {/* COURSE RECOMMENDATION SECTION */}
-              {([
-                "recommended",
-                "recommend",
-                "accepted_recommendation",
-                "applicant_recommended",
-              ].includes(recommendationStatus) ||
-                applicant?.approved_course ||
-                applicant?.applicant_recommended_course) && (
+              {(hasCourseRecommendationState ||
+                hasApplicantAlternativeRecommendation) && (
                 <CourseRecommendationSection
                   applicantId={applicant?.id || applicant?.uuid || ""}
                   applicationStatus={recommendationStatus}

@@ -63,7 +63,13 @@ export default function StudentDashboard() {
   const [feeLoadingDone, setFeeLoadingDone] = useState(false);
 
   const fetchStatus = async () => {
-    if (isAuthenticated && student && !student.is_pg_student && !student.is_first_login) {
+    if (
+      isAuthenticated &&
+      student &&
+      !student.is_pg_student &&
+      !student.is_pt_student &&
+      !student.is_first_login
+    ) {
       try {
         setLoadingStatus(true);
         const data = await ApiClient.getStudentCourses();
@@ -122,7 +128,7 @@ export default function StudentDashboard() {
   };
 
   const fetchExtraData = async () => {
-    if (!isAuthenticated || !student || student.is_pg_student) return;
+    if (!isAuthenticated || !student || student.is_pg_student || student.is_pt_student) return;
     try {
       const statusRes = await ApiClient.getApplicantStatus();
       setApplicantStatus(statusRes.applicant);
@@ -164,6 +170,11 @@ export default function StudentDashboard() {
 
     if (student.is_pg_student) {
       router.replace("/pgstudents/dashboard");
+      return;
+    }
+
+    if (student.is_pt_student) {
+      router.replace("/ptstudents/dashboard");
     }
   }, [isLoading, isAuthenticated, user?.role, student, router]);
 
@@ -177,7 +188,13 @@ export default function StudentDashboard() {
     let active = true;
 
     const fetchPassport = async () => {
-      if (!isAuthenticated || isLoading || !student || student.is_pg_student) return;
+      if (
+        !isAuthenticated ||
+        isLoading ||
+        !student ||
+        student.is_pg_student ||
+        student.is_pt_student
+      ) return;
       try {
         const profile = await ApiClient.getStudentProfile();
         const documents = profile?.documents || [];
@@ -340,7 +357,8 @@ export default function StudentDashboard() {
     !isAuthenticated ||
     user?.role !== "student" ||
     !student ||
-    student.is_pg_student
+    student.is_pg_student ||
+    student.is_pt_student
   ) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

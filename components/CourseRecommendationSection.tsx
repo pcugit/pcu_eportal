@@ -47,20 +47,17 @@ export default function CourseRecommendation({
   let normalizedStatus =
     applicationStatus === "recommend" ? "recommended" : applicationStatus;
 
-  const isReadOnlyHistorical = ![
-    "recommended",
-    "accepted_recommendation",
-    "applicant_recommended",
-  ].includes(normalizedStatus);
+  if (
+    !["recommended", "accepted_recommendation", "applicant_recommended"].includes(
+      normalizedStatus,
+    )
+  ) {
+    if (!applicantRecommendedCourse) return null;
+    normalizedStatus = "applicant_recommended";
+  }
 
-  if (isReadOnlyHistorical) {
-    if (approvedCourse || applicantRecommendedCourse) {
-      normalizedStatus = applicantRecommendedCourse
-        ? "applicant_recommended"
-        : "accepted_recommendation";
-    } else {
-      return null;
-    }
+  if (normalizedStatus === "recommended" && !approvedCourse) {
+    return null;
   }
 
   const handleSelectAlternativeCourse = (

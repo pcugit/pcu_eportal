@@ -53,6 +53,8 @@ export default function StudentLoginPage() {
 
     if (user.role === "student" && student?.is_pg_student) {
       router.replace("/pgstudents/dashboard");
+    } else if (user.role === "student" && student?.is_pt_student) {
+      router.replace("/ptstudents/dashboard");
     } else if (user.role === "student") {
       router.replace("/student/dashboard");
     } else if (user.role === "admitted") {

@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
   ChevronDown,
@@ -74,11 +76,43 @@ const profileDetails = [
 ];
 
 export default function PtStudentsDashboardPage() {
-  const { logout, isLoggingOut } = useAuth();
+  const router = useRouter();
+  const { user, student, isAuthenticated, isLoading, logout, isLoggingOut } = useAuth();
+  const canAccess =
+    isAuthenticated && user?.role === "student" && student?.is_pt_student === true;
 
   const handleLogout = async () => {
     await logout("/ptstudents/login");
   };
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!isAuthenticated || user?.role !== "student" || !student) {
+      router.replace("/ptstudents/login");
+      return;
+    }
+
+    if (student.is_pg_student) {
+      router.replace("/pgstudents/dashboard");
+      return;
+    }
+
+    if (!student.is_pt_student) {
+      router.replace("/student/dashboard");
+    }
+  }, [isLoading, isAuthenticated, user?.role, student, router]);
+
+  if (isLoading || !canAccess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#102943] text-white">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-white" />
+          <p className="text-sm font-semibold">Loading part-time portal...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#102943] text-white">

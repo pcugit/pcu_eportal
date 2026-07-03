@@ -39,6 +39,21 @@ def update_student_auth_on_success(user_id):
         (user_id,)
     )
 
+def reset_expired_student_lock(user_id, student_auth):
+    if (
+        student_auth
+        and student_auth.get('locked_until')
+        and student_auth['locked_until'] <= datetime.utcnow()
+    ):
+        Database.execute_update(
+            'UPDATE student_auth '
+            'SET failed_attempts = 0, locked_until = NULL, updateddate = NOW() '
+            'WHERE userid = %s',
+            (user_id,)
+        )
+        return get_student_auth(user_id)
+    return student_auth
+
 def is_student_locked(student_auth):
     return bool(
         student_auth
@@ -200,6 +215,7 @@ def login():
     student_auth: dict | None = None
     if role == 'student':
         student_auth = get_student_auth(user['id'])
+        student_auth = reset_expired_student_lock(user['id'], student_auth)
         if is_student_locked(student_auth):
             return jsonify({
                 'message': 'Account temporarily locked due to too many failed login attempts. Please try again later.',
@@ -295,6 +311,7 @@ def login():
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           TRUE as is_pg_student,
+                          FALSE as is_pt_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
@@ -314,6 +331,7 @@ def login():
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           FALSE as is_pg_student,
+                          CASE WHEN a.prog_type IN (4, 7) THEN TRUE ELSE FALSE END as is_pt_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
@@ -420,6 +438,7 @@ def verify_token(payload):
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           TRUE as is_pg_student,
+                          FALSE as is_pt_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
@@ -439,6 +458,7 @@ def verify_token(payload):
                           l.name as current_level, acs.name as session, 
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           FALSE as is_pg_student,
+                          CASE WHEN a.prog_type IN (4, 7) THEN TRUE ELSE FALSE END as is_pt_student,
                           ps.name as program_name 
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id

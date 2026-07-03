@@ -42,6 +42,7 @@ export interface StudentData {
   matric_number: string;
   program_id: number;
   program_name?: string;
+  degree_code?: string | null;
   current_level: string;
   session: string;
   is_first_login: boolean;

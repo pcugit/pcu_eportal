@@ -85,10 +85,31 @@ export default function PgStudentsDashboardPage() {
   const downloadableReceipts = paymentHistory.filter(
     (payment) => payment.is_successful && payment.receipt_no,
   );
+  const formatDegreeCourse = (course?: string | null, degreeCode?: string | null) => {
+    const cleanCourse = (course || "").trim();
+    const cleanDegree = (degreeCode || "").trim();
+
+    if (!cleanCourse) return "N/A";
+    if (!cleanDegree) return cleanCourse;
+
+    const degreeWithPeriod = cleanDegree.endsWith(".")
+      ? cleanDegree
+      : `${cleanDegree}.`;
+    const escapedDegree = cleanDegree.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const alreadyPrefixed = new RegExp(`^${escapedDegree}\\.?\\s+`, "i").test(
+      cleanCourse,
+    );
+
+    return alreadyPrefixed ? cleanCourse : `${degreeWithPeriod} ${cleanCourse}`;
+  };
+  const courseOfStudy = formatDegreeCourse(
+    student?.program_name,
+    student?.degree_code,
+  );
   const profileDetails = [
     { label: "Name", value: user?.name || "N/A" },
     { label: "Matric No", value: student?.matric_number || "N/A" },
-    { label: "Course of Study", value: student?.program_name || "N/A" },
+    { label: "Course of Study", value: courseOfStudy },
     { label: "Level", value: student?.current_level || "N/A" },
     { label: "Session", value: student?.session || "N/A" },
     { label: "Email", value: user?.email || "N/A" },

@@ -147,25 +147,16 @@ function ApplicantInfoTab({
           Personal Details
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <InfoCard label="Email" value={form?.email || applicant?.email} />
           <InfoCard label="First Name" value={form?.first_name} />
-          <InfoCard label="Last Name" value={form?.last_name || form?.surname} />
+          <InfoCard label="Surname" value={form?.last_name} />
           <InfoCard label="Middle Name" value={form?.middle_name} />
           <InfoCard label="Gender" value={form?.gender} />
           <InfoCard label="Date of Birth" value={form?.date_of_birth} />
-          <InfoCard label="Place of Birth" value={form?.place_of_birth} />
-          <InfoCard label="Marital Status" value={form?.marital_status} />
-          <InfoCard label="Religion" value={form?.religion} />
-          <InfoCard label="Blood Group" value={form?.blood_group} />
-          <InfoCard label="Genotype" value={form?.genotype} />
           <InfoCard label="Phone Number" value={form?.phone_number || applicant?.phone_number} />
           <InfoCard
             label="Secondary Phone Number"
             value={form?.secondary_phone_number}
           />
-          <InfoCard label="Nationality" value={form?.nationality} />
-          <InfoCard label="State" value={form?.state || form?.state_of_origin} />
-          <InfoCard label="Local Government Area" value={form?.lga} />
           <InfoCard
             label="Contact Address"
             value={form?.address}
@@ -333,6 +324,10 @@ function ApplicantInfoTab({
             {[
               { label: "Name", value: form?.next_of_kin_name },
               { label: "Phone", value: form?.next_of_kin_phone_number },
+              {
+                label: "Secondary Phone",
+                value: form?.next_of_kin_secondary_phone_number,
+              },
               { label: "Address", value: form?.next_of_kin_address },
             ].map((item, idx) => (
               <div

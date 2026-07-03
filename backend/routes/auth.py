@@ -312,7 +312,8 @@ def login():
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           TRUE as is_pg_student,
                           FALSE as is_pt_student,
-                          ps.name as program_name 
+                          ps.name as program_name,
+                          dg.code as degree_code
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
                    LEFT JOIN student_auth sa ON sa.userid = u.id
@@ -320,6 +321,7 @@ def login():
                    LEFT JOIN level l ON s.current_level_id = l.id
                    LEFT JOIN academic_sessions acs ON pg.academic_session_id = acs.id
                    LEFT JOIN pg_program_setup ps ON pg.proposed_course = ps.id
+                   LEFT JOIN degrees dg ON COALESCE(pg.degree_id, ps.degree_id) = dg.id
                    WHERE s."UserId" = %s
                    ORDER BY pg.updated_date DESC LIMIT 1''',
                 (user['id'],)
@@ -332,7 +334,8 @@ def login():
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           FALSE as is_pg_student,
                           CASE WHEN a.prog_type IN (4, 7) THEN TRUE ELSE FALSE END as is_pt_student,
-                          ps.name as program_name 
+                          ps.name as program_name,
+                          dg.code as degree_code
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
                    LEFT JOIN student_auth sa ON sa.userid = u.id
@@ -340,6 +343,7 @@ def login():
                    LEFT JOIN level l ON s.current_level_id = l.id
                    LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
                    LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+                   LEFT JOIN degrees dg ON COALESCE(a.degree_id, ps.degree_id) = dg.id
                    WHERE s."UserId" = %s
                    ORDER BY a.updated_at DESC LIMIT 1''',
                 (user['id'],)
@@ -439,7 +443,8 @@ def verify_token(payload):
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           TRUE as is_pg_student,
                           FALSE as is_pt_student,
-                          ps.name as program_name 
+                          ps.name as program_name,
+                          dg.code as degree_code
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
                    LEFT JOIN student_auth sa ON sa.userid = u.id
@@ -447,6 +452,7 @@ def verify_token(payload):
                    LEFT JOIN level l ON s.current_level_id = l.id
                    LEFT JOIN academic_sessions acs ON pg.academic_session_id = acs.id
                    LEFT JOIN pg_program_setup ps ON pg.proposed_course = ps.id
+                   LEFT JOIN degrees dg ON COALESCE(pg.degree_id, ps.degree_id) = dg.id
                    WHERE s."UserId" = %s
                    ORDER BY pg.updated_date DESC LIMIT 1''',
                 (user_id,)
@@ -459,7 +465,8 @@ def verify_token(payload):
                           COALESCE(sa.is_first_login, FALSE) as is_first_login,
                           FALSE as is_pg_student,
                           CASE WHEN a.prog_type IN (4, 7) THEN TRUE ELSE FALSE END as is_pt_student,
-                          ps.name as program_name 
+                          ps.name as program_name,
+                          dg.code as degree_code
                    FROM students s 
                    JOIN users u ON s."UserId" = u.id
                    LEFT JOIN student_auth sa ON sa.userid = u.id
@@ -467,6 +474,7 @@ def verify_token(payload):
                    LEFT JOIN level l ON s.current_level_id = l.id
                    LEFT JOIN academic_sessions acs ON a.academic_session_id = acs.id
                    LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+                   LEFT JOIN degrees dg ON COALESCE(a.degree_id, ps.degree_id) = dg.id
                    WHERE s."UserId" = %s
                    ORDER BY a.updated_at DESC LIMIT 1''',
                 (user_id,)

@@ -221,15 +221,13 @@ class NewTemplateParser:
 
     def _build_registrar_box(self, tbl):
         S = self._styles
+        cells = tbl.find_all("td")
         left_para = Paragraph(
-            "<b>Registrar</b><br/>"
-            "<b>Mrs. Morenike F. Afolabi</b> "
-            "<font size='7'>B.A, MPA (Ife), M.ED (IB), MNIM, MANUPA, IPMA (UK)</font>",
+            self._inline(cells[0]) if len(cells) > 0 else "",
             S["RegLeft"],
         )
         right_para = Paragraph(
-            "<b>Phone:</b> +2348033931410<br/>"
-            "<b>Email:</b> <u>registrar@pcu.edu.ng</u>",
+            self._inline(cells[1]) if len(cells) > 1 else "",
             S["RegRight"],
         )
         usable = self.PAGE_WIDTH
@@ -421,10 +419,14 @@ class NewTemplateParser:
                 self.flowables.append(sig_img)
             except Exception:
                 pass
-        self.flowables.append(
-            Paragraph("<b>Mrs. Morenike F. Afolabi</b>", S["SigName"])
-        )
-        self.flowables.append(Paragraph("Registrar", S["Body"]))
+        signature_text = self._inline(sig_div)
+        if signature_text:
+            self.flowables.append(Paragraph(signature_text, S["Body"]))
+        else:
+            self.flowables.append(
+                Paragraph("<b>Mrs. Morenike F. Afolabi</b>", S["SigName"])
+            )
+            self.flowables.append(Paragraph("Registrar", S["Body"]))
 
     # ------------------------------------------------------------------
     # Utility: extract inline ReportLab-safe markup from a BS4 element
@@ -494,10 +496,11 @@ class PDFGenerator:
     """Generate PDFs from the JUPEB admission letter template using ReportLab."""
 
     @staticmethod
-    def _load_template() -> str:
+    def _load_template(template_name: str = "admission_letter_template.html") -> str:
+        safe_template_name = os.path.basename(template_name)
         template_path = os.path.join(
             os.path.dirname(__file__),
-            "admission_letter_template.html",
+            safe_template_name,
         )
         if os.path.exists(template_path):
             with open(template_path, "r", encoding="utf-8") as f:
@@ -536,6 +539,8 @@ class PDFGenerator:
                 kwargs[key] = kwargs[key].upper()
         if "candidateName" in kwargs and "candidate_name" not in kwargs:
             kwargs["candidate_name"] = kwargs["candidateName"]
+        if "reference" in kwargs and "ref_number" not in kwargs:
+            kwargs["ref_number"] = kwargs["reference"]
         
         # Provide programme_upper for the heading, keeping programme in original casing
         prog_val = kwargs.get("programme") or kwargs.get("program") or ""
@@ -546,8 +551,9 @@ class PDFGenerator:
             kwargs["programme_upper"] = ""
             kwargs["programme"] = ""
 
+        template_name = kwargs.pop("template_name", "admission_letter_template.html")
         if not body_html.strip():
-            body_html = PDFGenerator._load_template()
+            body_html = PDFGenerator._load_template(template_name)
 
         pdf_buffer = io.BytesIO()
         doc = SimpleDocTemplate(

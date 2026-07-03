@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: a4 portrait;
+            margin: 0.8cm 1.5cm 0.8cm 1.5cm;
+        }
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 10pt;
+            line-height: 1.32;
+            color: #000;
+            text-align: justify;
+        }
+        .header-table { width: 100%; margin-bottom: 8px; }
+        .header-logo-cell { width: 15%; vertical-align: middle; text-align: left; }
+        .header-text-cell { width: 85%; vertical-align: middle; text-align: center; }
+        .title { font-size: 14pt; font-weight: bold; margin-bottom: 2px; text-transform: uppercase; }
+        .address { font-size: 10pt; font-weight: bold; line-height: 1.15; text-transform: uppercase; }
+        .registrar-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 12pt;
+            margin-top: 4px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        .registrar-box {
+            width: 100%;
+            margin-bottom: 10px;
+            font-size: 8.5pt;
+            line-height: 1.3;
+        }
+        .reg-left { vertical-align: top; width: 58%; }
+        .reg-right { vertical-align: top; width: 42%; text-align: right; }
+        .meta-table { width: 100%; margin-top: 10px; margin-bottom: 8px; }
+        .meta-table td { font-size: 9pt; }
+        .salutation {
+            font-weight: normal;
+            margin-bottom: 8px;
+            margin-top: 8px;
+            font-size: 10pt;
+        }
+        .subject {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 10pt;
+            text-transform: uppercase;
+        }
+        .sub-list {
+            margin-left: 30px;
+            margin-top: 2px;
+            margin-bottom: 2px;
+        }
+        .signature { margin-top: 12px; }
+        .signature img { display: block; height: 34px; margin-bottom: 2px; }
+    </style>
+</head>
+<body>
+    <table class="header-table">
+        <tr>
+            <td class="header-logo-cell">
+                {% if logo_image %}
+                <img src="data:image/png;base64,{{ logo_image }}" alt="Logo" style="width: 58px; height: 58px;" />
+                {% else %}
+                <div style="width:58px; height:58px; border:1px solid #ccc; text-align:center; display:table-cell; vertical-align:middle; font-size:9px;">LOGO</div>
+                {% endif %}
+            </td>
+            <td class="header-text-cell">
+                <div class="title">Precious Cornerstone University, Ibadan</div>
+                <div class="address">The Postgraduate School</div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="registrar-title">Offer of Provisional Admission and Registration for Higher Degree Course</div>
+
+    <table class="registrar-box">
+        <tr>
+            <td class="reg-left">
+                <b>Precious Cornerstone University</b><br>
+                <b>DEAN: Prof. J.A. Adegoke</b><br>
+                PhD (Ibadan),<br>
+                <b>Mobile:</b> +2348074767098<br>
+                <b>E-mail:</b> adegokeja@yahoo.com<br>
+                ja.adegoke@pcu.edu.ng
+            </td>
+            <td class="reg-right">
+                <b>Registrar</b><br>
+                <b>Mrs Morenike F. Afolabi</b><br>
+                <b>Mobile:</b> +2348033931410<br>
+                <b>Email:</b> registrar@pcu.edu.ng
+            </td>
+        </tr>
+    </table>
+
+    <table class="meta-table">
+        <tr>
+            <td style="text-align: left;">
+                <b>{{ ref_number }}</b><br>
+                <b>{{ candidate_name }}</b><br>
+                <b>{{ programme }}</b>
+            </td>
+            <td style="text-align: right;">
+                <b>Tel:</b> 09122444300<br>
+                <b>{{ date }}</b>
+            </td>
+        </tr>
+    </table>
+
+    <div class="salutation">Dear {{ candidate_name }},</div>
+
+    <div class="subject">
+        Offer of Provisional Admission and Registration for Higher Degree Course
+    </div>
+
+    <table style="width: 100%;">
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">1.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                With reference to your application for admission to a higher degree of this University in the Department of {{ department }}, it is my pleasure to inform you that the application is successful. Your registration will be on {{ mode }} basis for the degree of {{ programme }} in the {{ session }} academic session.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">2.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                Please take note of the following conditions relating to your admission/registration:
+                <table class="sub-list" style="margin-top: 0px; margin-left: 20px;">
+                    <tr><td style="width: 28px; vertical-align: top;">(a)</td><td style="padding-bottom: 0px;">Higher Degree Students are expected to commence their courses at the beginning of the {{ session }} session.</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(b)</td><td style="padding-bottom: 0px;">You will be required to present the originals of your credentials before your academic registration can be completed.</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(c)</td><td style="padding-bottom: 0px;">You will therefore be required to make appropriate payment.</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(d)</td><td style="padding-bottom: 0px;">This offer is provisional and may be revoked if you fail to produce the documents above within a period of six weeks.</td></tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">3.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                Information on the Financial Regulations of the University for Higher Degree programmes is provided in the fee schedule attached to this email.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">4.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                For international students, when applying for entry permit or visa, you may be requested to furnish the Director-General, Federal Ministry of Internal Affairs, Abuja with the following items of information to accelerate the processing of your application:
+                <table class="sub-list" style="margin-top: 0px; margin-left: 20px;">
+                    <tr><td style="width: 28px; vertical-align: top;">(a)</td><td style="padding-bottom: 0px;">Your nationality</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(b)</td><td style="padding-bottom: 0px;">Date and place of birth</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(c)</td><td style="padding-bottom: 0px;">Passport number, date and place of issue</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(d)</td><td style="padding-bottom: 0px;">Validity of passport</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(e)</td><td style="padding-bottom: 0px;">Anticipated length of stay at Precious Cornerstone University</td></tr>
+                    <tr><td style="width: 28px; vertical-align: top;">(f)</td><td style="padding-bottom: 0px;">Sponsorship</td></tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">5.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                It is important to note that a residence permit is necessary for the confirmation of an offer of admission.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">6.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                Very limited hall accommodation is available for full-time Higher Degree students and will be allocated on the basis of first-come first-served. Students are advised to get in touch with the Student Affairs Officer.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">7.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                You are required to register for your programme of study within six weeks of the beginning of the academic year and renew your registration annually until you finally complete the programme. Late registration after six weeks will automatically attract penalty.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">8.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                If you accept the offer, the acceptance form will be sent to you via email. Kindly print and complete two copies of the form as provided.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top; font-weight: bold;">9.</td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                It is mandatory that you appear in person for clearance at the Admissions Office of the Postgraduate School. Please note that this offer will be revoked and your slot given to someone else if, within six weeks from the date of this letter, you have neither completed and returned the printed acceptance form nor submitted the originals of your credentials for clearance.
+            </td>
+        </tr>
+        <tr>
+            <td style="width: 35px; vertical-align: top;"></td>
+            <td style="vertical-align: top; padding-bottom: 0px;">
+                <br><b>NB:</b> This offer of admission is also subject to the receipt and authentication of your documents and certificates.
+            </td>
+        </tr>
+    </table>
+
+    <div class="signature">
+        {% if sig_image %}
+        <img src="data:image/png;base64,{{ sig_image }}" alt="Signature" /><br>
+        {% endif %}
+        Yours Sincerely<br>
+        <b>Mrs Morenike F. Afolabi</b><br>
+        <b>Registrar</b><br><br>
+        <b>Cc:</b> Dean, {{ faculty }}<br>
+        Head, Department of {{ department }}
+    </div>
+</body>
+</html>

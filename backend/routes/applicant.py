@@ -2589,7 +2589,7 @@ def get_admission_letter(payload):
 
     session_name = applicant_data.get('session_name') or '2025/2026'
     session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
-    ref_no = f"PCU/ADM/{session_year}"
+    ref_no = f"PCU/PG/ADM/{session_year}" if is_pg else f"PCU/ADM/{session_year}"
     return jsonify({
         'candidateName':  applicant_data['name'],
         'programme':      applicant_data['approved_course'] or applicant_data['program_name'] or '',
@@ -2698,6 +2698,9 @@ def print_admission_letter(payload):
             candidate_name=applicant_data['name'],
             email=applicant_data.get('email', ''),
             programme=programme,
+            department='Postgraduate Studies' if is_pg else '',
+            faculty='The Postgraduate School' if is_pg else '',
+            mode='Full Time' if is_pg else '',
             session=session_name,
             date=datetime.now().strftime('%d %B, %Y'),
             acceptanceFee=f'NGN {acceptance_fee:,.2f}',
@@ -2706,6 +2709,7 @@ def print_admission_letter(payload):
             resumptionDate=resumption_date,
             reference=ref_no,
             ref_number=ref_no,
+            template_name='pg_admission_letter_template.html' if is_pg else 'admission_letter_template.html',
             body_html=''
         )
     except Exception as e:

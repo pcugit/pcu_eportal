@@ -132,16 +132,17 @@ def _build_pg_admission_letter_pdf(applicant_id, admission_date_str):
         email=applicant_data['email'],
         programme=applicant_data['program_name'] or 'Postgraduate',
         level='100 Level',
-        department='',
-        faculty='',
+        department='Postgraduate Studies',
+        faculty='The Postgraduate School',
         session=applicant_data.get('session') or default_session,
-        mode='Postgraduate',
+        mode='Full Time',
         date=admission_date_display,
         acceptanceFee=acceptance_fee_str,
         tuition=tuition_fee_str,
         otherFees=other_fees_str,
         resumptionDate='',
         reference=ref_no,
+        template_name='pg_admission_letter_template.html',
         body_html=''
     )
 
@@ -834,16 +835,17 @@ def send_admission_letter(payload):
         email=applicant_data['email'],
         programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
-        department=applicant_data.get('department') or '',
-        faculty=applicant_data.get('faculty') or '',
+        department=applicant_data.get('department') or 'Postgraduate Studies',
+        faculty=applicant_data.get('faculty') or 'The Postgraduate School',
         session=applicant_data.get('session') or default_session,
-        mode=applicant_data.get('mode') or 'Full-Time',
+        mode=applicant_data.get('mode') or 'Full Time',
         date=admission_date_display,
         acceptanceFee=acceptance_fee_str,
         tuition=tuition_fee_str,
         otherFees=other_fees_str,
         resumptionDate=applicant_data.get('resumption_date') or '',
         reference=ref_no,
+        template_name='pg_admission_letter_template.html',
         body_html=''
     )
 
@@ -1160,16 +1162,17 @@ def send_pg_department_letters(payload):
                 email=applicant_data['email'],
                 programme=applicant_data['program_name'] or 'Postgraduate',
                 level='100 Level',
-                department='',
-                faculty='',
+                department='Postgraduate Studies',
+                faculty='The Postgraduate School',
                 session=applicant_data.get('session') or default_session,
-                mode='Postgraduate',
+                mode='Full Time',
                 date=admission_date_display,
                 acceptanceFee=acceptance_fee_str,
                 tuition=tuition_fee_str,
                 otherFees=other_fees_str,
                 resumptionDate='',
                 reference=ref_no,
+                template_name='pg_admission_letter_template.html',
                 body_html=''
             )
 
@@ -1347,12 +1350,13 @@ def resend_pg_letter(payload, applicant_id):
         candidate_name=applicant_data['name'],
         email=applicant_data['email'],
         programme=applicant_data['program_name'] or 'Postgraduate',
-        level='100 Level', department='', faculty='',
+        level='100 Level', department='Postgraduate Studies', faculty='The Postgraduate School',
         session=applicant_data.get('session') or default_session,
-        mode='Postgraduate',
+        mode='Full Time',
         date=admission_date_display,
         acceptanceFee=acceptance_fee_str, tuition=tuition_fee_str, otherFees=other_fees_str,
-        resumptionDate='', reference=ref_no, body_html=''
+        resumptionDate='', reference=ref_no,
+        template_name='pg_admission_letter_template.html', body_html=''
     )
 
     try:

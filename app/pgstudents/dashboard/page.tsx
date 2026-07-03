@@ -19,52 +19,49 @@ import {
   NotebookPen,
   Phone,
   Printer,
-  ReceiptText,
   Settings,
   UserRound,
   WalletCards,
 } from "lucide-react";
 
+const navSections = [
+  { id: "academics", label: "Academics" },
+  { id: "payments", label: "Payments" },
+  { id: "documents", label: "Documents" },
+  { id: "wallet", label: "Wallet" },
+];
+
 const menuGroups = [
   {
+    id: "academics",
     title: "Academics",
     items: [
-      { label: "Course Registration", icon: NotebookPen, color: "bg-[#2aadb9]" },
-      { label: "Print Course Form", icon: Printer, color: "bg-[#2aadb9]" },
-    
+      { label: "Course Registration", icon: NotebookPen },
+      { label: "Print Course Form", icon: Printer },
     ],
   },
   {
+    id: "payments",
     title: "Payments",
-    items: [
-      { label: "Pay School Fees", icon: CreditCard, color: "bg-[#35ad39]" },
-      { label: "Download Receipt", icon: ReceiptText, color: "bg-[#35ad39]" },
-    
-    
-    ],
+    items: [{ label: "Pay School Fees", icon: CreditCard }],
   },
   {
+    id: "documents",
     title: "Documents",
     items: [
-      { label: "Admission Letter", icon: FileText, color: "bg-[#93008c]" },
-      { label: "Medical Examination Form", icon: FileText, color: "bg-[#93008c]" },
-      { label: "Notice & Affidavit", icon: Settings, color: "bg-[#93008c]" },
+      { label: "Admission Letter", icon: FileText },
+      { label: "Medical Examination Form", icon: FileText },
+      { label: "Notice & Affidavit", icon: Settings },
     ],
   },
   {
-    title: "Profile",
-    items: [
-      { label: "Profile Information", icon: UserRound, color: "bg-[#8a5309]" },
-      { label: "Change Password", icon: Lock, color: "bg-[#8a5309]" },
-    ],
-  },
-  {
+    id: "wallet",
     title: "Wallet",
     items: [
-      { label: "Deposit", icon: WalletCards, color: "bg-[#93008c]" },
-      { label: "Make Payment", icon: WalletCards, color: "bg-[#93008c]" },
-      { label: "History", icon: History, color: "bg-[#93008c]" }
-    ]
+      { label: "Deposit", icon: WalletCards },
+      { label: "Make Payment", icon: WalletCards },
+      { label: "History", icon: History },
+    ],
   },
 ];
 
@@ -225,92 +222,142 @@ export default function PgStudentsDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#102943] text-white">
-      <header className="bg-[#202833]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-6 md:px-6 md:py-5">
-          <div className="flex items-center gap-3 md:gap-6">
+    <div className="min-h-screen bg-[#f6f5f2] text-[#1c2b3a]">
+      <header className="sticky top-0 z-40 border-b border-[#e4e0d8] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <Image
               src="/e-portal/images/logo new.png"
               alt="PCU Logo"
-              width={86}
-              height={86}
-              className="h-14 w-14 shrink-0 rounded bg-white p-1 md:h-[86px] md:w-[86px]"
+              width={40}
+              height={40}
+              className="h-10 w-10 shrink-0 rounded object-contain"
             />
-            <div className="min-w-0">
-              <h1 className="text-sm font-semibold leading-snug tracking-wide md:text-base md:leading-relaxed">
-                The Postgraduate College
-                <br />
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold tracking-tight text-[#0f2c4c]">
+                Postgraduate College
+              </p>
+              <p className="truncate text-xs text-[#6b7686]">
                 Precious Cornerstone University
-              </h1>
-              <p className="mt-1 text-xs italic leading-snug text-white/80 md:text-sm">
-                ...raising excellent postgraduate scholars
               </p>
             </div>
           </div>
 
-          <div className="grid gap-1 border-t border-white/10 pt-3 text-xs font-semibold text-white/90 md:border-t-0 md:pt-0 md:text-sm">
-            <p className="flex min-w-0 items-center gap-2">
-              <Mail className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
-              <span className="min-w-0 truncate">pgschool@pcu.edu.ng</span>
-            </p>
-            <p className="flex min-w-0 items-center gap-2">
-              <Phone className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" />
-              <span className="min-w-0 truncate">09090561432 (9am - 4pm)</span>
-            </p>
+          <div className="hidden items-center gap-6 text-xs text-[#6b7686] sm:flex">
+            <span className="flex items-center gap-1.5">
+              <Mail className="h-3.5 w-3.5" /> pcupg@pcu.edu.ng
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Phone className="h-3.5 w-3.5" /> 09133516780
+            </span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="shrink-0 text-xs font-medium text-[#0f2c4c] underline decoration-[#b8863d] decoration-2 underline-offset-4 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Log out
+          </button>
         </div>
       </header>
 
-      <div className="bg-white text-slate-900">
-        <div className="mx-auto flex max-w-6xl flex-col gap-1.5 px-4 py-3 text-xs md:flex-row md:items-center md:justify-between md:px-6 md:text-sm">
-          <p className="italic text-slate-700">
-            Welcome {user?.name || "Postgraduate Student"}
-          </p>
-          <div className="font-semibold uppercase tracking-wide md:tracking-wider">
-            <p className="text-red-500">
-              {student?.session || "Current"} Academic Session
-            </p>
-            <button
-              type="button"
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Logout
-            </button>
+      <div className="mx-auto max-w-6xl px-4 py-5 md:px-8 md:py-8">
+        <section className="mb-5 flex flex-col justify-between gap-3 rounded-xl border border-[#e4e0d8] bg-[#0f2c4c] px-4 py-4 text-white sm:mb-8 sm:px-6 sm:py-6 lg:flex-row lg:items-center lg:gap-8">
+          <div className="min-w-0 lg:shrink-0">
+            <h1 className="mt-0.5 font-serif text-lg leading-tight sm:mt-1 sm:text-2xl lg:whitespace-nowrap">
+              Welcome, {user?.name || "Postgraduate Student"}
+            </h1>
           </div>
-        </div>
-      </div>
+          <dl className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4 sm:gap-x-5 sm:gap-y-3 sm:text-sm lg:flex lg:flex-1 lg:items-start lg:justify-end lg:gap-x-6">
+            {profileDetails
+              .filter((detail) =>
+                ["Matric No", "Course of Study", "Session", "Email"].includes(
+                  detail.label,
+                ),
+              )
+              .map((detail) => (
+                <div
+                  key={detail.label}
+                  className={
+                    detail.label === "Course of Study" || detail.label === "Email"
+                      ? "min-w-0 lg:max-w-[11rem] xl:max-w-none"
+                      : "min-w-0 lg:shrink-0"
+                  }
+                >
+                  <dt className="text-[9px] uppercase tracking-wide text-white/50 sm:text-[11px]">
+                    {detail.label}
+                  </dt>
+                  <dd className="mt-0.5 break-words font-medium leading-tight text-white sm:leading-normal lg:truncate">
+                    {detail.value}
+                  </dd>
+                </div>
+              ))}
+          </dl>
+        </section>
 
-      <main className="bg-gradient-to-b from-[#0b2942] via-[#205b8c] to-[#2f93df]">
-        <div className="mx-auto grid min-h-[640px] max-w-6xl grid-cols-1 gap-x-24 gap-y-20 px-6 py-16 md:grid-cols-2 lg:grid-cols-3">
-          {menuGroups.map((group) => (
-            <section key={group.title}>
-              <h2 className="mb-2 text-xl font-medium">{group.title}</h2>
-              <div className="space-y-3">
-                {group.items.map((item) => {
-                  const Icon = item.icon;
+        <div className="flex flex-col gap-8 md:flex-row">
+          <nav className="flex shrink-0 gap-2 overflow-x-auto pb-2 md:sticky md:top-24 md:w-44 md:flex-col md:self-start md:overflow-visible md:pb-0">
+            {navSections.map((section) => (
+              <a
+                key={section.id}
+                href={`#${section.id}`}
+                className="whitespace-nowrap rounded-md px-3 py-2 text-sm text-[#3d4a59] transition-colors hover:bg-white hover:text-[#0f2c4c] md:whitespace-normal"
+              >
+                {section.label}
+              </a>
+            ))}
+            <a
+              href="#profile"
+              className="whitespace-nowrap rounded-md px-3 py-2 text-sm text-[#3d4a59] transition-colors hover:bg-white hover:text-[#0f2c4c] md:whitespace-normal"
+            >
+              Profile
+            </a>
+          </nav>
 
-                  if (item.label === "Download Receipt") {
+          <div className="flex-1 space-y-8">
+            {menuGroups.map((group) => (
+              <section
+                key={group.id}
+                id={group.id}
+                className="rounded-xl border border-[#e4e0d8] bg-white"
+              >
+                <h2 className="border-b border-[#e4e0d8] px-5 py-3 font-serif text-lg text-[#0f2c4c]">
+                  {group.title}
+                </h2>
+                <div className="divide-y divide-[#eeece6]">
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
                     return (
-                      <details key={item.label} className="group/receipt">
-                        <summary
-                          className={`flex h-[50px] w-full cursor-pointer list-none items-center gap-4 px-3 text-left text-sm font-semibold text-white shadow-[7px_7px_6px_rgba(0,0,0,0.25)] transition-transform hover:-translate-y-0.5 ${item.color}`}
-                        >
-                          <Icon className="h-7 w-7 shrink-0 text-white/90" />
-                          <span className="min-w-0 flex-1">
-                            {item.label}
-                          </span>
-                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/receipt:rotate-180" />
-                        </summary>
-                        <div className="mt-2 space-y-2 rounded-sm bg-white/10 p-2 shadow-inner">
-                          {receiptsLoading && (
-                            <div className="rounded bg-white px-3 py-3 text-xs font-bold text-slate-500">
-                              Loading receipts...
-                            </div>
-                          )}
+                      <button
+                        key={item.label}
+                        type="button"
+                        className="flex w-full items-center gap-3 px-5 py-3.5 text-left text-sm text-[#1c2b3a] transition-colors hover:bg-[#f6f5f2]"
+                      >
+                        <Icon className="h-[18px] w-[18px] shrink-0 text-[#b8863d]" />
+                        <span className="flex-1">{item.label}</span>
+                        <span className="text-xs text-[#9aa3ad]">-&gt;</span>
+                      </button>
+                    );
+                  })}
 
-                          {!receiptsLoading && downloadableReceipts.map((receipt) => (
+                  {group.id === "payments" && (
+                    <details className="group/receipt">
+                      <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3.5 text-sm text-[#1c2b3a] transition-colors hover:bg-[#f6f5f2]">
+                        <Download className="h-[18px] w-[18px] shrink-0 text-[#b8863d]" />
+                        <span className="flex-1">Download Receipt</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3ad] transition-transform group-open/receipt:rotate-180" />
+                      </summary>
+                      <div className="space-y-1.5 bg-[#f6f5f2] px-5 py-3">
+                        {receiptsLoading && (
+                          <div className="rounded-md bg-white px-3 py-3 text-xs font-medium text-[#6b7686] shadow-sm">
+                            Loading receipts...
+                          </div>
+                        )}
+
+                        {!receiptsLoading &&
+                          downloadableReceipts.map((receipt) => (
                             <button
                               key={receipt.transaction_id}
                               type="button"
@@ -320,179 +367,154 @@ export default function PgStudentsDashboardPage() {
                                   receipt.payment_type,
                                 )
                               }
-                              disabled={downloading === `receipt_${receipt.receipt_no}`}
-                              className="grid min-h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded bg-white px-3 py-2 text-left text-xs font-bold text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+                              disabled={
+                                downloading === `receipt_${receipt.receipt_no}`
+                              }
+                              className="flex min-h-10 w-full items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-left text-xs font-medium text-[#1c2b3a] shadow-sm transition-colors hover:bg-[#0f2c4c] hover:text-white disabled:cursor-not-allowed disabled:opacity-70"
                             >
                               <span className="min-w-0">
                                 <span className="block truncate">
                                   {formatPaymentType(receipt.payment_type)}
                                 </span>
-                                <span className="block truncate text-[10px] font-semibold text-slate-500">
+                                <span className="block truncate text-[10px] font-semibold text-[#6b7686]">
                                   {formatAmount(receipt.amount)}
                                 </span>
                               </span>
-                              <span className="flex items-center gap-1 text-[#6b21a8]">
-                                <Download className="h-4 w-4" />
-                                {downloading === `receipt_${receipt.receipt_no}`
-                                  ? "..."
-                                  : "PDF"}
-                              </span>
+                              <Download className="h-3.5 w-3.5 shrink-0" />
                             </button>
                           ))}
 
-                          {!receiptsLoading && downloadableReceipts.length === 0 && (
-                            <div className="rounded border border-dashed border-white/30 bg-white px-3 py-3 text-center text-xs font-bold text-slate-500">
-                              No payment receipts found.
-                            </div>
-                          )}
-                        </div>
-                      </details>
-                    );
-                  }
+                        {!receiptsLoading && downloadableReceipts.length === 0 && (
+                          <div className="rounded-md bg-white px-3 py-3 text-center text-xs font-medium text-[#6b7686] shadow-sm">
+                            No payment receipts found.
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              </section>
+            ))}
 
-                  if (item.label === "Profile Information") {
-                    return (
-                      <details key={item.label} className="group/profile">
-                        <summary
-                          className={`flex h-[50px] w-full cursor-pointer list-none items-center gap-4 px-3 text-left text-sm font-semibold text-white shadow-[7px_7px_6px_rgba(0,0,0,0.25)] transition-transform hover:-translate-y-0.5 ${item.color}`}
-                        >
-                          <Icon className="h-7 w-7 shrink-0 text-white/90" />
-                          <span className="min-w-0 flex-1">
-                            {item.label}
-                          </span>
-                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/profile:rotate-180" />
-                        </summary>
-                        <div className="mt-2 space-y-2 rounded-sm bg-white/10 p-2 shadow-inner">
-                          {profileDetails.map((detail) => (
-                            <div
-                              key={detail.label}
-                              className="rounded bg-white px-3 py-2 text-xs text-slate-900"
-                            >
-                              <p className="font-semibold text-slate-500">
-                                {detail.label}
-                              </p>
-                              <p className="mt-0.5 break-words font-bold">
-                                {detail.value}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    );
-                  }
+            <section
+              id="profile"
+              className="rounded-xl border border-[#e4e0d8] bg-white"
+            >
+              <h2 className="border-b border-[#e4e0d8] px-5 py-3 font-serif text-lg text-[#0f2c4c]">
+                Profile
+              </h2>
+              <div className="divide-y divide-[#eeece6]">
+                <details className="group/profile">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3.5 text-sm text-[#1c2b3a] transition-colors hover:bg-[#f6f5f2]">
+                    <UserRound className="h-[18px] w-[18px] shrink-0 text-[#b8863d]" />
+                    <span className="flex-1">Profile Information</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3ad] transition-transform group-open/profile:rotate-180" />
+                  </summary>
+                  <div className="grid gap-2 bg-[#f6f5f2] px-5 py-3 sm:grid-cols-2">
+                    {profileDetails.map((detail) => (
+                      <div
+                        key={detail.label}
+                        className="rounded-md bg-white px-3 py-2 text-xs text-[#1c2b3a] shadow-sm"
+                      >
+                        <p className="font-semibold text-[#6b7686]">
+                          {detail.label}
+                        </p>
+                        <p className="mt-0.5 break-words font-medium">
+                          {detail.value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
 
-                  if (item.label === "Change Password") {
-                    return (
-                      <details key={item.label} className="group/password">
-                        <summary
-                          className={`flex h-[50px] w-full cursor-pointer list-none items-center gap-4 px-3 text-left text-sm font-semibold text-white shadow-[7px_7px_6px_rgba(0,0,0,0.25)] transition-transform hover:-translate-y-0.5 ${item.color}`}
-                        >
-                          <Icon className="h-7 w-7 shrink-0 text-white/90" />
-                          <span className="min-w-0 flex-1">
-                            {item.label}
-                          </span>
-                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/password:rotate-180" />
-                        </summary>
-                        <form
-                          noValidate
-                          onSubmit={handleChangePassword}
-                          className="mt-2 space-y-2 rounded-sm bg-white/10 p-2 shadow-inner"
-                        >
-                          {passwordMessage && (
-                            <div
-                              className={`flex items-center gap-2 rounded bg-white px-3 py-2 text-xs font-bold ${
-                                passwordMessage.type === "success"
-                                  ? "text-emerald-700"
-                                  : "text-red-700"
-                              }`}
-                            >
-                              {passwordMessage.type === "success" ? (
-                                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                              ) : (
-                                <AlertCircle className="h-4 w-4 shrink-0" />
-                              )}
-                              <span>{passwordMessage.text}</span>
-                            </div>
-                          )}
+                <details className="group/password">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3.5 text-sm text-[#1c2b3a] transition-colors hover:bg-[#f6f5f2]">
+                    <Lock className="h-[18px] w-[18px] shrink-0 text-[#b8863d]" />
+                    <span className="flex-1">Change Password</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3ad] transition-transform group-open/password:rotate-180" />
+                  </summary>
+                  <form
+                    noValidate
+                    onSubmit={handleChangePassword}
+                    className="space-y-3 bg-[#f6f5f2] px-5 py-3"
+                  >
+                    {passwordMessage && (
+                      <div
+                        className={`flex items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium shadow-sm ${
+                          passwordMessage.type === "success"
+                            ? "text-emerald-700"
+                            : "text-red-700"
+                        }`}
+                      >
+                        {passwordMessage.type === "success" ? (
+                          <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 shrink-0" />
+                        )}
+                        <span>{passwordMessage.text}</span>
+                      </div>
+                    )}
 
-                          <label className="block rounded bg-white px-3 py-2 text-xs text-slate-900">
-                            <span className="font-semibold text-slate-500">
-                              New Password
-                            </span>
-                            <input
-                              type="password"
-                              value={passwordForm.new_password}
-                              onChange={(event) =>
-                                setPasswordForm((current) => ({
-                                  ...current,
-                                  new_password: event.target.value,
-                                }))
-                              }
-                              disabled={passwordLoading}
-                              className="mt-1 h-9 w-full rounded border border-slate-200 px-2 text-sm font-bold outline-none focus:border-[#8a5309]"
-                              minLength={6}
-                              required
-                            />
-                          </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block rounded-md bg-white px-3 py-2 text-xs text-[#1c2b3a] shadow-sm">
+                        <span className="font-semibold text-[#6b7686]">
+                          New Password
+                        </span>
+                        <input
+                          type="password"
+                          value={passwordForm.new_password}
+                          onChange={(event) =>
+                            setPasswordForm((current) => ({
+                              ...current,
+                              new_password: event.target.value,
+                            }))
+                          }
+                          disabled={passwordLoading}
+                          className="mt-1 h-9 w-full rounded border border-[#e4e0d8] px-2 text-sm font-medium outline-none focus:border-[#b8863d]"
+                          minLength={6}
+                          required
+                        />
+                      </label>
 
-                          <label className="block rounded bg-white px-3 py-2 text-xs text-slate-900">
-                            <span className="font-semibold text-slate-500">
-                              Confirm Password
-                            </span>
-                            <input
-                              type="password"
-                              value={passwordForm.confirm_password}
-                              onChange={(event) =>
-                                setPasswordForm((current) => ({
-                                  ...current,
-                                  confirm_password: event.target.value,
-                                }))
-                              }
-                              disabled={passwordLoading}
-                              className="mt-1 h-9 w-full rounded border border-slate-200 px-2 text-sm font-bold outline-none focus:border-[#8a5309]"
-                              minLength={6}
-                              required
-                            />
-                          </label>
+                      <label className="block rounded-md bg-white px-3 py-2 text-xs text-[#1c2b3a] shadow-sm">
+                        <span className="font-semibold text-[#6b7686]">
+                          Confirm Password
+                        </span>
+                        <input
+                          type="password"
+                          value={passwordForm.confirm_password}
+                          onChange={(event) =>
+                            setPasswordForm((current) => ({
+                              ...current,
+                              confirm_password: event.target.value,
+                            }))
+                          }
+                          disabled={passwordLoading}
+                          className="mt-1 h-9 w-full rounded border border-[#e4e0d8] px-2 text-sm font-medium outline-none focus:border-[#b8863d]"
+                          minLength={6}
+                          required
+                        />
+                      </label>
+                    </div>
 
-                          <button
-                            type="submit"
-                            disabled={passwordLoading}
-                            className="flex h-10 w-full items-center justify-center gap-2 rounded bg-white px-3 text-xs font-bold text-[#8a5309] transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
-                          >
-                            <Lock className="h-4 w-4" />
-                            {passwordLoading ? "Updating..." : "Update Password"}
-                          </button>
-                        </form>
-                      </details>
-                    );
-                  }
-
-                  return (
                     <button
-                      key={item.label}
-                      type="button"
-                      className={`flex h-[50px] w-full items-center gap-4 px-3 text-left text-sm font-semibold text-white shadow-[7px_7px_6px_rgba(0,0,0,0.25)] transition-transform hover:-translate-y-0.5 ${item.color}`}
+                      type="submit"
+                      disabled={passwordLoading}
+                      className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0f2c4c] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#153d67] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:px-5"
                     >
-                      <Icon className="h-7 w-7 shrink-0 text-white/90" />
-                      <span>{item.label}</span>
+                      <Lock className="h-4 w-4" />
+                      {passwordLoading ? "Updating..." : "Update Password"}
                     </button>
-                  );
-                })}
+                  </form>
+                </details>
               </div>
             </section>
-          ))}
+          </div>
         </div>
-      </main>
+      </div>
 
-      <footer className="bg-[#202833]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-4 text-sm md:flex-row md:items-center md:justify-between">
-          <p>
-            Â© 2026 The Postgraduate College, Precious Cornerstone University.
-            All Rights Reserved
-          </p>
-          <p className="font-semibold">Follow us on: f Â· x Â· G+ Â· in</p>
-        </div>
+      <footer className="mt-12 border-t border-[#e4e0d8] bg-white px-4 py-4 text-center text-xs text-[#6b7686] md:px-8">
+        &copy; Precious Cornerstone University ICT. All rights reserved.
       </footer>
     </div>
   );

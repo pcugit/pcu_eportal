@@ -37,6 +37,11 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     pathname === "/student/login" ||
     pathname === "/pgstudents/login" ||
     pathname === "/ptstudents/login";
+  const isStudentLoginPage =
+    pathname === "/auth/login" ||
+    pathname === "/student/login" ||
+    pathname === "/pgstudents/login" ||
+    pathname === "/ptstudents/login";
 
   if (pathname === "/") {
     return <main className="min-h-screen">{children}</main>;
@@ -46,7 +51,9 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     return (
       <>
         <PortalNavbar />
-        <main className="min-h-screen">{children}</main>
+        <main className={isStudentLoginPage ? undefined : "min-h-screen"}>
+          {children}
+        </main>
       </>
     );
   }
@@ -86,7 +93,7 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
   return (
     <>
       <GlobalNav />
-      <main className="transition-all duration-300 ease-in-out pl-[var(--sidebar-width)] min-h-screen flex flex-col">
+      <main className="transition-all duration-300 ease-in-out pl-[var(--sidebar-width)] min-h-screen flex flex-col overflow-x-hidden">
         <div className="flex-grow">{children}</div>
         <Footer />
       </main>

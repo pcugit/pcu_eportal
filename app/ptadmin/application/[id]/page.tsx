@@ -72,6 +72,32 @@ const statusColors: Record<string, string> = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const formatDocumentCategory = (category?: string | null) =>
+  (category || "Document")
+    .replace(/_/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
+const formatDegreeProgramme = (
+  programme?: string | null,
+  degreeCode?: string | null,
+) => {
+  const cleanProgramme = (programme || "").trim();
+  const cleanDegree = (degreeCode || "").trim();
+
+  if (!cleanProgramme) return "N/A";
+  if (!cleanDegree) return cleanProgramme;
+
+  const escapedDegree = cleanDegree.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alreadyPrefixed = new RegExp(`^${escapedDegree}\\.?\\s+`, "i").test(
+    cleanProgramme,
+  );
+
+  return alreadyPrefixed ? cleanProgramme : `${cleanDegree} ${cleanProgramme}`;
+};
+
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex justify-between items-start py-2.5 border-b border-[#f0e8dc] last:border-0">
@@ -265,19 +291,51 @@ export default function PtApplicationDetailPage() {
     : isPartTime
     ? "Part-Time"
     : "Part-Time / HND";
+  const firstChoiceDisplay = formatDegreeProgramme(
+    form?.first_choice_program_name ||
+      form?.proposed_course_name ||
+      applicant?.program_name,
+    applicant?.degree_code || form?.degree_code,
+  );
+  const secondChoiceDisplay = form?.second_choice_program_name
+    ? formatDegreeProgramme(
+        form.second_choice_program_name,
+        applicant?.degree_code || form?.degree_code,
+      )
+    : "N/A";
+  const finalisedCourseDisplay =
+    applicant?.finalised_course || applicant?.approved_course
+      ? formatDegreeProgramme(
+          applicant?.finalised_course || applicant?.approved_course,
+          applicant?.degree_code || form?.degree_code,
+        )
+      : "Awaiting decision / Not finalized";
 
   return (
     <div className="min-h-screen bg-[#f3eee6]">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        {/* Breadcrumb + header */}
-        <div className="mb-8">
+      {/* Breadcrumb + Print */}
+      <div className="sticky top-0 z-50 border-b border-[#e8dfd2] bg-[#f3eee6]/95 backdrop-blur">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <Link
             href={`/ptadmin/applications?status=${backStatus}`}
-            className="text-slate-500 hover:text-slate-800 text-sm font-bold block mb-3"
+            className="text-slate-500 hover:text-slate-800 text-sm font-bold"
           >
             ← Back to Applications
           </Link>
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-[#e8dfd2] rounded-xl text-sm font-bold text-slate-600 hover:bg-[#f7f1e8] hover:border-[#c99b45] transition-all shadow-sm"
+          >
+            <Printer className="w-4 h-4" />
+            Print
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 pt-6">
+
+        {/* Header */}
+        <div className="mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -291,7 +349,7 @@ export default function PtApplicationDetailPage() {
               <p className="text-slate-500 text-sm mt-0.5">
                 {applicant?.form_no || `Application #${id}`}
                 {(form?.proposed_course_name || applicant?.program_name) && (
-                  <> · {form?.proposed_course_name || applicant?.program_name}</>
+                  <> · {firstChoiceDisplay}</>
                 )}
               </p>
             </div>
@@ -301,13 +359,6 @@ export default function PtApplicationDetailPage() {
               >
                 {status.replace(/_/g, " ")}
               </Badge>
-              <button
-                onClick={handlePrint}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-[#e8dfd2] rounded-xl text-sm font-bold text-slate-600 hover:bg-[#f7f1e8] hover:border-[#c99b45] transition-all shadow-sm"
-              >
-                <Printer className="w-4 h-4" />
-                Print
-              </button>
             </div>
           </div>
         </div>
@@ -352,16 +403,16 @@ export default function PtApplicationDetailPage() {
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">First Choice (Proposed)</span>
-                        <p className="font-semibold text-slate-700">{form?.first_choice_program_name || form?.proposed_course_name || applicant?.program_name || "N/A"}</p>
+                        <p className="font-semibold text-slate-700">{firstChoiceDisplay}</p>
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Second Choice (Proposed)</span>
-                        <p className="font-semibold text-slate-700">{form?.second_choice_program_name || "N/A"}</p>
+                        <p className="font-semibold text-slate-700">{secondChoiceDisplay}</p>
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Admitted/Finalised Course</span>
                         <p className="font-bold text-emerald-700">
-                          {applicant?.finalised_course || applicant?.approved_course || "Awaiting decision / Not finalized"}
+                          {finalisedCourseDisplay}
                         </p>
                       </div>
                       <div>
@@ -528,10 +579,10 @@ export default function PtApplicationDetailPage() {
                             <FileText className="w-4 h-4 text-[#c99b45] shrink-0" />
                             <div className="min-w-0">
                               <p className="text-sm font-bold text-slate-700 truncate">
-                                {doc.original_filename}
+                                {formatDocumentCategory(doc.document_type)}
                               </p>
-                              <p className="text-xs text-slate-400 capitalize">
-                                {(doc.document_type || "").replace(/_/g, " ")}
+                              <p className="text-xs text-slate-400">
+                                {doc.original_filename || "Unnamed file"}
                                 {doc.file_size ? ` · ${(doc.file_size / 1024).toFixed(1)} KB` : ""}
                               </p>
                             </div>
@@ -629,7 +680,13 @@ export default function PtApplicationDetailPage() {
                     <Clock className="w-6 h-6 text-[#2d5f9a] mx-auto mb-2" />
                     <p className="text-sm font-bold text-[#2d5f9a]">Awaiting candidate response</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      Recommended Course: <span className="font-semibold">{applicant?.approved_course}</span>
+                      Recommended Course:{" "}
+                      <span className="font-semibold">
+                        {formatDegreeProgramme(
+                          applicant?.approved_course,
+                          applicant?.degree_code || form?.degree_code,
+                        )}
+                      </span>
                     </p>
                   </div>
                 ) : (
@@ -650,7 +707,10 @@ export default function PtApplicationDetailPage() {
                           Candidate accepted recommended course:
                         </p>
                         <p className="text-sm font-semibold text-emerald-950 mt-0.5">
-                          {applicant?.approved_course}
+                          {formatDegreeProgramme(
+                            applicant?.approved_course,
+                            applicant?.degree_code || form?.degree_code,
+                          )}
                         </p>
                       </div>
                     )}

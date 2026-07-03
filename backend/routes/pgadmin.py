@@ -8,6 +8,11 @@ from flask import Blueprint, request, jsonify, Response
 from database import Database
 from utils.auth import AuthHandler
 from utils.pg_application_generator import PGApplicationPDFGenerator
+from utils.pg_fees import (
+    build_admission_letter_fee_strings,
+    get_pg_fee_context_by_application,
+    get_pg_program_fee_rows,
+)
 
 pgadmin_bp = Blueprint('pgadmin', __name__)
 
@@ -16,6 +21,12 @@ pgadmin_bp = Blueprint('pgadmin', __name__)
 USER_NAME_EXPR = "u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname"
 
 PG_PROG_TYPE = 2  # prog_type id for Postgraduate in program_types table
+
+
+def _get_pg_admission_letter_fee_strings(applicant_id):
+    context = get_pg_fee_context_by_application(applicant_id)
+    fees = get_pg_program_fee_rows(context)
+    return build_admission_letter_fee_strings(fees)
 
 
 def _file_to_data_url(file_path):
@@ -109,23 +120,7 @@ def _build_pg_admission_letter_pdf(applicant_id, admission_date_str):
 
     applicant_data = applicant[0]
 
-    fees = Database.execute_query(
-        '''SELECT fc.name, pf.amount
-           FROM program_fees pf
-           JOIN fee_components fc ON pf.fee_component_id = fc.id
-           WHERE pf.program_type = 2'''
-    )
-    acceptance_fee_str = tuition_fee_str = other_fees_str = ''
-    if fees:
-        for fee in fees:
-            name = (fee['name'] or '').lower()
-            amount = fee['amount'] or 0
-            if 'acceptance' in name:
-                acceptance_fee_str = f"NGN {amount:,.2f}"
-            elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"NGN {amount:,.2f}"
-            elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"NGN {amount:,.2f}"
+    acceptance_fee_str, tuition_fee_str, other_fees_str = _get_pg_admission_letter_fee_strings(applicant_id)
 
     return PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],
@@ -808,24 +803,7 @@ def send_admission_letter(payload):
 
     applicant_data = applicant[0]
 
-    fees = Database.execute_query(
-        '''SELECT fc.name, pf.amount
-        FROM program_fees pf
-        JOIN fee_components fc ON pf.fee_component_id = fc.id
-        WHERE pf.program_type = 2''',
-        ()
-    )
-    acceptance_fee_str = tuition_fee_str = other_fees_str = ''
-    if fees:
-        for fee in fees:
-            name = (fee['name'] or '').lower()
-            amount = fee['amount'] or 0
-            if 'acceptance' in name:
-                acceptance_fee_str = f"NGN {amount:,.2f}"
-            elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"NGN {amount:,.2f}"
-            elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"NGN {amount:,.2f}"
+    acceptance_fee_str, tuition_fee_str, other_fees_str = _get_pg_admission_letter_fee_strings(applicant_id)
 
     session_res = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     default_session = session_res[0]['value'] if session_res else '2025/2026'
@@ -1139,23 +1117,7 @@ def send_pg_department_letters(payload):
 
             applicant_data = applicant[0]
 
-            fees = Database.execute_query(
-                '''SELECT fc.name, pf.amount
-                   FROM program_fees pf
-                   JOIN fee_components fc ON pf.fee_component_id = fc.id
-                   WHERE pf.program_type = 2'''
-            )
-            acceptance_fee_str = tuition_fee_str = other_fees_str = ''
-            if fees:
-                for fee in fees:
-                    name   = (fee['name'] or '').lower()
-                    amount = fee['amount'] or 0
-                    if 'acceptance' in name:
-                        acceptance_fee_str = f"NGN {amount:,.2f}"
-                    elif 'tuition' in name or 'accommodation' in name:
-                        tuition_fee_str = f"NGN {amount:,.2f}"
-                    elif 'sundry' in name or 'other' in name or 'digital' in name:
-                        other_fees_str = f"NGN {amount:,.2f}"
+            acceptance_fee_str, tuition_fee_str, other_fees_str = _get_pg_admission_letter_fee_strings(applicant_id)
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidate_name=applicant_data['name'],
@@ -1328,23 +1290,7 @@ def resend_pg_letter(payload, applicant_id):
 
     applicant_data = applicant[0]
 
-    fees = Database.execute_query(
-        '''SELECT fc.name, pf.amount
-           FROM program_fees pf
-           JOIN fee_components fc ON pf.fee_component_id = fc.id
-           WHERE pf.program_type = 2'''
-    )
-    acceptance_fee_str = tuition_fee_str = other_fees_str = ''
-    if fees:
-        for fee in fees:
-            name   = (fee['name'] or '').lower()
-            amount = fee['amount'] or 0
-            if 'acceptance' in name:
-                acceptance_fee_str = f"NGN {amount:,.2f}"
-            elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"NGN {amount:,.2f}"
-            elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"NGN {amount:,.2f}"
+    acceptance_fee_str, tuition_fee_str, other_fees_str = _get_pg_admission_letter_fee_strings(applicant_id)
 
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],

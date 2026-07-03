@@ -41,6 +41,32 @@ const statusColors: Record<string, string> = {
   rejected: "bg-rose-50 text-rose-700 border border-rose-200",
 };
 
+const formatDocumentCategory = (category?: string | null) =>
+  (category || "Document")
+    .replace(/_/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
+const formatDegreeProgramme = (
+  programme?: string | null,
+  degreeCode?: string | null,
+) => {
+  const cleanProgramme = (programme || "").trim();
+  const cleanDegree = (degreeCode || "").trim();
+
+  if (!cleanProgramme) return "N/A";
+  if (!cleanDegree) return cleanProgramme;
+
+  const escapedDegree = cleanDegree.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alreadyPrefixed = new RegExp(`^${escapedDegree}\\.?\\s+`, "i").test(
+    cleanProgramme,
+  );
+
+  return alreadyPrefixed ? cleanProgramme : `${cleanDegree} ${cleanProgramme}`;
+};
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function InfoCard({
@@ -75,6 +101,11 @@ function ApplicantInfoTab({
   passportUrl: string | null;
   applicant: any;
 }) {
+  const displayProgramme = formatDegreeProgramme(
+    form?.proposed_course_name || applicant?.program_name,
+    form?.degree_code || applicant?.degree_code,
+  );
+
   return (
     <div className="space-y-6 bg-white border border-gray-200 p-6 rounded-xl">
       {/* Header with passport */}
@@ -117,11 +148,7 @@ function ApplicantInfoTab({
           </div>
           <div className="pt-1">
             <Badge className="bg-slate-100 text-slate-600 border-slate-200 font-medium rounded-md px-2.5 py-1 text-xs">
-              {form?.degree_name && form?.proposed_course_name
-                ? `${form.degree_code || form.degree_name} — ${form.proposed_course_name}`
-                : form?.proposed_course_name ||
-                  applicant?.program_name ||
-                  "N/A"}
+              {displayProgramme}
             </Badge>
           </div>
         </div>
@@ -189,7 +216,7 @@ function ApplicantInfoTab({
           />
           <InfoCard
             label="Proposed Course"
-            value={form?.proposed_course_name}
+            value={displayProgramme}
             colSpan="md:col-span-2"
           />
           <InfoCard
@@ -507,10 +534,10 @@ function DocumentsTab({
                   <p className="font-semibold text-slate-700 text-sm truncate">
                     {doc.status === "unavailable"
                       ? "Document unavailable"
-                      : doc.original_filename}
+                      : formatDocumentCategory(doc.document_type)}
                   </p>
-                  <p className="text-xs text-slate-400 mt-0.5 capitalize">
-                    {(doc.document_type || "").replace(/_/g, " ")}
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {doc.original_filename || "Unnamed file"}
                     {doc.file_size
                       ? ` · ${(doc.file_size / 1024).toFixed(1)} KB`
                       : ""}
@@ -976,10 +1003,10 @@ export default function PgApplicationDetailPage() {
   const appStatus = applicant?.application_status || "submitted";
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-gray-50">
-      <div className="mx-auto max-w-6xl px-4 pb-8 pt-4 sm:px-6 lg:px-8">
-        {/* Breadcrumb + Print */}
-        <div className="flex items-center justify-between mb-5">
+    <div className="min-h-screen bg-gray-50">
+      {/* Breadcrumb + Print */}
+      <div className="sticky top-0 z-50 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <Link
             href="/pgdean/applications"
             className="text-slate-400 hover:text-slate-600 text-sm transition-colors"
@@ -999,6 +1026,9 @@ export default function PgApplicationDetailPage() {
             Print / Download
           </Button>
         </div>
+      </div>
+
+      <div className="mx-auto max-w-6xl px-4 pb-8 pt-5 sm:px-6 lg:px-8">
 
         {/* Application header card */}
         <div className="mb-6 bg-white border border-gray-200 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1034,9 +1064,10 @@ export default function PgApplicationDetailPage() {
               <span>
                 Programme:{" "}
                 <strong className="text-slate-700">
-                  {form?.proposed_course_name ||
-                    applicant?.program_name ||
-                    "N/A"}
+                  {formatDegreeProgramme(
+                    form?.proposed_course_name || applicant?.program_name,
+                    form?.degree_code || applicant?.degree_code,
+                  )}
                 </strong>
               </span>
             </div>

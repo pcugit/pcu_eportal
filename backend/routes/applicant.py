@@ -8,6 +8,11 @@ from utils.pdf_generator import PDFGenerator
 from utils.payment_receipt_generator import PaymentReceiptGenerator
 from utils.medical_form_generator import MedicalFormGenerator
 from utils.interswitch import InterswitchClient
+from utils.pg_fees import (
+    build_admission_letter_fee_strings,
+    get_pg_fee_context_by_user,
+    get_pg_program_fee_rows,
+)
 from utils.payment_status import (
     classify_response,
     apply_downstream_success,
@@ -267,51 +272,11 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
 
 def _get_applicant_fee_context(user_id):
     # Try pg_application first
-    pg_res = Database.execute_query(
-        '''SELECT pg.uuid,
-                  pg.finalised_course,
-                  pg.approved_course,
-                  pg.proposed_course AS program_setup_id
-           FROM pg_application pg
-           WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
-           ORDER BY pg.created_date DESC LIMIT 1''',
-        (user_id,)
-    )
-    if pg_res:
-        pg_row = pg_res[0]
-        finalised_course = (pg_row.get('finalised_course') or '').strip()
-        if not finalised_course:
-            finalised_course = (pg_row.get('approved_course') or '').strip()
-        if not finalised_course and pg_row.get('program_setup_id'):
-            ps_res = Database.execute_query(
-                'SELECT name FROM pg_program_setup WHERE id = %s',
-                (pg_row['program_setup_id'],)
-            )
-            if ps_res:
-                finalised_course = ps_res[0]['name']
-
-        if not finalised_course:
-            raise ValueError('finalised_course is required to resolve faculty and fees')
-
-        faculty_res = Database.execute_query(
-            '''SELECT faculty_id
-               FROM pg_program_setup
-               WHERE LOWER(name) = LOWER(%s)
-               LIMIT 1''',
-            (finalised_course,)
-        )
-        if not faculty_res or faculty_res[0].get('faculty_id') is None:
-            raise ValueError(f"No faculty found for finalised_course '{finalised_course}'")
-
-        pt_res = Database.execute_query('SELECT level_id FROM program_types WHERE id = 2')
-        level_id = pt_res[0]['level_id'] if pt_res else None
-
-        return {
-            'program_type': 2,
-            'level': level_id,
-            'faculty_id': faculty_res[0]['faculty_id'],
-            'finalised_course': finalised_course,
-        }
+    try:
+        return get_pg_fee_context_by_user(user_id)
+    except ValueError as e:
+        if 'No eligible PG application' not in str(e):
+            raise
 
     app_res = Database.execute_query(
         '''SELECT app.prog_type,
@@ -382,20 +347,23 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
         return float(res[0]['amount'])
 
     if payment_type == 'acceptance_fee':
-        pg_res = Database.execute_query(
-            'SELECT uuid FROM pg_application WHERE user_id = %s ORDER BY created_date DESC LIMIT 1',
+        try:
+            context = get_pg_fee_context_by_user(user_id)
+            fee_res = get_pg_program_fee_rows(context, include_acceptance=True)
+            if not fee_res:
+                raise ValueError('Acceptance fee not configured for this PG degree and faculty')
+            return float(fee_res[0]['amount'])
+        except ValueError as e:
+            if 'No eligible PG application' not in str(e):
+                raise
+
+        app_res = Database.execute_query(
+            'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
             (user_id,)
         )
-        if pg_res:
-            prog_type = 2
-        else:
-            app_res = Database.execute_query(
-                'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
-                (user_id,)
-            )
-            if not app_res:
-                raise ValueError('No application found for this user')
-            prog_type = app_res[0]['prog_type']
+        if not app_res:
+            raise ValueError('No application found for this user')
+        prog_type = app_res[0]['prog_type']
 
         fee_res = Database.execute_query(
             '''SELECT pf.amount
@@ -447,25 +415,72 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
             raise ValueError('Tuition fee breakdown not configured for this program_type, level, and faculty')
 
         # If an installment_plan_id is supplied, compute the installment amount
-        # as percentage of the total using the percentage stored in installment_plans
+        # as the gap between what has been paid and the selected installment milestone.
         if installment_plan_id:
-            ip = Database.execute_query(
-                'SELECT percentage FROM installment_plans WHERE id = %s LIMIT 1',
-                (installment_plan_id,)
+            plans = _get_installment_plans_for_user(user_id) or []
+            selected_index = next(
+                (idx for idx, plan in enumerate(plans) if str(plan.get('id')) == str(installment_plan_id)),
+                None
             )
-            if not ip:
+            if selected_index is None:
                 raise ValueError(f'Installment plan id {installment_plan_id} not found')
-            try:
-                pct = float(ip[0].get('percentage') or 0)
-            except Exception:
-                pct = 0.0
-            if pct <= 0:
-                raise ValueError('Invalid installment percentage for selected plan')
-            installment_amount = round((total * pct) / 100.0, 2)
-            return installment_amount
 
-        # Full Payment: compute as the total of what is left
-        plans = Database.execute_query('SELECT id, percentage FROM installment_plans')
+            cumulative_pct = sum(
+                float(plan.get('percentage') or 0)
+                for plan in plans[:selected_index + 1]
+            )
+            if cumulative_pct <= 0:
+                raise ValueError('Invalid installment percentage for selected plan')
+
+            total_paid = _get_paid_tuition_total(user_id)
+            first_due_index = next(
+                (
+                    idx
+                    for idx, _plan in enumerate(plans)
+                    if round(
+                        (
+                            total
+                            * sum(float(p.get('percentage') or 0) for p in plans[:idx + 1])
+                        )
+                        / 100.0,
+                        2,
+                    )
+                    > total_paid
+                ),
+                None,
+            )
+            if first_due_index is None:
+                raise ValueError('School fees are already fully paid')
+            if selected_index != first_due_index:
+                raise ValueError('Installments must be paid in order')
+
+            milestone_amount = round((total * cumulative_pct) / 100.0, 2)
+            amount_due = round(max(0.0, milestone_amount - total_paid), 2)
+            if amount_due <= 0:
+                raise ValueError('Selected installment has already been covered by previous payments')
+            return amount_due
+
+        # Full Payment: compute as the outstanding balance for this session.
+        session_res = Database.execute_query(
+            'SELECT id FROM academic_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1'
+        )
+        current_session_id = session_res[0]['id'] if session_res else None
+        if current_session_id:
+            paid_res = Database.execute_query(
+                '''SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) AS total_paid
+                   FROM payment_transactions
+                   WHERE user_id = %s
+                     AND academic_session_id = %s
+                     AND tran_type = 'tuition'
+                     AND tran_status = 'successful' ''',
+                (user_id, current_session_id)
+            )
+            total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0.0
+            if total_paid > 0:
+                return round(max(0.0, total - total_paid), 2)
+
+        # Installment fallback for legacy rows without amount/session tracking.
+        plans = _get_installment_plans_for_user(user_id)
         if plans:
             paid = Database.execute_query(
                 '''SELECT installment_plan_id 
@@ -496,6 +511,86 @@ def _get_processing_fee() -> float:
         return float(res[0]['value']) if res else 300.0
     except Exception:
         return 300.0
+
+
+def _get_active_session_id():
+    session_res = Database.execute_query(
+        'SELECT id FROM academic_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1'
+    )
+    return session_res[0]['id'] if session_res else None
+
+
+def _get_paid_tuition_total(user_id, session_id=None):
+    if not session_id:
+        session_id = _get_active_session_id()
+    if not session_id:
+        return 0.0
+
+    paid_res = Database.execute_query(
+        '''SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) AS total_paid
+           FROM payment_transactions
+           WHERE user_id = %s
+             AND academic_session_id = %s
+             AND tran_type = 'tuition'
+             AND tran_status = 'successful' ''',
+        (user_id, session_id)
+    )
+    return float(paid_res[0]['total_paid'] or 0) if paid_res else 0.0
+
+
+def _get_pg_context_or_none(user_id):
+    try:
+        return get_pg_fee_context_by_user(user_id, admitted_only=False)
+    except Exception:
+        pg_res = Database.execute_query(
+            'SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1',
+            (user_id,)
+        )
+        return {'program_type': 2} if pg_res else None
+
+
+def _ensure_pg_installment_plans():
+    desired = [
+        ('pg_first_installment', 'First Installment', 60),
+        ('pg_second_installment', 'Second Installment', 40),
+    ]
+    for label, name, percentage in desired:
+        existing = Database.execute_query(
+            'SELECT id FROM installment_plans WHERE label = %s LIMIT 1',
+            (label,)
+        )
+        if existing:
+            Database.execute_update(
+                'UPDATE installment_plans SET name = %s, percentage = %s WHERE label = %s',
+                (name, percentage, label)
+            )
+        else:
+            Database.execute_update(
+                'INSERT INTO installment_plans (label, name, percentage) VALUES (%s, %s, %s)',
+                (label, name, percentage)
+            )
+
+
+def _get_installment_plans_for_user(user_id):
+    if _get_pg_context_or_none(user_id):
+        _ensure_pg_installment_plans()
+        return Database.execute_query(
+            """SELECT id, label, name, percentage
+               FROM installment_plans
+               WHERE label IN ('pg_first_installment', 'pg_second_installment')
+               ORDER BY CASE label
+                   WHEN 'pg_first_installment' THEN 1
+                   WHEN 'pg_second_installment' THEN 2
+                   ELSE 99
+               END"""
+        )
+
+    return Database.execute_query(
+        """SELECT id, label, name, percentage
+           FROM installment_plans
+           WHERE label IS NULL OR label NOT LIKE 'pg_%'
+           ORDER BY id"""
+    )
 
 
 @applicant_bp.route('/processing-fee', methods=['GET'])
@@ -609,10 +704,9 @@ def get_program_types():
 @AuthHandler.token_required
 def get_installment_plans(payload):
     """Return available installment plans (id, label, name, percentage)."""
+    user_id = payload['user_id']
     try:
-        plans = Database.execute_query(
-            'SELECT id, label, name, percentage FROM installment_plans ORDER BY id'
-        )
+        plans = _get_installment_plans_for_user(user_id)
         formatted = [
             {
                 'id': p['id'],
@@ -2530,20 +2624,31 @@ def get_admission_letter(payload):
         return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
-    fees = Database.execute_query(
-        '''SELECT fc.name AS fee_name, pf.amount
-           FROM program_fees pf
-           JOIN fee_components fc ON pf.fee_component_id = fc.id
-           WHERE pf.program_type = %s''',
-        (str(applicant_data['program_id']),)
-    )
-    acceptance_fee = tuition_fee = other_fees = 0
-    for fee in (fees or []):
-        fname  = (fee['fee_name'] or '').lower()
-        amount = fee['amount'] or 0
-        if 'acceptance' in fname:            acceptance_fee = amount
-        elif 'tuition' in fname or 'accommodation' in fname: tuition_fee = amount
-        elif any(k in fname for k in ('sundry', 'other', 'digital')): other_fees = amount
+    if is_pg:
+        fee_context = get_pg_fee_context_by_user(user_id)
+        fees = get_pg_program_fee_rows(fee_context)
+        acceptance_fee_str, tuition_fee_str, other_fees_str = build_admission_letter_fee_strings(fees)
+    else:
+        fees = Database.execute_query(
+            '''SELECT fc.name AS fee_name, pf.amount
+               FROM program_fees pf
+               JOIN fee_components fc ON pf.fee_component_id = fc.id
+               WHERE pf.program_type = %s''',
+            (str(applicant_data['program_id']),)
+        )
+        acceptance_fee = tuition_fee = other_fees = 0
+        for fee in (fees or []):
+            fname  = (fee['fee_name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in fname:
+                acceptance_fee += amount
+            elif 'tuition' in fname or 'accommodation' in fname:
+                tuition_fee += amount
+            elif any(k in fname for k in ('sundry', 'other', 'digital')):
+                other_fees += amount
+        acceptance_fee_str = f"NGN {acceptance_fee:,.2f}"
+        tuition_fee_str = f"NGN {tuition_fee:,.2f}"
+        other_fees_str = f"NGN {other_fees:,.2f}"
 
     session_res  = Database.execute_query("SELECT name FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     session      = session_res[0]['name'] if session_res else '2025/2026'
@@ -2600,9 +2705,9 @@ def get_admission_letter(payload):
         'mode':           mode,
         'date':           datetime.now().strftime('%d %B, %Y'),
         'resumptionDate': resumption_date,
-        'acceptanceFee':  f"NGN {acceptance_fee:,.2f}",
-        'tuition':        f"NGN {tuition_fee:,.2f}",
-        'otherFees':      f"NGN {other_fees:,.2f}",
+        'acceptanceFee':  acceptance_fee_str,
+        'tuition':        tuition_fee_str,
+        'otherFees':      other_fees_str,
         'reference':      ref_no,
     }), 200
 
@@ -2660,20 +2765,31 @@ def print_admission_letter(payload):
         return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
-    fees = Database.execute_query(
-        '''SELECT fc.name AS fee_name, pf.amount
-           FROM program_fees pf
-           JOIN fee_components fc ON pf.fee_component_id = fc.id
-           WHERE pf.program_type = %s''',
-        (str(applicant_data['program_id']),)
-    )
-    acceptance_fee = tuition_fee = other_fees = 0
-    for fee in (fees or []):
-        fname  = (fee['fee_name'] or '').lower()
-        amount = fee['amount'] or 0
-        if 'acceptance' in fname:            acceptance_fee = amount
-        elif 'tuition' in fname or 'accommodation' in fname: tuition_fee = amount
-        elif any(k in fname for k in ('sundry', 'other', 'digital')): other_fees = amount
+    if is_pg:
+        fee_context = get_pg_fee_context_by_user(user_id)
+        fees = get_pg_program_fee_rows(fee_context)
+        acceptance_fee_str, tuition_fee_str, other_fees_str = build_admission_letter_fee_strings(fees)
+    else:
+        fees = Database.execute_query(
+            '''SELECT fc.name AS fee_name, pf.amount
+               FROM program_fees pf
+               JOIN fee_components fc ON pf.fee_component_id = fc.id
+               WHERE pf.program_type = %s''',
+            (str(applicant_data['program_id']),)
+        )
+        acceptance_fee = tuition_fee = other_fees = 0
+        for fee in (fees or []):
+            fname  = (fee['fee_name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in fname:
+                acceptance_fee += amount
+            elif 'tuition' in fname or 'accommodation' in fname:
+                tuition_fee += amount
+            elif any(k in fname for k in ('sundry', 'other', 'digital')):
+                other_fees += amount
+        acceptance_fee_str = f'NGN {acceptance_fee:,.2f}'
+        tuition_fee_str = f'NGN {tuition_fee:,.2f}'
+        other_fees_str = f'NGN {other_fees:,.2f}'
 
     session_res  = Database.execute_query("SELECT name FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     session      = session_res[0]['name'] if session_res else '2025/2026'
@@ -2703,9 +2819,9 @@ def print_admission_letter(payload):
             mode='Full Time' if is_pg else '',
             session=session_name,
             date=datetime.now().strftime('%d %B, %Y'),
-            acceptanceFee=f'NGN {acceptance_fee:,.2f}',
-            tuition=f'NGN {tuition_fee:,.2f}',
-            otherFees=f'NGN {other_fees:,.2f}',
+            acceptanceFee=acceptance_fee_str,
+            tuition=tuition_fee_str,
+            otherFees=other_fees_str,
             resumptionDate=resumption_date,
             reference=ref_no,
             ref_number=ref_no,
@@ -3198,23 +3314,10 @@ def _get_student_fee_context(user_id):
         }
     
     # 2. Try students table for postgraduate
-    pg_student_res = Database.execute_query(
-        '''SELECT s.current_level_id as level,
-                  2 as program_type,
-                  pg.proposed_faculty_id as faculty_id
-           FROM students s
-           JOIN users u ON u.id = s."UserId"
-           LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
-           WHERE s."UserId" = %s
-           ORDER BY s."CreatedDate" DESC LIMIT 1''',
-        (user_id,)
-    )
-    if pg_student_res and pg_student_res[0].get('level') and pg_student_res[0].get('faculty_id'):
-        return {
-            'program_type': 2,
-            'level': pg_student_res[0]['level'],
-            'faculty_id': pg_student_res[0]['faculty_id']
-        }
+    try:
+        return get_pg_fee_context_by_user(user_id)
+    except Exception:
+        pass
 
     # 3. Fallback to _get_applicant_fee_context
     try:

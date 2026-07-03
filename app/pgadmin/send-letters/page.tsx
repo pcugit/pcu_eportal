@@ -179,15 +179,20 @@ export default function PgAdminSendLettersPage() {
         />
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
+      <div className="sticky top-0 z-50 border-b border-border/70 bg-background/95 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <Link
             href="/pgadmin/dashboard"
-            className="text-primary hover:underline text-sm mb-2 block"
+            className="text-primary hover:underline text-sm"
           >
             ← Back to Dashboard
           </Link>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">
             Send Admission Letters
           </h1>

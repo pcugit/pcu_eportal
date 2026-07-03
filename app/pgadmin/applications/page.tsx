@@ -161,18 +161,22 @@ function PgApplicationsPageInner() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <div className="sticky top-0 z-50 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+          <Link
+            href="/pgadmin/dashboard"
+            className="text-slate-500 hover:text-slate-700 text-sm transition-colors"
+          >
+            ← Back to Dashboard
+          </Link>
+        </div>
+      </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Header */}
         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <Link
-              href="/pgadmin/dashboard"
-              className="text-slate-500 hover:text-slate-700 text-sm mb-1.5 block transition-colors"
-            >
-              ← Back to Dashboard
-            </Link>
             <h1 className="text-2xl font-bold text-slate-800">Applications</h1>
             <p className="text-slate-500 text-sm mt-0.5">Review applications, complete evaluations and finalize admissions</p>
           </div>

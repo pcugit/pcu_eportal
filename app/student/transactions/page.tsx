@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient, PaymentTransaction } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,16 +18,27 @@ import {
   Clock,
   Receipt,
   BadgeCheck,
+  ArrowLeft,
 } from "lucide-react";
 import { format } from "date-fns";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type FeeComponent = { name: string; amount: number };
+type SessionPayment = {
+  total_expected?: number;
+  total_paid?: number;
+  is_fully_paid?: boolean;
+  remaining?: number;
+  payment_percentage?: number;
+};
 type Tab = "pay" | "history";
 
 function StudentTransactionsContent() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const isPgPortal = pathname.startsWith("/pgstudents");
+  const dashboardPath = isPgPortal ? "/pgstudents/dashboard" : "/student/dashboard";
   const { user, student, isAuthenticated, isLoading } = useAuth();
 
   // Active tab (URL-driven: ?tab=history or ?tab=pay)
@@ -37,7 +48,7 @@ function StudentTransactionsContent() {
 
   const switchTab = (tab: Tab) => {
     setActiveTab(tab);
-    router.replace(`/student/transactions?tab=${tab}`, { scroll: false });
+    router.replace(`${pathname}?tab=${tab}`, { scroll: false });
   };
 
   // ── Pay Fees state ────────────────────────────────────────────────────────
@@ -49,6 +60,7 @@ function StudentTransactionsContent() {
   const [tuitionPaySuccess, setTuitionPaySuccess] = useState(false);
   const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([]);
   const [feeTotal, setFeeTotal] = useState(0);
+  const [sessionPayment, setSessionPayment] = useState<SessionPayment | null>(null);
   const [processingFee, setProcessingFee] = useState(300);
   const [paymentMode, setPaymentMode] = useState<"full" | "installment">("full");
   const [selectedInstallmentPlanId, setSelectedInstallmentPlanId] = useState<number | null>(null);
@@ -68,21 +80,29 @@ function StudentTransactionsContent() {
   const itemsPerPage = 10;
 
   // ── isFullyPaid ───────────────────────────────────────────────────────────
-  const isFullyPaid = (() => {
-    const hasFullPayment = (paymentHistory || []).some(
-      (p) => p.payment_type === "tuition" && p.is_successful && !p.installment_plan_id,
-    );
-    if (hasFullPayment) return true;
-    if (installmentPlans && installmentPlans.length > 0) {
-      const paidPlanIds = new Set(
-        (paymentHistory || [])
-          .filter((p) => p.payment_type === "tuition" && p.is_successful && p.installment_plan_id)
-          .map((p) => p.installment_plan_id),
-      );
-      return installmentPlans.every((plan) => paidPlanIds.has(plan.id));
-    }
-    return false;
-  })();
+  const totalPaid = Number(sessionPayment?.total_paid || 0);
+  const totalExpected = Number(sessionPayment?.total_expected || feeTotal || 0);
+  const remainingBalance = Math.max(
+    0,
+    Number(sessionPayment?.remaining ?? Math.max(0, totalExpected - totalPaid)),
+  );
+  const isFullyPaid =
+    Boolean(sessionPayment?.is_fully_paid) ||
+    (totalExpected > 0 && totalPaid >= totalExpected);
+  const getInstallmentDue = (
+    plans: any[],
+    planIndex: number,
+    total: number = feeTotal,
+    paid: number = totalPaid,
+  ) => {
+    const cumulativePercentage = plans
+      .slice(0, planIndex + 1)
+      .reduce((sum: number, plan: any) => sum + parseFloat(plan.percentage || 0), 0);
+    const milestoneAmount = total * (cumulativePercentage / 100);
+    return Math.max(0, parseFloat((milestoneAmount - paid).toFixed(2)));
+  };
+  const getNextDueInstallmentIndex = (plans: any[]) =>
+    plans.findIndex((plan: any, index: number) => getInstallmentDue(plans, index) > 0);
 
   // ── Fetch payment history & installment plans ─────────────────────────────
   const fetchHistory = useCallback(async () => {
@@ -120,28 +140,31 @@ function StudentTransactionsContent() {
       ]);
       setFeeComponents(breakdown.components);
       setFeeTotal(breakdown.total);
+      setSessionPayment(breakdown.session_payment || null);
       setProcessingFee(
         typeof breakdown.processing_fee === "number" ? breakdown.processing_fee : 300,
       );
       const plans = plansRes.installment_plans || [];
       setInstallmentPlans(plans);
+      const paidSoFar = Number(breakdown.session_payment?.total_paid || 0);
 
-      const paidPlanIds = new Set<number>();
-      (paymentHistory || []).forEach((p: any) => {
-        if (p.payment_type === "tuition" && p.is_successful && p.installment_plan_id)
-          paidPlanIds.add(p.installment_plan_id);
-      });
-      const unpaidPlans = plans.filter((pl: any) => !paidPlanIds.has(pl.id));
+      const unpaidPlans = plans.filter(
+        (_plan: any, index: number) =>
+          getInstallmentDue(plans, index, breakdown.total, paidSoFar) > 0,
+      );
       setRemainingPercentage(
         unpaidPlans.length > 0
           ? unpaidPlans.reduce((s: number, pl: any) => s + parseFloat(pl.percentage || 0), 0)
           : 100,
       );
       if (plans.length > 0) {
-        const next = plans.find((pl: any) => !paidPlanIds.has(pl.id)) || plans[0];
-        if (next) {
-          setSelectedInstallmentPlanId(next.id);
-          setInstallmentAmount(parseFloat((breakdown.total * (next.percentage / 100) || 0).toFixed(2)));
+        const nextIndex = plans.findIndex((plan: any) => unpaidPlans.some((due: any) => due.id === plan.id));
+        if (nextIndex >= 0) {
+          setSelectedInstallmentPlanId(plans[nextIndex].id);
+          setInstallmentAmount(getInstallmentDue(plans, nextIndex, breakdown.total, paidSoFar));
+        } else {
+          setSelectedInstallmentPlanId(null);
+          setInstallmentAmount(null);
         }
       }
       setBreakdownLoaded(true);
@@ -240,9 +263,20 @@ function StudentTransactionsContent() {
     <div className="min-h-screen bg-[#f3eee6]">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Transactions</h1>
-          <p className="text-slate-500 text-sm mt-1">Manage your fees and view payment history</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight">Transactions</h1>
+            <p className="text-slate-500 text-sm mt-1">Manage your fees and view payment history</p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push(dashboardPath)}
+            className="h-10 w-fit gap-2 rounded-xl border-[#e8dfd2] bg-white px-4 text-sm font-bold text-slate-700 hover:bg-[#f8f5f0]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Dashboard
+          </Button>
         </div>
 
         {/* Tab switcher */}
@@ -308,6 +342,35 @@ function StudentTransactionsContent() {
                         ? "Your admission is confirmed. Pay school fees to complete enrolment."
                         : "Ensure your school fees are up to date for this session."}
                     </p>
+                  </div>
+                )}
+
+                {!loadingBreakdown && totalExpected > 0 && (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Expected
+                      </p>
+                      <p className="mt-1 text-sm font-black text-slate-800">
+                        ₦ {totalExpected.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-500">
+                        Paid
+                      </p>
+                      <p className="mt-1 text-sm font-black text-emerald-800">
+                        ₦ {totalPaid.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500">
+                        Balance
+                      </p>
+                      <p className="mt-1 text-sm font-black text-amber-800">
+                        ₦ {remainingBalance.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -392,10 +455,10 @@ function StudentTransactionsContent() {
                           }`}
                           onClick={() => {
                             setPaymentMode("installment");
-                            const plan = installmentPlans.find((p) => p.id === selectedInstallmentPlanId) || installmentPlans[0];
-                            if (plan) {
-                              setSelectedInstallmentPlanId(plan.id);
-                              setInstallmentAmount(parseFloat((feeTotal * (plan.percentage / 100) || 0).toFixed(2)));
+                            const nextIndex = getNextDueInstallmentIndex(installmentPlans);
+                            if (nextIndex >= 0) {
+                              setSelectedInstallmentPlanId(installmentPlans[nextIndex].id);
+                              setInstallmentAmount(getInstallmentDue(installmentPlans, nextIndex));
                             }
                           }}
                         >
@@ -411,23 +474,35 @@ function StudentTransactionsContent() {
                           Installment Plans
                         </span>
                         <div className="grid grid-cols-2 gap-2">
-                          {installmentPlans.map((plan) => (
+                          {installmentPlans.map((plan, index) => {
+                            const dueAmount = getInstallmentDue(installmentPlans, index);
+                            const nextDueIndex = getNextDueInstallmentIndex(installmentPlans);
+                            const isNextDue = index === nextDueIndex;
+                            const isCovered = dueAmount <= 0;
+                            const scheduledAmount =
+                              feeTotal * (parseFloat(plan.percentage || 0) / 100);
+                            const displayAmount = isNextDue ? dueAmount : scheduledAmount;
+
+                            return (
                             <div
                               key={plan.id}
-                              className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all opacity-80 ${
-                                selectedInstallmentPlanId === plan.id
+                              className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all ${
+                                isNextDue
                                   ? "border-[#c99b45] bg-[#c99b45]/5 text-[#7a5a1a] font-bold shadow-sm"
                                   : "border-slate-200 text-slate-500 bg-slate-50/50"
-                              }`}
+                              } ${isCovered ? "opacity-45" : ""}`}
                             >
                               <span className="text-xs font-bold truncate">
                                 {plan.name} ({plan.percentage}%)
                               </span>
                               <span className="text-xs font-black font-mono mt-1">
-                                ₦ {(feeTotal * (plan.percentage / 100)).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                                ₦ {displayAmount.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                              </span>
+                              <span className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                {isCovered ? "Covered" : isNextDue ? "Due now" : "Pending"}
                               </span>
                             </div>
-                          ))}
+                          )})}
                         </div>
                       </div>
                     )}
@@ -460,7 +535,7 @@ function StudentTransactionsContent() {
                         {(
                           (paymentMode === "installment"
                             ? installmentAmount || 0
-                            : feeTotal * (remainingPercentage / 100)) + processingFee
+                            : remainingBalance || feeTotal * (remainingPercentage / 100)) + processingFee
                         ).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                       </span>
                     </div>

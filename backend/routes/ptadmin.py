@@ -225,6 +225,7 @@ def get_application_detail(payload, application_id):
                    {USER_NAME_EXPR} AS name,
                    u.email, u.phone_number,
                    app.prog_type AS program_id,
+                   dg.code AS degree_code,
                    COALESCE(
                        CASE
                            WHEN app.applicant_stage IN ('admitted', 'accepted', 'enrolled')

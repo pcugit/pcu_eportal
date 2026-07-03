@@ -28,6 +28,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ─── Sub-components defined OUTSIDE the parent to prevent remounting ──────────
 
+const formatDocumentCategory = (category?: string | null) =>
+  (category || "Document")
+    .replace(/_/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+
 function ApplicantInfoTab({
   applicant,
   form,
@@ -496,11 +504,11 @@ function DocumentsTab({
                 className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">
-                    {doc.original_filename}
+                  <p className="font-medium truncate capitalize">
+                    {formatDocumentCategory(doc.document_type)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                    {(doc.document_type || "").replace(/_/g, " ")}
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {doc.original_filename || "Unnamed file"}
                     {doc.file_size
                       ? ` · ${(doc.file_size / 1024).toFixed(1)} KB`
                       : ""}

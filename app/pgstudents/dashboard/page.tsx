@@ -350,10 +350,16 @@ export default function PgStudentsDashboardPage() {
                 <div className="divide-y divide-[#eeece6]">
                   {group.items.map((item) => {
                     const Icon = item.icon;
+                    const handleItemClick = () => {
+                      if (group.id === "payments" && item.label === "Pay School Fees") {
+                        router.push("/pgstudents/transactions?tab=pay");
+                      }
+                    };
                     return (
                       <button
                         key={item.label}
                         type="button"
+                        onClick={handleItemClick}
                         className="flex w-full items-center gap-3 px-5 py-3.5 text-left text-sm text-[#1c2b3a] transition-colors hover:bg-[#f6f5f2]"
                       >
                         <Icon className="h-[18px] w-[18px] shrink-0 text-[#b8863d]" />

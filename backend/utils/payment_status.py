@@ -1,5 +1,6 @@
 from database import Database
 from utils.auth import AuthHandler
+from utils.pg_fees import get_pg_fee_context_by_user
 import json
 import secrets
 import string
@@ -474,13 +475,12 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
             user_data = Database.execute_query(
                 '''SELECT u.surname, u.firstname, u.email, u.phone_number,
                           pg.degree_id, 2 AS prog_type, pg.proposed_course AS program_setup_id,
-                          pt.level_id,
+                          NULL AS level_id,
                           pg.middle_name, pg.address, pg.gender, pg.date_of_birth,
                           'Single' AS marital_status, 'Nigerian' AS nationality, '' AS state, '' AS lga,
                           pg.pg_reference_id
                    FROM users u
                    LEFT JOIN pg_application pg ON pg.user_id = u.id AND pg.applicant_stage = 'enrolled'
-                   LEFT JOIN program_types pt ON pt.id = 2
                    WHERE u.id = %s
                    ORDER BY pg.updated_date DESC LIMIT 1''',
                 (user_id,)
@@ -517,6 +517,12 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
 
                 # ── Resolve entry level from applications.level_id (with fallback to program_types.level_id) ──
                 entry_level_id = ud.get('level_id')
+                if is_pg:
+                    try:
+                        pg_fee_context = get_pg_fee_context_by_user(user_id)
+                        entry_level_id = pg_fee_context.get('level')
+                    except Exception as e:
+                        print(f"[apply_downstream_success] PG level lookup failed for user {user_id}: {e}")
                 if not entry_level_id:
                     prog_type = ud.get('prog_type')
                     if prog_type:
@@ -784,12 +790,21 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     current_level_id = None
     program_type = None
     faculty_id = None
+
+    if is_pg:
+        try:
+            pg_fee_context = get_pg_fee_context_by_user(user_id)
+            current_level_id = pg_fee_context.get('level')
+            program_type = pg_fee_context.get('program_type')
+            faculty_id = pg_fee_context.get('faculty_id')
+        except Exception as e:
+            print(f"[update_session_payment_status] PG fee context lookup failed: {e}")
     
-    if student_res and student_res[0].get('current_level_id'):
+    if not current_level_id and student_res and student_res[0].get('current_level_id'):
         current_level_id = student_res[0]['current_level_id']
         program_type = student_res[0].get('prog_type')
         faculty_id = student_res[0].get('faculty_id')
-    else:
+    elif not current_level_id:
         # Fallback for new students who don't have a record in `students` yet
         try:
             if is_pg:
@@ -859,11 +874,11 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     
     # Get total amount paid for this session
     paid_res = Database.execute_query(
-        '''SELECT COALESCE(SUM(amount_paid), 0) as total_paid,
+        '''SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) as total_paid,
                   COUNT(*) as payment_count,
                   STRING_AGG(DISTINCT tran_status, ', ') as statuses,
                   STRING_AGG(DISTINCT tran_type, ', ') as types,
-                  STRING_AGG(CAST(amount_paid AS VARCHAR), ', ') as individual_amounts
+                  STRING_AGG(CAST(COALESCE(amount_paid, amount, 0) AS VARCHAR), ', ') as individual_amounts
            FROM payment_transactions
            WHERE user_id = %s 
              AND academic_session_id = %s 
@@ -995,12 +1010,21 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
     current_level_id = None
     program_type = None
     faculty_id = None
+
+    if is_pg:
+        try:
+            pg_fee_context = get_pg_fee_context_by_user(user_id)
+            current_level_id = pg_fee_context.get('level')
+            program_type = pg_fee_context.get('program_type')
+            faculty_id = pg_fee_context.get('faculty_id')
+        except Exception as e:
+            print(f"[get_session_payment_summary] PG fee context lookup failed: {e}")
     
-    if student_res and student_res[0].get('current_level_id'):
+    if not current_level_id and student_res and student_res[0].get('current_level_id'):
         current_level_id = student_res[0]['current_level_id']
         program_type = student_res[0].get('prog_type')
         faculty_id = student_res[0].get('faculty_id')
-    else:
+    elif not current_level_id:
         # Fallback for new students who don't have a record in `students` yet
         try:
             if is_pg:
@@ -1071,7 +1095,7 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
     
     # Get total paid
     paid_res = Database.execute_query(
-        '''SELECT COALESCE(SUM(amount_paid), 0) as total_paid
+        '''SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) as total_paid
            FROM payment_transactions
            WHERE user_id = %s 
              AND academic_session_id = %s 

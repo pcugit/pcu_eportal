@@ -632,6 +632,14 @@ export class ApiClient {
     total: number;
     processing_fee: number;
     found: boolean;
+    session_payment?: {
+      total_expected: number;
+      total_paid: number;
+      is_fully_paid: boolean;
+      remaining: number;
+      payment_percentage: number;
+    };
+    fully_paid_for_session?: boolean;
     message?: string;
   }> {
     const { data } = await this.fetch<{
@@ -639,6 +647,14 @@ export class ApiClient {
       total: number;
       processing_fee: number;
       found: boolean;
+      session_payment?: {
+        total_expected: number;
+        total_paid: number;
+        is_fully_paid: boolean;
+        remaining: number;
+        payment_percentage: number;
+      };
+      fully_paid_for_session?: boolean;
       message?: string;
     }>("/applicant/tuition-fee-breakdown");
     return data;

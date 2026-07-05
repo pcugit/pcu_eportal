@@ -308,6 +308,10 @@ def get_application_detail(payload, application_id):
         form_data['previous_institution'] = aq.get('previous_institution') or aq.get('institution')
         form_data['previous_course'] = aq.get('previous_course') or aq.get('course')
         form_data['department'] = aq.get('department')
+        # HND / Direct Entry qualification fields
+        for qual_col in ('qualification_type', 'qualification_institution', 'qualification_year'):
+            if aq.get(qual_col) is not None:
+                form_data[qual_col] = aq.get(qual_col)
 
         # First sitting O-Level
         first_subjects = []
@@ -702,6 +706,10 @@ def print_application(payload, application_id):
         form_data['previous_institution'] = aq.get('previous_institution') or aq.get('institution')
         form_data['previous_course'] = aq.get('previous_course') or aq.get('course')
         form_data['department'] = aq.get('department')
+        # HND / Direct Entry qualification fields
+        for qual_col in ('qualification_type', 'qualification_institution', 'qualification_year'):
+            if aq.get(qual_col) is not None:
+                form_data[qual_col] = aq.get(qual_col)
 
         # First sitting O-Level
         first_subjects = []

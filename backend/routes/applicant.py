@@ -1195,12 +1195,20 @@ def submit_form(payload):
 
     # ── Academic qualification / O'Level ─────────────────────────────────────
     aq_fields = {'user_id': user_id}
-    
+
+    # ── HND / Direct Entry qualification fields ───────────────────────────────
+    # These are stored on academic_qualification so they survive alongside O-Level
+    # data and can be read back in a single query in get-form.
+    for qual_col in ('qualification_type', 'qualification_institution', 'qualification_year'):
+        val = clean_val(qual_col)
+        if val is not None:
+            aq_fields[qual_col] = val
+
     # Extract original JAMB choices (manually typed) and other UTME details into aq_fields
     # Build subject ID to name mapping for subject field conversion
     subject_rows = Database.execute_query('SELECT id, name FROM utme_subjects')
     subject_map = {str(r['id']): r['name'] for r in (subject_rows or [])}
-    
+
     utme_cols = [
         'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
         'utme_subject1', 'utme_score1',
@@ -3163,6 +3171,13 @@ def get_form(payload, applicant_id):
             for f in utme_fields:
                 if aq.get(f) is not None:
                     form_data[f] = aq.get(f)
+
+            # Load HND / Direct Entry qualification fields from academic_qualification.
+            # These are authoritative here — they override any value that may have
+            # been set from biodata so the profile always shows fresh saved data.
+            for qual_col in ('qualification_type', 'qualification_institution', 'qualification_year'):
+                if aq.get(qual_col) is not None:
+                    form_data[qual_col] = aq.get(qual_col)
 
         if prog_type:
             pc_res = Database.execute_query(

@@ -17,11 +17,10 @@ import {
   FileText,
   UserCheck,
   Eye,
-  AlertCircle,
   XCircle,
-  ClipboardList,
   ChevronRight,
-  LogOut,
+  ClipboardList,
+  AlertCircle,
 } from "lucide-react";
 
 interface PtStats {
@@ -43,12 +42,12 @@ interface ActivityItem {
 
 function activityDot(type: string) {
   const map: Record<string, string> = {
-    accept: "bg-green-500",
-    fee_paid: "bg-green-500",
+    accept: "bg-emerald-500",
+    fee_paid: "bg-emerald-500",
     submitted: "bg-blue-500",
     recommend: "bg-blue-500",
     pt_evaluated: "bg-slate-500",
-    reject: "bg-red-500",
+    reject: "bg-rose-500",
   };
   return map[type] ?? "bg-amber-500";
 }
@@ -67,24 +66,29 @@ function friendlyTime(iso: string | null): string {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function DashboardNumberSkeleton({ light = false }: { light?: boolean }) {
-  return <Skeleton className={`h-9 w-16 ${light ? "bg-white/60" : "bg-slate-200"}`} />;
+function DashboardNumberSkeleton() {
+  return <Skeleton className="h-8 w-14 bg-slate-200" />;
 }
 
-function DashboardListSkeleton({ compact = false }: { compact?: boolean }) {
+function DashboardListSkeleton() {
   return (
     <div className="space-y-3">
       {[0, 1, 2].map((item) => (
-        <div
-          key={item}
-          className={`flex items-center justify-between rounded-xl border border-[#eee5d8] bg-[#fbfaf7] ${
-            compact ? "p-3" : "p-4"
-          }`}
-        >
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-40 bg-slate-200" />
-            {!compact && <Skeleton className="h-3 w-24 bg-slate-200" />}
-          </div>
+        <div key={item} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <Skeleton className="h-4 w-3/4 bg-slate-200" />
+          <Skeleton className="mt-2 h-3 w-1/3 bg-slate-200" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardBreakdownSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[0, 1, 2, 3].map((item) => (
+        <div key={item} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+          <Skeleton className="h-4 w-32 bg-slate-200" />
           <Skeleton className="h-6 w-10 bg-slate-200" />
         </div>
       ))}
@@ -94,7 +98,7 @@ function DashboardListSkeleton({ compact = false }: { compact?: boolean }) {
 
 export default function PtAdminDashboard() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [stats, setStats] = useState<PtStats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,28 +131,41 @@ export default function PtAdminDashboard() {
       label: "Total Applications",
       value: stats?.total_applications ?? 0,
       icon: FileText,
-      accent: "text-slate-700",
-      iconBg: "bg-[#f3eee6]",
-      iconBorder: "border-[#e2d6c3]",
+      accent: "text-slate-600",
+      iconBg: "bg-slate-100",
       href: "/ptadmin/applications?status=all",
     },
     {
-      label: "Admitted Candidates",
-      value: stats?.total_admitted ?? 0,
-      icon: UserCheck,
-      accent: "text-[#23704d]",
-      iconBg: "bg-[#eef7f1]",
-      iconBorder: "border-[#cfe6d8]",
-      href: "/ptadmin/applications?status=admitted",
+      label: "New Submissions",
+      value: stats?.new_applications ?? 0,
+      icon: ClipboardList,
+      accent: "text-blue-600",
+      iconBg: "bg-blue-50",
+      href: "/ptadmin/applications?status=submitted",
     },
     {
       label: "Under Review",
       value: stats?.under_review ?? 0,
       icon: Eye,
-      accent: "text-[#2d5f9a]",
-      iconBg: "bg-[#eef4fb]",
-      iconBorder: "border-[#ccdded]",
+      accent: "text-amber-600",
+      iconBg: "bg-amber-50",
       href: "/ptadmin/applications?status=screening",
+    },
+    {
+      label: "Admitted",
+      value: stats?.total_admitted ?? 0,
+      icon: UserCheck,
+      accent: "text-emerald-600",
+      iconBg: "bg-emerald-50",
+      href: "/ptadmin/applications?status=admitted",
+    },
+    {
+      label: "Rejected",
+      value: stats?.total_rejected ?? 0,
+      icon: XCircle,
+      accent: "text-rose-600",
+      iconBg: "bg-rose-50",
+      href: "/ptadmin/applications?status=rejected",
     },
     {
       label: "Started Applications",
@@ -156,90 +173,35 @@ export default function PtAdminDashboard() {
       icon: AlertCircle,
       accent: "text-[#9a6614]",
       iconBg: "bg-[#fff7e8]",
-      iconBorder: "border-[#efd9a8]",
       href: "/ptadmin/applications?status=started",
-    },
-    {
-      label: "Rejected",
-      value: stats?.total_rejected ?? 0,
-      icon: XCircle,
-      accent: "text-[#9a2d2d]",
-      iconBg: "bg-[#fdf2f2]",
-      iconBorder: "border-[#f0cece]",
-      href: "/ptadmin/applications?status=rejected",
     },
   ];
 
   return (
-    <div className="min-h-screen bg-[#f3eee6]">
+    <div className="min-h-screen bg-gray-50">
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
 
         {/* Header */}
-        <div className="pt-6 mb-6 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 mb-1">
-              Part-time Admissions
-            </h1>
-            <p className="text-slate-600 font-medium">
-              Manage part-time programme applications
-            </p>
-          </div>
-          <button
-            onClick={() => logout()}
-            className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors mt-1"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign out
-          </button>
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-slate-800">Good day, PT Admin</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Part-time Admissions Portal</p>
         </div>
 
-        {/* Welcome banner */}
-        <section className="mb-6 overflow-hidden rounded-2xl bg-[#c99b45] border border-[#b98d3d] shadow-sm">
-          <div className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="text-white">
-              <p className="text-sm font-bold !text-white/85 mb-1">
-                Welcome back
-              </p>
-              <h2 className="text-2xl font-black !text-white">
-                {user?.name || user?.username || "PT Admin"}
-              </h2>
-              <p className="text-xs !text-white/70 mt-1 font-medium">
-                Part-time Admissions Officer · PCU Portal
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
-                <p className="text-xs font-bold text-[#5c4520]">New</p>
-                <p className="text-2xl font-black text-[#15110a]">
-                  {dashboardLoading ? <DashboardNumberSkeleton light /> : (stats?.new_applications ?? 0)}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
-                <p className="text-xs font-bold text-[#5c4520]">Admitted</p>
-                <p className="text-2xl font-black text-[#15110a]">
-                  {dashboardLoading ? <DashboardNumberSkeleton light /> : (stats?.total_admitted ?? 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* Quick actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
           <Link
             href="/ptadmin/applications?status=submitted"
-            className="group flex items-center gap-4 bg-white hover:bg-slate-50 border border-[#e8dfd2] rounded-xl p-4 transition-colors shadow-sm"
+            className="group flex items-center gap-4 bg-white hover:bg-slate-50 border border-gray-200 rounded-xl p-4 transition-colors"
           >
             <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
               <ClipboardList className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-slate-800 font-semibold text-sm">
-                Review New Applications
-              </p>
+              <p className="text-slate-800 font-semibold text-sm">Review New Applications</p>
               <p className="text-slate-400 text-xs mt-0.5">
                 {dashboardLoading ? (
-                  <Skeleton className="h-3 w-28 bg-slate-200" />
+                  <Skeleton className="h-3 w-40 bg-slate-200" />
                 ) : (
                   `${stats?.new_applications ?? 0} awaiting review`
                 )}
@@ -250,18 +212,16 @@ export default function PtAdminDashboard() {
 
           <Link
             href="/ptadmin/applications?status=screening"
-            className="group flex items-center gap-4 bg-white hover:bg-slate-50 border border-[#e8dfd2] rounded-xl p-4 transition-colors shadow-sm"
+            className="group flex items-center gap-4 bg-white hover:bg-slate-50 border border-gray-200 rounded-xl p-4 transition-colors"
           >
             <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
               <Eye className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-slate-800 font-semibold text-sm">
-                Awaiting Admission Decision
-              </p>
+              <p className="text-slate-800 font-semibold text-sm">Awaiting Admission Decision</p>
               <p className="text-slate-400 text-xs mt-0.5">
                 {dashboardLoading ? (
-                  <Skeleton className="h-3 w-36 bg-slate-200" />
+                  <Skeleton className="h-3 w-32 bg-slate-200" />
                 ) : (
                   `${stats?.under_review ?? 0} awaiting final review`
                 )}
@@ -272,26 +232,24 @@ export default function PtAdminDashboard() {
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-          {statCards.map(({ label, value, icon: Icon, accent, iconBg, iconBorder, href }) => {
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+          {statCards.map(({ label, value, icon: Icon, accent, iconBg, href }) => {
             const cardContent = (
-              <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
-                <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-bold text-slate-500 leading-snug">{label}</p>
-                  <p className={`text-3xl font-black ${accent}`}>
-                    {dashboardLoading ? <DashboardNumberSkeleton /> : value}
-                  </p>
+              <CardContent className="p-4">
+                <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center mb-3 group-hover:scale-105 transition-transform duration-300`}>
+                  <Icon className={`w-4 h-4 ${accent}`} />
                 </div>
-                <div className={`shrink-0 p-3 rounded-2xl ${iconBg} ${accent} border ${iconBorder} group-hover:scale-105 transition-transform duration-300`}>
-                  <Icon className="w-6 h-6 shrink-0" />
-                </div>
+                <p className={`text-2xl font-bold ${accent}`}>
+                  {dashboardLoading ? <DashboardNumberSkeleton /> : value}
+                </p>
+                <p className="text-xs text-slate-500 font-medium mt-0.5 leading-tight">{label}</p>
               </CardContent>
             );
 
             if (href) {
               return (
                 <Link key={label} href={href} className="block group">
-                  <Card className={`hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden shadow-sm cursor-pointer`}>
+                  <Card className="bg-white border border-gray-200 hover:border-slate-400 hover:shadow-sm transition-all duration-150 rounded-xl cursor-pointer">
                     {cardContent}
                   </Card>
                 </Link>
@@ -299,46 +257,40 @@ export default function PtAdminDashboard() {
             }
 
             return (
-              <Card key={label} className="border-[#e8dfd2] bg-white rounded-2xl overflow-hidden shadow-sm">
+              <Card
+                key={label}
+                className="bg-white border border-gray-200 shadow-none rounded-xl"
+              >
                 {cardContent}
               </Card>
             );
           })}
         </div>
 
-        {/* Main grid: Recent Activity + Breakdowns */}
-        <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
+        {/* Main grid */}
+        <div className="grid md:grid-cols-2 gap-6">
 
           {/* Recent Activity */}
-          <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
-            <CardHeader className="pb-4 border-b border-[#f0e8dc]">
-              <CardTitle className="text-lg font-bold text-slate-900">
-                Recent Activity Log
-              </CardTitle>
+          <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
+            <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
+              <CardTitle className="text-sm font-semibold text-slate-700">Recent Activity</CardTitle>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="p-5">
               {dashboardLoading ? (
                 <DashboardListSkeleton />
               ) : activity.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 font-medium">
-                  <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                  <p className="text-sm">No recent activity to display.</p>
+                <div className="text-center py-10 text-slate-400">
+                  <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No recent activity.</p>
                 </div>
               ) : (
-                <div className="relative border-l border-[#eadfce] ml-3 space-y-4 py-2">
+                <div className="relative border-l border-gray-200 ml-3 space-y-4 py-1">
                   {activity.map((item, i) => (
-                    <div key={i} className="relative pl-6 group">
-                      <span
-                        className={`absolute left-0 top-1.5 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 border-white shadow-md ${activityDot(item.type)}`}
-                      />
-                      <div className="p-4 bg-[#fbfaf7] hover:bg-[#f7f1e8] border border-[#eee5d8] rounded-2xl transition-all duration-200">
-                        <p className="font-bold text-sm text-slate-800 leading-snug">
-                          {item.label}
-                        </p>
-                        <p className="text-[10px] font-bold text-slate-500 mt-1.5 flex items-center gap-1.5">
-                          <span>•</span>
-                          <span>{friendlyTime(item.event_time)}</span>
-                        </p>
+                    <div key={i} className="relative pl-5">
+                      <span className={`absolute left-0 top-2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-gray-50 ${activityDot(item.type)}`} />
+                      <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
+                        <p className="font-semibold text-sm text-slate-700 leading-snug">{item.label}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{friendlyTime(item.event_time)}</p>
                       </div>
                     </div>
                   ))}
@@ -347,29 +299,20 @@ export default function PtAdminDashboard() {
             </CardContent>
           </Card>
 
-          {/* Status + Programme breakdowns */}
-          <div className="flex flex-col gap-6">
-            <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
-              <CardHeader className="pb-4 border-b border-[#f0e8dc]">
-                <CardTitle className="text-base font-bold text-slate-900">
-                  Applications by Status
-                </CardTitle>
+          {/* Breakdowns */}
+          <div className="flex flex-col gap-4">
+            <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
+              <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
+                <CardTitle className="text-sm font-semibold text-slate-700">By Status</CardTitle>
               </CardHeader>
-              <CardContent className="p-6 space-y-4">
+              <CardContent className="p-5 space-y-2">
                 {dashboardLoading ? (
-                  <DashboardListSkeleton compact />
+                  <DashboardBreakdownSkeleton />
                 ) : [...(stats?.by_status ?? [])]
                   .sort((a, b) => {
-                    const ORDER = [
-                      "enrolled",
-                      "admitted",
-                      "accepted",
-                      "screening",
-                      "in progress",
-                      "started",
-                    ];
-                    const normA = a.application_status.toLowerCase().replace("_", " ");
-                    const normB = b.application_status.toLowerCase().replace("_", " ");
+                    const ORDER = ["enrolled", "admitted", "accepted", "screening", "in progress", "started"];
+                    const normA = a.application_status.toLowerCase().replace(/_/g, " ");
+                    const normB = b.application_status.toLowerCase().replace(/_/g, " ");
                     const idxA = ORDER.indexOf(normA);
                     const idxB = ORDER.indexOf(normB);
                     if (idxA !== -1 && idxB !== -1) return idxA - idxB;
@@ -378,58 +321,43 @@ export default function PtAdminDashboard() {
                     return 0;
                   })
                   .map((s) => (
-                    <div
-                      key={s.application_status}
-                      className="flex items-center justify-between p-3 bg-[#fbfaf7] border border-[#eee5d8] rounded-xl"
-                    >
-                      <span className="text-sm font-bold text-slate-600 capitalize">
+                    <div key={s.application_status} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                      <span className="text-sm text-slate-600 capitalize">
                         {s.application_status.replace(/_/g, " ")}
                       </span>
-                      <Badge className="bg-[#ead6aa] text-[#4b3411] hover:bg-[#ead6aa] border-none font-bold px-3 py-1 text-xs rounded-lg">
+                      <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100 border-none font-semibold text-xs px-2.5 py-0.5 rounded-md">
                         {s.count}
                       </Badge>
                     </div>
                   ))}
                 {!dashboardLoading && (!stats?.by_status || stats.by_status.length === 0) && (
-                  <p className="text-sm text-muted-foreground italic text-center py-4">
-                    No data yet.
-                  </p>
+                  <p className="text-sm text-slate-400 italic text-center py-4">No data yet.</p>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
-              <CardHeader className="pb-4 border-b border-[#f0e8dc]">
-                <CardTitle className="text-base font-bold text-slate-900">
-                  Applications by Programme
-                </CardTitle>
+            <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
+              <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
+                <CardTitle className="text-sm font-semibold text-slate-700">By Programme</CardTitle>
               </CardHeader>
-              <CardContent className="p-6 space-y-4">
+              <CardContent className="p-5 space-y-2">
                 {dashboardLoading ? (
-                  <DashboardListSkeleton compact />
-                ) : stats?.by_program?.map((p) => (
-                  <div
-                    key={p.name}
-                    className="flex items-center justify-between p-3 bg-[#fbfaf7] border border-[#eee5d8] rounded-xl"
-                  >
-                    <span className="text-sm font-bold text-slate-600 truncate max-w-[200px]">
-                      {p.name || "Unknown"}
-                    </span>
-                    <Badge className="bg-[#dce7f1] text-[#234766] hover:bg-[#dce7f1] border-none font-bold px-3 py-1 text-xs rounded-lg ml-2 shrink-0">
+                  <DashboardBreakdownSkeleton />
+                ) : stats?.by_program?.slice(0, 6).map((p) => (
+                  <div key={p.name} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <span className="text-xs text-slate-600 truncate max-w-[200px]">{p.name || "Unknown"}</span>
+                    <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100 border-none font-semibold text-xs px-2.5 py-0.5 rounded-md ml-2 shrink-0">
                       {p.count}
                     </Badge>
                   </div>
                 ))}
                 {!dashboardLoading && (!stats?.by_program || stats.by_program.length === 0) && (
-                  <p className="text-sm text-muted-foreground italic text-center py-4">
-                    No data yet.
-                  </p>
+                  <p className="text-sm text-slate-400 italic text-center py-4">No data yet.</p>
                 )}
               </CardContent>
             </Card>
           </div>
         </div>
-
       </div>
     </div>
   );

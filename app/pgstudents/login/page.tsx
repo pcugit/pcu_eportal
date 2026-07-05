@@ -206,7 +206,7 @@ export default function PgStudentsLoginPage() {
 
             <div className="portal-login-field">
               <Label htmlFor="password" className="portal-login-label">
-                Surname
+                Password
               </Label>
               <Input
                 id="password"

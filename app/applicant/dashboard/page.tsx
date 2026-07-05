@@ -1255,6 +1255,16 @@ function ApplicantDashboardInner() {
                 initialFormData={submittedFormData ?? undefined}
                 initialDocuments={submittedDocuments ?? undefined}
                 onSuccess={() => {
+                  // Evict the stale preloaded form for this applicant so that
+                  // opening "Profile" right after submission always fetches fresh
+                  // data from the server instead of the cached pre-login warm-up.
+                  if (viewingFormId !== null) {
+                    setPreloadedForms((prev) => {
+                      const next = { ...prev };
+                      delete next[viewingFormId];
+                      return next;
+                    });
+                  }
                   setViewingFormId(null);
                   setFormTemplate(null);
                   loadStatus();

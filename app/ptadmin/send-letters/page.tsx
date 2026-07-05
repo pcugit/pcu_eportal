@@ -47,7 +47,7 @@ interface DepartmentApplicant {
 
 export default function PtAdminSendLettersPage() {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const [faculties, setFaculties] = useState<FacultyData>({});
   const [expandedFaculty, setExpandedFaculty] = useState<string | null>(null);
@@ -112,11 +112,8 @@ export default function PtAdminSendLettersPage() {
 
   const handleSelectApplicant = (id: number | string, checked: boolean) => {
     const newSelected = new Set(selectedApplicants);
-    if (checked) {
-      newSelected.add(id);
-    } else {
-      newSelected.delete(id);
-    }
+    if (checked) newSelected.add(id);
+    else newSelected.delete(id);
     setSelectedApplicants(newSelected);
   };
 
@@ -169,7 +166,7 @@ export default function PtAdminSendLettersPage() {
   if (!isAuthenticated || user?.role !== "ptadmin") return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+    <div className="min-h-screen bg-gray-50">
       {previewApplicantId !== null && (
         <AdmissionLetterPreviewModal
           applicantId={previewApplicantId}
@@ -179,39 +176,35 @@ export default function PtAdminSendLettersPage() {
         />
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Link
-            href="/ptadmin/dashboard"
-            className="text-primary hover:underline text-sm mb-2 block"
-          >
+      {/* Sticky top bar */}
+      <div className="sticky top-0 z-50 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+          <Link href="/ptadmin/dashboard" className="text-slate-500 hover:text-slate-700 text-sm transition-colors">
             ← Back to Dashboard
           </Link>
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            Send Admission Letters
-          </h1>
-          <p className="text-muted-foreground">
-            Manage and send part-time admission letters by programme
-          </p>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-slate-800 mb-1">Send Admission Letters</h1>
+          <p className="text-slate-500 text-sm">Manage and send part-time admission letters by programme</p>
         </div>
 
+        {/* Feedback banners */}
         {error && (
-          <Card className="mb-6 border-destructive/50 bg-destructive/5">
-            <CardContent className="pt-6 flex gap-3">
-              <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
-              <p className="text-sm text-destructive">{error}</p>
-            </CardContent>
-          </Card>
+          <div className="mb-6 bg-rose-50 border border-rose-200 rounded-lg p-4 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-rose-500 flex-shrink-0" />
+            <p className="text-sm text-rose-700 font-medium">{error}</p>
+          </div>
         )}
-
         {successMessage && (
-          <Card className="mb-6 border-green-500/50 bg-green-50">
-            <CardContent className="pt-6 flex gap-3">
-              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
-              <p className="text-sm text-green-700">{successMessage}</p>
-            </CardContent>
-          </Card>
+          <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+            <p className="text-sm text-emerald-700 font-medium">{successMessage}</p>
+          </div>
         )}
 
         <Tabs
@@ -221,115 +214,78 @@ export default function PtAdminSendLettersPage() {
         >
           {/* Tab List */}
           <div className="mb-6">
-            <div className="relative overflow-hidden rounded-2xl border border-[#e5d8c6] bg-[#fffefa] p-1.5 shadow-sm">
-              <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <TabsList className="h-auto min-w-max w-full justify-start gap-1 bg-transparent p-0 text-slate-700 sm:grid sm:grid-cols-3">
-                  {(["pending", "sent", "failed"] as const).map((tab) => (
-                    <TabsTrigger
-                      key={tab}
-                      value={tab}
-                      className="rounded-xl px-5 py-2.5 text-sm font-bold capitalize text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
-                    >
-                      {tab === "sent" ? "Sent Successfully" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-            </div>
-            <div className="mt-2 flex justify-center gap-1.5 sm:hidden" aria-hidden="true">
+            <TabsList className="bg-white border border-gray-200 rounded-lg p-1 h-auto gap-1 w-full sm:w-auto sm:grid sm:grid-cols-3">
               {(["pending", "sent", "failed"] as const).map((tab) => (
-                <span
+                <TabsTrigger
                   key={tab}
-                  className={`h-1.5 rounded-full transition-all ${
-                    activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
-                  }`}
-                />
+                  value={tab}
+                  className="rounded-md px-5 py-2 text-sm font-medium capitalize text-slate-600 data-[state=active]:bg-slate-800 data-[state=active]:text-white"
+                >
+                  {tab === "sent" ? "Sent Successfully" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </TabsTrigger>
               ))}
-            </div>
+            </TabsList>
           </div>
 
           {/* ── Pending Tab ── */}
           <TabsContent value="pending" className="space-y-6">
             {loading ? (
-              <Card>
-                <CardContent className="pt-12 text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-                  <p className="text-muted-foreground">Loading...</p>
-                </CardContent>
-              </Card>
+              <div className="text-center py-20 bg-white border border-gray-200 rounded-xl">
+                <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">Loading...</p>
+              </div>
             ) : Object.keys(faculties).length === 0 ? (
-              <Card>
-                <CardContent className="pt-12 text-center">
-                  <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <p className="text-muted-foreground">
-                    All part-time applicants have received their letters!
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="text-center py-20 bg-white border border-gray-200 rounded-xl">
+                <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto mb-4" />
+                <p className="text-slate-500 text-sm font-medium">All part-time applicants have received their letters!</p>
+              </div>
             ) : (
               <div className="grid lg:grid-cols-3 gap-6">
                 {/* Programme Selector */}
-                <Card className="lg:row-span-2">
-                  <CardHeader>
-                    <CardTitle>Programmes</CardTitle>
-                    <CardDescription>
-                      {selectedDepartment
-                        ? `Selected: ${selectedDepartment}`
-                        : "Choose a programme"}
+                <Card className="lg:row-span-2 bg-white border border-gray-200 shadow-none rounded-xl">
+                  <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
+                    <CardTitle className="text-sm font-semibold text-slate-700">Programmes</CardTitle>
+                    <CardDescription className="text-xs text-slate-400 mt-0.5">
+                      {selectedDepartment ? `Selected: ${selectedDepartment}` : "Choose a programme"}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="p-4 space-y-1">
                     {Object.entries(faculties).map(([faculty, departments]) => (
                       <div key={faculty}>
                         <button
-                          onClick={() =>
-                            setExpandedFaculty(
-                              expandedFaculty === faculty ? null : faculty,
-                            )
-                          }
-                          className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-accent"
+                          onClick={() => setExpandedFaculty(expandedFaculty === faculty ? null : faculty)}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 text-slate-700 transition-colors"
                         >
                           {expandedFaculty === faculty ? (
-                            <ChevronDown className="h-4 w-4" />
+                            <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />
                           ) : (
-                            <ChevronRight className="h-4 w-4" />
+                            <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
                           )}
-                          <span className="font-medium">{faculty}</span>
+                          <span className="font-semibold text-sm text-left">{faculty}</span>
                         </button>
 
                         {expandedFaculty === faculty && (
-                          <div className="ml-4 space-y-1">
+                          <div className="ml-4 space-y-0.5 mt-0.5">
                             {departments.map((dept) => (
                               <button
                                 key={dept.name}
                                 onClick={() => handleSelectDepartment(dept.name)}
-                                className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between gap-2 ${
                                   selectedDepartment === dept.name
-                                    ? "!bg-[#c99b45] !text-[#15110a] shadow-sm"
-                                    : "hover:bg-muted"
+                                    ? "bg-slate-800 text-white"
+                                    : "hover:bg-gray-50 text-slate-600"
                                 }`}
                               >
-                                <div className="flex justify-between items-center">
-                                  <span
-                                    className={
-                                      selectedDepartment === dept.name
-                                        ? "!text-[#15110a] font-semibold"
-                                        : undefined
-                                    }
-                                  >
-                                    {dept.name}
-                                  </span>
-                                  <Badge
-                                    variant="secondary"
-                                    className={
-                                      selectedDepartment === dept.name
-                                        ? "!bg-white !text-[#15110a]"
-                                        : undefined
-                                    }
-                                  >
-                                    {dept.pending_count}
-                                  </Badge>
-                                </div>
+                                <span className="truncate">{dept.name}</span>
+                                <Badge
+                                  className={`shrink-0 font-semibold text-xs px-2 py-0.5 rounded-md border-none ${
+                                    selectedDepartment === dept.name
+                                      ? "bg-white/20 text-white"
+                                      : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {dept.pending_count}
+                                </Badge>
                               </button>
                             ))}
                           </div>
@@ -340,67 +296,49 @@ export default function PtAdminSendLettersPage() {
                 </Card>
 
                 {/* Applicant Checklist */}
-                <Card className="lg:col-span-2">
-                  <CardHeader>
-                    <CardTitle>Applicants</CardTitle>
-                    <CardDescription>
+                <Card className="lg:col-span-2 bg-white border border-gray-200 shadow-none rounded-xl">
+                  <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
+                    <CardTitle className="text-sm font-semibold text-slate-700">Applicants</CardTitle>
+                    <CardDescription className="text-xs text-slate-400 mt-0.5">
                       {selectedDepartment
                         ? `Select applicants from ${selectedDepartment}`
                         : "Select a programme first"}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
+                  <CardContent className="p-5 space-y-4">
                     {selectedDepartment ? (
                       <>
-                        <div className="space-y-3 max-h-64 overflow-y-auto">
+                        <div className="space-y-2 max-h-72 overflow-y-auto">
                           {departmentApplicants.length > 0 && (
-                            <div className="flex items-center gap-2 p-2 mb-2">
+                            <div className="flex items-center gap-2 px-2 py-1 mb-1">
                               <Checkbox
                                 id="select-all-pt"
-                                checked={
-                                  selectedApplicants.size === departmentApplicants.length &&
-                                  departmentApplicants.length > 0
-                                }
-                                onCheckedChange={(checked) =>
-                                  handleSelectAll(checked as boolean)
-                                }
+                                checked={selectedApplicants.size === departmentApplicants.length && departmentApplicants.length > 0}
+                                onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
                                 disabled={sending}
                               />
-                              <label
-                                htmlFor="select-all-pt"
-                                className="text-sm font-medium cursor-pointer"
-                              >
-                                Select All ({selectedApplicants.size}/
-                                {departmentApplicants.length})
+                              <label htmlFor="select-all-pt" className="text-sm font-medium text-slate-600 cursor-pointer">
+                                Select All ({selectedApplicants.size}/{departmentApplicants.length})
                               </label>
                             </div>
                           )}
                           {departmentApplicants.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-4">
-                              No pending applicants
-                            </p>
+                            <p className="text-sm text-slate-400 text-center py-8">No pending applicants</p>
                           ) : (
                             departmentApplicants.map((app) => (
                               <div
                                 key={String(app.id)}
-                                className="flex items-center gap-3 p-3 border border-border rounded-lg hover:bg-accent"
+                                className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
                               >
                                 <Checkbox
                                   id={`pt-app-${app.id}`}
                                   checked={selectedApplicants.has(app.id)}
-                                  onCheckedChange={(checked) =>
-                                    handleSelectApplicant(app.id, checked as boolean)
-                                  }
+                                  onCheckedChange={(checked) => handleSelectApplicant(app.id, checked as boolean)}
                                   disabled={sending}
                                 />
-                                <label
-                                  htmlFor={`pt-app-${app.id}`}
-                                  className="flex-1 cursor-pointer"
-                                >
-                                  <p className="font-medium text-sm">{app.name}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {app.email} • {app.program_name}
-                                  </p>
+                                <label htmlFor={`pt-app-${app.id}`} className="flex-1 cursor-pointer min-w-0">
+                                  <p className="font-semibold text-sm text-slate-700">{app.name}</p>
+                                  <p className="text-xs text-slate-400 truncate">{app.email} · {app.program_name}</p>
                                 </label>
                                 <Button
                                   size="sm"
@@ -408,6 +346,7 @@ export default function PtAdminSendLettersPage() {
                                   onClick={() => setPreviewApplicantId(app.id)}
                                   disabled={sending}
                                   title="Preview admission letter"
+                                  className="shrink-0 h-8 w-8 p-0 text-slate-400 hover:text-slate-700"
                                 >
                                   <Eye className="h-4 w-4" />
                                 </Button>
@@ -416,36 +355,34 @@ export default function PtAdminSendLettersPage() {
                           )}
                         </div>
 
-                        <div className="border-t border-border pt-4">
-                          <div className="space-y-3">
-                            <div>
-                              <Label htmlFor="pt-admission-date">
-                                Admission Date
-                              </Label>
-                              <Input
-                                id="pt-admission-date"
-                                type="date"
-                                value={admissionDate}
-                                onChange={(e) => setAdmissionDate(e.target.value)}
-                                disabled={sending}
-                              />
-                            </div>
-                            <Button
-                              onClick={handleSendLetters}
-                              disabled={sending || selectedApplicants.size === 0}
-                              className="w-full gap-2"
-                              style={{ color: "white" }}
-                            >
-                              <Mail className="h-4 w-4" />
-                              {sending
-                                ? "Sending..."
-                                : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? "s" : ""}`}
-                            </Button>
+                        <div className="border-t border-gray-100 pt-4 space-y-3">
+                          <div>
+                            <Label htmlFor="pt-admission-date" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                              Admission Date
+                            </Label>
+                            <Input
+                              id="pt-admission-date"
+                              type="date"
+                              value={admissionDate}
+                              onChange={(e) => setAdmissionDate(e.target.value)}
+                              disabled={sending}
+                              className="mt-1.5 bg-white border-gray-200 text-slate-700 rounded-lg focus:ring-slate-300"
+                            />
                           </div>
+                          <Button
+                            onClick={handleSendLetters}
+                            disabled={sending || selectedApplicants.size === 0}
+                            className="w-full gap-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg"
+                          >
+                            <Mail className="h-4 w-4" />
+                            {sending
+                              ? "Sending..."
+                              : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? "s" : ""}`}
+                          </Button>
                         </div>
                       </>
                     ) : (
-                      <p className="text-sm text-muted-foreground text-center py-12">
+                      <p className="text-sm text-slate-400 text-center py-16">
                         Select a programme group to see applicants
                       </p>
                     )}
@@ -458,42 +395,32 @@ export default function PtAdminSendLettersPage() {
           {/* ── Sent Tab ── */}
           <TabsContent value="sent">
             <div className="mb-4">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-slate-500">
                 {sentLetters.length} applicant{sentLetters.length !== 1 ? "s have" : " has"} received letters
               </p>
             </div>
             {sentLetters.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Send className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground text-sm">No letters have been sent yet</p>
-                </CardContent>
-              </Card>
+              <div className="text-center py-20 bg-white border border-dashed border-gray-200 rounded-xl">
+                <Send className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">No letters have been sent yet</p>
+              </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {sentLetters.map((letter) => (
                   <div
                     key={String(letter.applicant_id)}
-                    className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card hover:bg-accent/40 transition-colors"
+                    className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
                   >
-                    <div className="mt-0.5 flex-shrink-0 h-8 w-8 rounded-full bg-green-100 flex items-center justify-center">
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <div className="mt-0.5 flex-shrink-0 h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-mono text-muted-foreground leading-none mb-1">
-                        {letter.form_no || "—"}
-                      </p>
-                      <p className="font-medium text-sm leading-snug truncate">{letter.name}</p>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {letter.course || letter.program || "—"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs font-mono text-slate-400 leading-none mb-1">{letter.form_no || "—"}</p>
+                      <p className="font-semibold text-sm text-slate-700 leading-snug truncate">{letter.name}</p>
+                      <p className="text-xs text-slate-400 truncate mt-0.5">{letter.course || letter.program || "—"}</p>
+                      <p className="text-xs text-slate-400 mt-1">
                         {letter.sent_at
-                          ? new Date(letter.sent_at).toLocaleDateString("en-GB", {
-                              day: "2-digit",
-                              month: "short",
-                              year: "numeric",
-                            })
+                          ? new Date(letter.sent_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
                           : "—"}
                       </p>
                     </div>
@@ -501,7 +428,7 @@ export default function PtAdminSendLettersPage() {
                       <button
                         onClick={() => setPreviewApplicantId(letter.applicant_id)}
                         title="Preview letter"
-                        className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-100 text-slate-400 hover:text-slate-700 transition-colors"
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
@@ -509,7 +436,7 @@ export default function PtAdminSendLettersPage() {
                         onClick={() => handleResend(letter.applicant_id)}
                         disabled={sending}
                         title="Resend letter"
-                        className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                        className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-100 text-slate-400 hover:text-slate-700 transition-colors disabled:opacity-40"
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
                       </button>
@@ -522,67 +449,58 @@ export default function PtAdminSendLettersPage() {
 
           {/* ── Failed Tab ── */}
           <TabsContent value="failed">
-            <Card>
-              <CardHeader>
-                <CardTitle>Failed Sends</CardTitle>
-                <CardDescription>
-                  {failedLetters.length} applicants failed to receive letters
+            <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
+              <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
+                <CardTitle className="text-sm font-semibold text-slate-700">Failed Sends</CardTitle>
+                <CardDescription className="text-xs text-slate-400 mt-0.5">
+                  {failedLetters.length} applicant{failedLetters.length !== 1 ? "s" : ""} failed to receive letters
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-5">
                 {failedLetters.length === 0 ? (
                   <div className="text-center py-12">
-                    <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                    <p className="text-muted-foreground">No failed letters</p>
+                    <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto mb-4" />
+                    <p className="text-slate-400 text-sm font-medium">No failed letters</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {failedLetters.map((letter) => (
-                      <Card
+                      <div
                         key={String(letter.applicant_id)}
-                        className="border-destructive/50 bg-destructive/5"
+                        className="flex items-start justify-between gap-4 p-4 bg-rose-50 border border-rose-200 rounded-lg"
                       >
-                        <CardContent className="pt-6">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <AlertTriangle className="h-4 w-4 text-destructive" />
-                                <h4 className="font-medium">{letter.name}</h4>
-                              </div>
-                              <p className="text-sm text-muted-foreground mb-1">
-                                {letter.email} • {letter.program}
-                              </p>
-                              {letter.error_message && (
-                                <p className="text-xs text-destructive">
-                                  Error: {letter.error_message}
-                                </p>
-                              )}
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Attempts: {letter.retry_count}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setPreviewApplicantId(letter.applicant_id)}
-                                title="Preview letter"
-                              >
-                                <Eye className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => handleResend(letter.applicant_id)}
-                                disabled={sending}
-                                className="gap-2"
-                              >
-                                <RotateCcw className="h-3 w-3" />
-                                Retry
-                              </Button>
-                            </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <AlertTriangle className="h-4 w-4 text-rose-500 shrink-0" />
+                            <h4 className="font-semibold text-sm text-slate-800">{letter.name}</h4>
                           </div>
-                        </CardContent>
-                      </Card>
+                          <p className="text-xs text-slate-500 mb-1">{letter.email} · {letter.program}</p>
+                          {letter.error_message && (
+                            <p className="text-xs text-rose-600">Error: {letter.error_message}</p>
+                          )}
+                          <p className="text-xs text-slate-400 mt-1">Attempts: {letter.retry_count}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setPreviewApplicantId(letter.applicant_id)}
+                            title="Preview letter"
+                            className="h-8 w-8 p-0 text-slate-500 hover:text-slate-800"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleResend(letter.applicant_id)}
+                            disabled={sending}
+                            className="gap-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            Retry
+                          </Button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}

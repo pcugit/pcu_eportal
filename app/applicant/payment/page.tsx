@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 
 // ── Main component ────────────────────────────────────────────────────────────
+const formatFeeComponentName = (name: string) =>
+  name.toLowerCase().includes("tuition") ? "Tuition" : name;
+
 function PaymentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -59,6 +62,8 @@ function PaymentContent() {
   // Tuition breakdown & installment plan states
   const [feeComponents, setFeeComponents] = useState<any[]>([]);
   const [feeTotal, setFeeTotal] = useState<number | null>(null);
+  const [recurringFeeTotal, setRecurringFeeTotal] = useState<number | null>(null);
+  const [developmentFeeDue, setDevelopmentFeeDue] = useState<number>(0);
   const [installmentPlans, setInstallmentPlans] = useState<any[]>([]);
   const [selectedInstallmentPlanId, setSelectedInstallmentPlanId] = useState<number | null>(null);
   const [installmentAmount, setInstallmentAmount] = useState<number | null>(null);
@@ -66,6 +71,18 @@ function PaymentContent() {
   const [paymentMode, setPaymentMode] = useState<"full" | "installment">("full");
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
+
+  const getInstallmentDueAmount = (
+    plan: any,
+    oneTimeFee: number = developmentFeeDue,
+    includeOneTimeFee: boolean = true,
+  ) => {
+    const baseTotal = recurringFeeTotal ?? feeTotal ?? 0;
+    return parseFloat(
+      ((baseTotal * (Number(plan?.percentage || 0) / 100)) +
+        (includeOneTimeFee ? oneTimeFee : 0)).toFixed(2),
+    );
+  };
 
   const formatProgramName = () => {
     const degreeCode = (status?.degree_code || "").trim();
@@ -136,6 +153,12 @@ function PaymentContent() {
         }
         setFeeComponents(breakdown.components || []);
         setFeeTotal(breakdown.total);
+        setRecurringFeeTotal(
+          typeof breakdown.recurring_total === "number" ? breakdown.recurring_total : breakdown.total,
+        );
+        setDevelopmentFeeDue(
+          typeof breakdown.development_fee_due === "number" ? breakdown.development_fee_due : 0,
+        );
         if (typeof breakdown.processing_fee === "number") {
           setProcessingFee(breakdown.processing_fee);
         }
@@ -158,8 +181,12 @@ function PaymentContent() {
           const next = plans.find((pl: any) => !paidPlanIds.has(pl.id)) || plans[0];
           if (next) {
             setSelectedInstallmentPlanId(next.id);
+            const baseTotal =
+              typeof breakdown.recurring_total === "number" ? breakdown.recurring_total : breakdown.total;
+            const oneTimeFee =
+              typeof breakdown.development_fee_due === "number" ? breakdown.development_fee_due : 0;
             setInstallmentAmount(
-              parseFloat((breakdown.total * (next.percentage / 100) || 0).toFixed(2))
+              parseFloat(((baseTotal * (Number(next.percentage || 0) / 100)) + oneTimeFee).toFixed(2))
             );
           } else {
             setSelectedInstallmentPlanId(null);
@@ -171,6 +198,8 @@ function PaymentContent() {
         setBreakdownError(err.message || "Failed to compile school fees.");
         setFeeComponents([]);
         setFeeTotal(null);
+        setRecurringFeeTotal(null);
+        setDevelopmentFeeDue(0);
       } finally {
         setLoadingBreakdown(false);
       }
@@ -601,7 +630,7 @@ function PaymentContent() {
                               const plan = installmentPlans.find((p) => p.id === selectedInstallmentPlanId) || installmentPlans[0];
                               if (plan) {
                                 setSelectedInstallmentPlanId(plan.id);
-                                setInstallmentAmount(parseFloat((feeTotal * (plan.percentage / 100)).toFixed(2)));
+                                setInstallmentAmount(getInstallmentDueAmount(plan));
                               }
                             }}
                           >
@@ -614,7 +643,9 @@ function PaymentContent() {
                       <div className="max-h-[160px] overflow-y-auto pr-1 space-y-2 border-b border-slate-100 pb-3">
                         {feeComponents.map((fc, idx) => (
                           <div key={idx} className="flex justify-between items-center text-xs">
-                            <span className="font-semibold text-slate-600 capitalize">{fc.name}</span>
+                            <span className="font-semibold text-slate-600 capitalize">
+                              {formatFeeComponentName(fc.name)}
+                            </span>
                             <span className="font-bold text-slate-800 font-mono">
                               ₦{fc.amount.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                             </span>
@@ -629,7 +660,7 @@ function PaymentContent() {
                             Tuition Installments (Read-Only)
                           </span>
                           <div className="grid grid-cols-2 gap-2">
-                            {installmentPlans.map((plan) => (
+                            {installmentPlans.map((plan, index) => (
                               <div
                                 key={plan.id}
                                 className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all opacity-80 ${
@@ -640,7 +671,7 @@ function PaymentContent() {
                               >
                                 <span className="text-[11px] font-bold truncate">{plan.name} ({plan.percentage}%)</span>
                                 <span className="text-xs font-black font-mono mt-1">
-                                  ₦{((feeTotal || 0) * (plan.percentage / 100)).toLocaleString("en-NG", {
+                                  ₦{getInstallmentDueAmount(plan, developmentFeeDue, index === 0).toLocaleString("en-NG", {
                                     minimumFractionDigits: 2,
                                   })}
                                 </span>

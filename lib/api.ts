@@ -630,11 +630,17 @@ export class ApiClient {
   static async getTuitionBreakdown(): Promise<{
     components: { name: string; amount: number }[];
     total: number;
+    recurring_total?: number;
+    development_fee_due?: number;
+    requires_development_fee?: boolean;
     processing_fee: number;
     found: boolean;
     session_payment?: {
       total_expected: number;
       total_paid: number;
+      recurring_expected?: number;
+      recurring_paid?: number;
+      development_fee_due?: number;
       is_fully_paid: boolean;
       remaining: number;
       payment_percentage: number;
@@ -645,11 +651,17 @@ export class ApiClient {
     const { data } = await this.fetch<{
       components: { name: string; amount: number }[];
       total: number;
+      recurring_total?: number;
+      development_fee_due?: number;
+      requires_development_fee?: boolean;
       processing_fee: number;
       found: boolean;
       session_payment?: {
         total_expected: number;
         total_paid: number;
+        recurring_expected?: number;
+        recurring_paid?: number;
+        development_fee_due?: number;
         is_fully_paid: boolean;
         remaining: number;
         payment_percentage: number;

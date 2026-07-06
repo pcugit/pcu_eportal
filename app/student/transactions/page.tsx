@@ -23,10 +23,16 @@ import {
 import { format } from "date-fns";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+const formatFeeComponentName = (name: string) =>
+  name.toLowerCase().includes("tuition") ? "Tuition" : name;
+
 type FeeComponent = { name: string; amount: number };
 type SessionPayment = {
   total_expected?: number;
   total_paid?: number;
+  recurring_expected?: number;
+  recurring_paid?: number;
+  development_fee_due?: number;
   is_fully_paid?: boolean;
   remaining?: number;
   payment_percentage?: number;
@@ -60,6 +66,8 @@ function StudentTransactionsContent() {
   const [tuitionPaySuccess, setTuitionPaySuccess] = useState(false);
   const [feeComponents, setFeeComponents] = useState<FeeComponent[]>([]);
   const [feeTotal, setFeeTotal] = useState(0);
+  const [recurringFeeTotal, setRecurringFeeTotal] = useState(0);
+  const [developmentFeeDue, setDevelopmentFeeDue] = useState(0);
   const [sessionPayment, setSessionPayment] = useState<SessionPayment | null>(null);
   const [processingFee, setProcessingFee] = useState(300);
   const [paymentMode, setPaymentMode] = useState<"full" | "installment">("full");
@@ -82,6 +90,7 @@ function StudentTransactionsContent() {
   // ── isFullyPaid ───────────────────────────────────────────────────────────
   const totalPaid = Number(sessionPayment?.total_paid || 0);
   const totalExpected = Number(sessionPayment?.total_expected || feeTotal || 0);
+  const recurringPaid = Number(sessionPayment?.recurring_paid ?? totalPaid);
   const remainingBalance = Math.max(
     0,
     Number(sessionPayment?.remaining ?? Math.max(0, totalExpected - totalPaid)),
@@ -92,14 +101,16 @@ function StudentTransactionsContent() {
   const getInstallmentDue = (
     plans: any[],
     planIndex: number,
-    total: number = feeTotal,
-    paid: number = totalPaid,
+    total: number = recurringFeeTotal || feeTotal,
+    paid: number = recurringPaid,
+    oneTimeFee: number = developmentFeeDue,
   ) => {
     const cumulativePercentage = plans
       .slice(0, planIndex + 1)
-      .reduce((sum: number, plan: any) => sum + parseFloat(plan.percentage || 0), 0);
+      .reduce((sum: number, plan: any) => sum + Number(plan.percentage || 0), 0);
     const milestoneAmount = total * (cumulativePercentage / 100);
-    return Math.max(0, parseFloat((milestoneAmount - paid).toFixed(2)));
+    const due = Math.max(0, milestoneAmount - paid);
+    return parseFloat((due + (planIndex === 0 && paid <= 0 ? oneTimeFee : 0)).toFixed(2));
   };
   const getNextDueInstallmentIndex = (plans: any[]) =>
     plans.findIndex((plan: any, index: number) => getInstallmentDue(plans, index) > 0);
@@ -140,17 +151,29 @@ function StudentTransactionsContent() {
       ]);
       setFeeComponents(breakdown.components);
       setFeeTotal(breakdown.total);
+      setRecurringFeeTotal(
+        typeof breakdown.recurring_total === "number" ? breakdown.recurring_total : breakdown.total,
+      );
+      setDevelopmentFeeDue(
+        typeof breakdown.development_fee_due === "number" ? breakdown.development_fee_due : 0,
+      );
       setSessionPayment(breakdown.session_payment || null);
       setProcessingFee(
         typeof breakdown.processing_fee === "number" ? breakdown.processing_fee : 300,
       );
       const plans = plansRes.installment_plans || [];
       setInstallmentPlans(plans);
-      const paidSoFar = Number(breakdown.session_payment?.total_paid || 0);
+      const paidSoFar = Number(
+        breakdown.session_payment?.recurring_paid ?? breakdown.session_payment?.total_paid ?? 0,
+      );
+      const baseTotal =
+        typeof breakdown.recurring_total === "number" ? breakdown.recurring_total : breakdown.total;
+      const oneTimeFee =
+        typeof breakdown.development_fee_due === "number" ? breakdown.development_fee_due : 0;
 
       const unpaidPlans = plans.filter(
         (_plan: any, index: number) =>
-          getInstallmentDue(plans, index, breakdown.total, paidSoFar) > 0,
+          getInstallmentDue(plans, index, baseTotal, paidSoFar, oneTimeFee) > 0,
       );
       setRemainingPercentage(
         unpaidPlans.length > 0
@@ -161,7 +184,7 @@ function StudentTransactionsContent() {
         const nextIndex = plans.findIndex((plan: any) => unpaidPlans.some((due: any) => due.id === plan.id));
         if (nextIndex >= 0) {
           setSelectedInstallmentPlanId(plans[nextIndex].id);
-          setInstallmentAmount(getInstallmentDue(plans, nextIndex, breakdown.total, paidSoFar));
+          setInstallmentAmount(getInstallmentDue(plans, nextIndex, baseTotal, paidSoFar, oneTimeFee));
         } else {
           setSelectedInstallmentPlanId(null);
           setInstallmentAmount(null);
@@ -480,7 +503,7 @@ function StudentTransactionsContent() {
                             const isNextDue = index === nextDueIndex;
                             const isCovered = dueAmount <= 0;
                             const scheduledAmount =
-                              feeTotal * (parseFloat(plan.percentage || 0) / 100);
+                              (recurringFeeTotal || feeTotal) * (Number(plan.percentage || 0) / 100);
                             const displayAmount = isNextDue ? dueAmount : scheduledAmount;
 
                             return (
@@ -510,7 +533,9 @@ function StudentTransactionsContent() {
                     {/* Fee component rows */}
                     {feeComponents.map((fc, idx) => (
                       <div key={idx} className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0">
-                        <span className="text-sm font-semibold text-slate-700">{fc.name}</span>
+                        <span className="text-sm font-semibold text-slate-700">
+                          {formatFeeComponentName(fc.name)}
+                        </span>
                         <span className="text-sm font-bold text-slate-900 tabular-nums">
                           ₦ {fc.amount.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                         </span>

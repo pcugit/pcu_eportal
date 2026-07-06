@@ -19,6 +19,9 @@ from utils.payment_status import (
     atomic_settle_payment,
     build_update_sql_params,
     generate_receipt_no,
+    get_recurring_tuition_paid,
+    get_required_development_fee_amount,
+    requires_development_fee,
 )
 from config import Config
 from datetime import datetime, date
@@ -397,21 +400,38 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
     context = _get_applicant_fee_context(user_id)
 
     if payment_type == 'tuition':
+        session_res = Database.execute_query(
+            'SELECT id FROM academic_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1'
+        )
+        current_session_id = session_res[0]['id'] if session_res else None
+        if not current_session_id:
+            raise ValueError('No active academic session found')
+
         fee_rows = Database.execute_query(
-            '''SELECT pf.amount
+            '''SELECT fc.name AS fee_name, pf.amount
                FROM program_fees pf
                JOIN fee_components fc ON fc.id = pf.fee_component_id
                WHERE LOWER(fc.name) NOT LIKE '%%acceptance%%'
+                 AND LOWER(fc.name) NOT LIKE '%%development%%'
                  AND pf.program_type = %s
                  AND pf.level = %s
                  AND pf.faculty_id = %s
-                 AND pf.academic_session_id = (
-                     SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
-                 )''',
-            (str(context['program_type']), str(context['level']), str(context['faculty_id']))
+                 AND pf.academic_session_id = %s''',
+            (
+                str(context['program_type']),
+                str(context['level']),
+                str(context['faculty_id']),
+                current_session_id,
+            )
         )
-        total = sum(float(fee.get('amount') or 0) for fee in (fee_rows or []))
-        if total <= 0:
+        recurring_total = sum(float(fee.get('amount') or 0) for fee in (fee_rows or []))
+        development_fee = (
+            get_required_development_fee_amount(user_id, context, current_session_id)
+            if requires_development_fee(user_id, context)
+            else 0.0
+        )
+        total = recurring_total + development_fee
+        if recurring_total <= 0:
             raise ValueError('Tuition fee breakdown not configured for this program_type, level, and faculty')
 
         # If an installment_plan_id is supplied, compute the installment amount
@@ -432,14 +452,14 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
             if cumulative_pct <= 0:
                 raise ValueError('Invalid installment percentage for selected plan')
 
-            total_paid = _get_paid_tuition_total(user_id)
+            total_paid = get_recurring_tuition_paid(user_id, current_session_id, context)
             first_due_index = next(
                 (
                     idx
                     for idx, _plan in enumerate(plans)
                     if round(
                         (
-                            total
+                            recurring_total
                             * sum(float(p.get('percentage') or 0) for p in plans[:idx + 1])
                         )
                         / 100.0,
@@ -454,30 +474,19 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
             if selected_index != first_due_index:
                 raise ValueError('Installments must be paid in order')
 
-            milestone_amount = round((total * cumulative_pct) / 100.0, 2)
+            milestone_amount = round((recurring_total * cumulative_pct) / 100.0, 2)
             amount_due = round(max(0.0, milestone_amount - total_paid), 2)
+            if development_fee > 0 and selected_index == first_due_index:
+                amount_due = round(amount_due + development_fee, 2)
             if amount_due <= 0:
                 raise ValueError('Selected installment has already been covered by previous payments')
             return amount_due
 
         # Full Payment: compute as the outstanding balance for this session.
-        session_res = Database.execute_query(
-            'SELECT id FROM academic_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1'
-        )
-        current_session_id = session_res[0]['id'] if session_res else None
         if current_session_id:
-            paid_res = Database.execute_query(
-                '''SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) AS total_paid
-                   FROM payment_transactions
-                   WHERE user_id = %s
-                     AND academic_session_id = %s
-                     AND tran_type = 'tuition'
-                     AND tran_status = 'successful' ''',
-                (user_id, current_session_id)
-            )
-            total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0.0
+            total_paid = get_recurring_tuition_paid(user_id, current_session_id, context)
             if total_paid > 0:
-                return round(max(0.0, total - total_paid), 2)
+                return round(max(0.0, recurring_total - total_paid) + development_fee, 2)
 
         # Installment fallback for legacy rows without amount/session tracking.
         plans = _get_installment_plans_for_user(user_id)
@@ -549,29 +558,88 @@ def _get_pg_context_or_none(user_id):
         return {'program_type': 2} if pg_res else None
 
 
+def _ensure_installment_plan_label_capacity():
+    Database.execute_update(
+        'ALTER TABLE installment_plans ALTER COLUMN label TYPE VARCHAR(50)'
+    )
+
+
 def _ensure_pg_installment_plans():
+    _ensure_installment_plan_label_capacity()
     desired = [
-        ('pg_first_installment', 'First Installment', 60),
-        ('pg_second_installment', 'Second Installment', 40),
+        ('pg_first_installment', 'First Installment', 60, 'First postgraduate tuition installment'),
+        ('pg_second_installment', 'Second Installment', 40, 'Second postgraduate tuition installment'),
     ]
-    for label, name, percentage in desired:
+    for label, name, percentage, due_trigger in desired:
         existing = Database.execute_query(
             'SELECT id FROM installment_plans WHERE label = %s LIMIT 1',
             (label,)
         )
         if existing:
             Database.execute_update(
-                'UPDATE installment_plans SET name = %s, percentage = %s WHERE label = %s',
-                (name, percentage, label)
+                'UPDATE installment_plans SET name = %s, percentage = %s, due_trigger = %s WHERE label = %s',
+                (name, percentage, due_trigger, label)
             )
         else:
             Database.execute_update(
-                'INSERT INTO installment_plans (label, name, percentage) VALUES (%s, %s, %s)',
-                (label, name, percentage)
+                'INSERT INTO installment_plans (label, name, percentage, due_trigger) VALUES (%s, %s, %s, %s)',
+                (label, name, percentage, due_trigger)
+            )
+
+
+def _is_part_time_applicant(user_id):
+    res = Database.execute_query(
+        '''SELECT id
+           FROM applications
+           WHERE user_id = %s
+             AND prog_type IN (4, 7)
+             AND applicant_stage IN ('admitted', 'accepted', 'enrolled')
+           ORDER BY created_at DESC
+           LIMIT 1''',
+        (user_id,)
+    )
+    return bool(res)
+
+
+def _ensure_part_time_installment_plans():
+    _ensure_installment_plan_label_capacity()
+    desired = [
+        ('pt_semester_1', 'Semester 1 Installment', 33.33, 'Payable before first semester registration'),
+        ('pt_semester_2', 'Semester 2 Installment', 33.33, 'Payable before second semester registration'),
+        ('pt_semester_3', 'Semester 3 Installment', 33.34, 'Payable before third semester registration'),
+    ]
+    for label, name, percentage, due_trigger in desired:
+        existing = Database.execute_query(
+            'SELECT id FROM installment_plans WHERE label = %s LIMIT 1',
+            (label,)
+        )
+        if existing:
+            Database.execute_update(
+                'UPDATE installment_plans SET name = %s, percentage = %s, due_trigger = %s WHERE label = %s',
+                (name, percentage, due_trigger, label)
+            )
+        else:
+            Database.execute_update(
+                'INSERT INTO installment_plans (label, name, percentage, due_trigger) VALUES (%s, %s, %s, %s)',
+                (label, name, percentage, due_trigger)
             )
 
 
 def _get_installment_plans_for_user(user_id):
+    if _is_part_time_applicant(user_id):
+        _ensure_part_time_installment_plans()
+        return Database.execute_query(
+            """SELECT id, label, name, percentage
+               FROM installment_plans
+               WHERE label IN ('pt_semester_1', 'pt_semester_2', 'pt_semester_3')
+               ORDER BY CASE label
+                   WHEN 'pt_semester_1' THEN 1
+                   WHEN 'pt_semester_2' THEN 2
+                   WHEN 'pt_semester_3' THEN 3
+                   ELSE 99
+               END"""
+        )
+
     if _get_pg_context_or_none(user_id):
         _ensure_pg_installment_plans()
         return Database.execute_query(
@@ -588,7 +656,8 @@ def _get_installment_plans_for_user(user_id):
     return Database.execute_query(
         """SELECT id, label, name, percentage
            FROM installment_plans
-           WHERE label IS NULL OR label NOT LIKE 'pg_%'
+           WHERE label IS NULL
+              OR (label NOT LIKE 'pg_%%' AND label NOT LIKE 'pt_%%')
            ORDER BY id"""
     )
 
@@ -2543,18 +2612,28 @@ def get_tuition_fee_breakdown(payload):
                     SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
                 )
                 AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+                AND LOWER(fc.name) NOT LIKE '%%development%%'
             ORDER BY fc.name ASC''',
             (str(context['program_type']), str(context['level']), str(context['faculty_id']))
         )
 
         components = []
         total = 0.0
+        recurring_total = 0.0
 
         for fee in (fees or []):
             name   = fee['fee_name'] or 'Other Fee'
             amount = float(fee['amount'] or 0)
             total += amount
+            recurring_total += amount
             components.append({'name': name, 'amount': amount})
+
+        development_fee_due = 0.0
+        if current_session_id and requires_development_fee(user_id, context):
+            development_fee_due = get_required_development_fee_amount(user_id, context, current_session_id)
+            if development_fee_due > 0:
+                total += development_fee_due
+                components.append({'name': 'Development Fee', 'amount': development_fee_due})
 
         processing_fee = _get_processing_fee()
         
@@ -2566,6 +2645,9 @@ def get_tuition_fee_breakdown(payload):
         return jsonify({
             'components':         components,
             'total':              total,
+            'recurring_total':    recurring_total,
+            'development_fee_due': development_fee_due,
+            'requires_development_fee': development_fee_due > 0,
             'processing_fee':     processing_fee,
             'found':              len(components) > 0,
             'session_payment':    session_payment,

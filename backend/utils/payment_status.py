@@ -46,6 +46,134 @@ PENDING_CODES = {
     'PE',    # Pending (used by some ISW integrations for transfers)
 }
 
+PT_HND_DEVELOPMENT_PROGRAM_TYPES = {'4', '7'}
+DEVELOPMENT_FEE_MARKER = 'development'
+
+
+def is_development_fee_name(name) -> bool:
+    return DEVELOPMENT_FEE_MARKER in str(name or '').lower()
+
+
+def is_pt_hnd_program(program_type) -> bool:
+    return str(program_type) in PT_HND_DEVELOPMENT_PROGRAM_TYPES
+
+
+def has_successful_tuition_payment(user_id, before_session_id=None) -> bool:
+    clause = ''
+    params = [user_id]
+    if before_session_id is not None:
+        clause = 'AND academic_session_id < %s'
+        params.append(before_session_id)
+
+    res = Database.execute_query(
+        f'''SELECT id
+            FROM payment_transactions
+            WHERE user_id = %s
+              AND tran_type = 'tuition'
+              AND tran_status = 'successful'
+              {clause}
+            LIMIT 1''',
+        tuple(params),
+    )
+    return bool(res)
+
+
+def get_development_fee_amount(context: dict, session_id) -> float:
+    if not context or not is_pt_hnd_program(context.get('program_type')):
+        return 0.0
+
+    res = Database.execute_query(
+        '''SELECT pf.amount
+           FROM program_fees pf
+           JOIN fee_components fc ON fc.id = pf.fee_component_id
+           WHERE pf.program_type = %s
+             AND (pf.level = %s OR pf.level IS NULL)
+             AND (pf.faculty_id = %s OR pf.faculty_id IS NULL)
+             AND pf.academic_session_id = %s
+             AND LOWER(fc.name) LIKE '%%development%%'
+           ORDER BY
+             CASE WHEN pf.level = %s THEN 1 ELSE 0 END DESC,
+             CASE WHEN pf.faculty_id = %s THEN 1 ELSE 0 END DESC,
+             pf.id DESC
+           LIMIT 1''',
+        (
+            str(context.get('program_type')),
+            context.get('level'),
+            context.get('faculty_id'),
+            session_id,
+            context.get('level'),
+            context.get('faculty_id'),
+        ),
+    )
+    return float(res[0]['amount'] or 0) if res else 0.0
+
+
+def requires_development_fee(user_id, context: dict) -> bool:
+    return (
+        is_pt_hnd_program(context.get('program_type'))
+        and not has_successful_tuition_payment(user_id)
+    )
+
+
+def get_required_development_fee_amount(user_id, context: dict, session_id) -> float:
+    if not requires_development_fee(user_id, context):
+        return 0.0
+
+    amount = get_development_fee_amount(context, session_id)
+    if amount <= 0:
+        raise ValueError(
+            'Development fee is required for first tuition payment, but it is not configured for this programme.'
+        )
+    return amount
+
+
+def get_recurring_tuition_total(context: dict, session_id) -> float:
+    res = Database.execute_query(
+        '''SELECT COALESCE(SUM(pf.amount), 0) AS amount
+           FROM program_fees pf
+           JOIN fee_components fc ON fc.id = pf.fee_component_id
+           WHERE pf.program_type = %s
+             AND pf.level = %s
+             AND pf.faculty_id = %s
+             AND pf.academic_session_id = %s
+             AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+             AND LOWER(fc.name) NOT LIKE '%%development%%' ''',
+        (
+            str(context.get('program_type')),
+            str(context.get('level')),
+            str(context.get('faculty_id')),
+            session_id,
+        ),
+    )
+    return float(res[0]['amount'] or 0) if res else 0.0
+
+
+def should_charge_development_fee(user_id, context: dict, session_id) -> bool:
+    return (
+        requires_development_fee(user_id, context)
+        and get_development_fee_amount(context, session_id) > 0
+    )
+
+
+def get_recurring_tuition_paid(user_id, session_id, context: dict) -> float:
+    paid_res = Database.execute_query(
+        '''SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) AS total_paid
+           FROM payment_transactions
+           WHERE user_id = %s
+             AND academic_session_id = %s
+             AND tran_type = 'tuition'
+             AND tran_status = 'successful' ''',
+        (user_id, session_id),
+    )
+    total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0.0
+    if total_paid <= 0:
+        return 0.0
+
+    if is_pt_hnd_program(context.get('program_type')) and not has_successful_tuition_payment(user_id, before_session_id=session_id):
+        total_paid = max(0.0, total_paid - get_development_fee_amount(context, session_id))
+
+    return total_paid
+
 DEFINITIVE_FAILURE_CODES = {
     '06',   # Error (generic permanent error from issuer)
     '30',   # Format Error (malformed transaction data)
@@ -328,41 +456,65 @@ def _create_application_row_on_success(user_id: int, reference_no: str):
 
 # ── Downstream business effects ───────────────────────────────────────────────
 
-PG_MATRIC_PREFIX = "207"
-PG_MATRIC_SEQUENCE_WIDTH = 3
+MATRIC_SEQUENCE_WIDTH = 3
+UNDERGRADUATE_MATRIC_OFFSETS = (1, 2, 3, 4)
+PT_HND_MATRIC_OFFSETS = (5, 6)
+PG_MATRIC_OFFSETS = (7, 8, 9)
 
 
-def generate_undergraduate_matric_no(year_of_entry: str) -> str:
-    """Generate a unique undergraduate MatricNo: PCU/YYYY/XXXXXX."""
-    while True:
-        suffix = ''.join(secrets.choice(string.digits) for _ in range(6))
-        matric_no = f"PCU/{year_of_entry}/{suffix}"
-        clash = Database.execute_query(
-            'SELECT "Id" FROM students WHERE "MatricNo" = %s', (matric_no,)
-        )
-        if not clash:
-            return matric_no
+def _matric_prefixes(offsets):
+    prefixes = []
+    for decade in range(20, 100):
+        prefixes.extend(f"{decade}{offset}" for offset in offsets)
+    return prefixes
 
 
-def generate_pg_matric_no() -> str:
-    """Generate a sequential postgraduate MatricNo: 207001, 207002, ..."""
-    latest = Database.execute_query(
-        '''SELECT COALESCE(MAX(seq), 0) AS last_seq
-             FROM (
-                   SELECT CAST(SUBSTRING("MatricNo" FROM 4) AS INTEGER) AS seq
-                     FROM students
-                    WHERE "MatricNo" ~ %s
-                   UNION ALL
-                   SELECT CAST(SUBSTRING(matric_no FROM 4) AS INTEGER) AS seq
-                     FROM users
-                    WHERE matric_no ~ %s
-                  ) pg_matric_numbers''',
-        (f'^{PG_MATRIC_PREFIX}[0-9]+$', f'^{PG_MATRIC_PREFIX}[0-9]+$')
+def _next_segmented_matric_no(offsets) -> str:
+    prefixes = _matric_prefixes(offsets)
+    prefix_set = set(prefixes)
+    prefix_order = {prefix: index for index, prefix in enumerate(prefixes)}
+
+    rows = Database.execute_query(
+        '''SELECT "MatricNo" AS matric_no
+             FROM students
+            WHERE "MatricNo" ~ '^[0-9]{6}$'
+           UNION ALL
+           SELECT matric_no
+             FROM users
+            WHERE matric_no ~ '^[0-9]{6}$' '''
     )
-    next_seq = int(latest[0]['last_seq']) + 1 if latest else 1
 
-    while True:
-        matric_no = f"{PG_MATRIC_PREFIX}{next_seq:0{PG_MATRIC_SEQUENCE_WIDTH}d}"
+    latest_prefix_index = -1
+    latest_suffix = 0
+    for row in rows or []:
+        matric_no = str(row.get('matric_no') or '')
+        prefix = matric_no[:3]
+        if prefix not in prefix_set:
+            continue
+
+        suffix = int(matric_no[3:])
+        prefix_index = prefix_order[prefix]
+        if prefix_index > latest_prefix_index or (
+            prefix_index == latest_prefix_index and suffix > latest_suffix
+        ):
+            latest_prefix_index = prefix_index
+            latest_suffix = suffix
+
+    if latest_prefix_index < 0:
+        next_prefix_index = 0
+        next_suffix = 1
+    elif latest_suffix < 999:
+        next_prefix_index = latest_prefix_index
+        next_suffix = latest_suffix + 1
+    else:
+        next_prefix_index = latest_prefix_index + 1
+        next_suffix = 1
+
+    if next_prefix_index >= len(prefixes):
+        raise RuntimeError('No matric number range is available for this programme group')
+
+    while next_prefix_index < len(prefixes):
+        matric_no = f"{prefixes[next_prefix_index]}{next_suffix:0{MATRIC_SEQUENCE_WIDTH}d}"
         clash = Database.execute_query(
             '''SELECT 1
                  FROM students
@@ -376,7 +528,29 @@ def generate_pg_matric_no() -> str:
         )
         if not clash:
             return matric_no
-        next_seq += 1
+
+        if next_suffix < 999:
+            next_suffix += 1
+        else:
+            next_prefix_index += 1
+            next_suffix = 1
+
+    raise RuntimeError('No matric number range is available for this programme group')
+
+
+def generate_undergraduate_matric_no() -> str:
+    """Generate undergraduate MatricNo: 201001-204999, then 211001-214999, etc."""
+    return _next_segmented_matric_no(UNDERGRADUATE_MATRIC_OFFSETS)
+
+
+def generate_pg_matric_no() -> str:
+    """Generate postgraduate MatricNo: 207001-209999, then 217001-219999, etc."""
+    return _next_segmented_matric_no(PG_MATRIC_OFFSETS)
+
+
+def generate_pt_hnd_matric_no() -> str:
+    """Generate Part-Time/HND MatricNo: 205001-206999, then 215001-216999, etc."""
+    return _next_segmented_matric_no(PT_HND_MATRIC_OFFSETS)
 
 
 def apply_downstream_success(user_id: int, payment_type: str, reference_no: str | None = None) -> None:
@@ -555,7 +729,13 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                         department_name = dept_res[0]['name']
 
                 # Generate a unique MatricNo using the programme-specific format.
-                matric_no = generate_pg_matric_no() if is_pg else generate_undergraduate_matric_no(year_of_entry)
+                prog_type = ud.get('prog_type')
+                if is_pg:
+                    matric_no = generate_pg_matric_no()
+                elif is_pt_hnd_program(prog_type):
+                    matric_no = generate_pt_hnd_matric_no()
+                else:
+                    matric_no = generate_undergraduate_matric_no()
 
                 # Set default password to surname (lowercase) for first student portal login;
                 # is_first_login in student_auth will force a password change.
@@ -889,6 +1069,12 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     
     total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0
     payment_count = paid_res[0]['payment_count'] if paid_res else 0
+    fee_context = {
+        'program_type': program_type,
+        'level': current_level_id,
+        'faculty_id': faculty_id,
+    }
+    recurring_paid = get_recurring_tuition_paid(user_id, session_id, fee_context)
     
     # Debug: Log all tuition transactions for this user+session
     if paid_res and payment_count > 0:
@@ -907,19 +1093,7 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
     # Get expected fees for this student+session+level
     # Uses SAME filters as frontend's getTuitionBreakdown:
     # program_type, level, faculty_id
-    expected_res = Database.execute_query(
-        '''SELECT COALESCE(SUM(pf.amount), 0) as expected_fees
-           FROM program_fees pf
-           JOIN fee_components fc ON fc.id = pf.fee_component_id
-           WHERE pf.program_type = %s
-             AND pf.level = %s
-             AND pf.faculty_id = %s
-             AND pf.academic_session_id = %s
-             AND LOWER(fc.name) NOT LIKE '%%acceptance%%' ''',
-        (str(program_type), str(current_level_id), str(faculty_id), session_id)
-    )
-    
-    expected_fees = float(expected_res[0]['expected_fees'] or 0) if expected_res else 0
+    expected_fees = get_recurring_tuition_total(fee_context, session_id)
     
     # Debug: Log which fees were matched (same breakdown as frontend shows)
     fee_check = Database.execute_query(
@@ -931,6 +1105,7 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
              AND pf.faculty_id = %s
              AND pf.academic_session_id = %s
              AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+             AND LOWER(fc.name) NOT LIKE '%%development%%'
            GROUP BY fc.name
            ORDER BY fc.name ASC''',
         (str(program_type), str(current_level_id), str(faculty_id), session_id)
@@ -941,7 +1116,7 @@ def update_session_payment_status(reference_no: str, user_id: int) -> None:
           f"Paid: ₦{total_paid}, Expected: ₦{expected_fees}")
     
     # Determine if fully paid
-    is_fully_paid = (total_paid >= expected_fees) if expected_fees > 0 else False
+    is_fully_paid = (recurring_paid >= expected_fees) if expected_fees > 0 else False
     
     # Update ALL tuition transactions for this session to have the same fully_paid_for_session flag
     # (This ensures consistency across installments)
@@ -1106,32 +1281,37 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
     
     total_paid = float(paid_res[0]['total_paid'] or 0) if paid_res else 0
     
-    # Get expected fees using SAME filters as frontend
-    expected_res = Database.execute_query(
-        '''SELECT COALESCE(SUM(pf.amount), 0) as expected_fees
-           FROM program_fees pf
-           JOIN fee_components fc ON fc.id = pf.fee_component_id
-           WHERE pf.program_type = %s
-             AND pf.level = %s
-             AND pf.faculty_id = %s
-             AND pf.academic_session_id = %s
-             AND LOWER(fc.name) NOT LIKE '%%acceptance%%' ''',
-        (str(program_type), str(current_level_id), str(faculty_id), session_id)
+    fee_context = {
+        'program_type': program_type,
+        'level': current_level_id,
+        'faculty_id': faculty_id,
+    }
+    recurring_paid = get_recurring_tuition_paid(user_id, session_id, fee_context)
+    development_fee_due = (
+        get_development_fee_amount(fee_context, session_id)
+        if should_charge_development_fee(user_id, fee_context, session_id)
+        else 0.0
     )
+
+    # Get expected recurring tuition fees using SAME filters as frontend.
+    expected_fees = get_recurring_tuition_total(fee_context, session_id)
+    total_expected = expected_fees + development_fee_due
     
-    expected_fees = float(expected_res[0]['expected_fees'] or 0) if expected_res else 0
+    is_fully_paid = (recurring_paid >= expected_fees) if expected_fees > 0 else False
+    remaining = max(0, expected_fees - recurring_paid) + development_fee_due
     
-    is_fully_paid = (total_paid >= expected_fees) if expected_fees > 0 else False
-    remaining = max(0, expected_fees - total_paid)
-    
-    if expected_fees > 0:
-        payment_percentage = min(100, int((total_paid / expected_fees) * 100))
+    if total_expected > 0:
+        paid_for_progress = max(0, total_expected - remaining)
+        payment_percentage = min(100, int((paid_for_progress / total_expected) * 100))
     else:
         payment_percentage = 0
     
     return {
-        'total_expected': expected_fees,
+        'total_expected': total_expected,
         'total_paid': total_paid,
+        'recurring_expected': expected_fees,
+        'recurring_paid': recurring_paid,
+        'development_fee_due': development_fee_due,
         'is_fully_paid': is_fully_paid,
         'remaining': remaining,
         'payment_percentage': payment_percentage,

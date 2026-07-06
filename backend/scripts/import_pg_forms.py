@@ -30,6 +30,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,8 @@ def clean(value: Any) -> str:
     text = re.sub(r"[.]{3,}", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" :;\t\r\n")
     text = re.sub(r"^\(?\s*\d+\s*\)?[.)]?\s*$", "", text)
+    if text in {"-", "—", "–"}:
+        return ""
     return text
 
 
@@ -137,6 +140,25 @@ def between(text: str, start: str, end: str | None = None) -> str:
     return clean(match.group(1)) if match else ""
 
 
+def flexible_between(text: str, starts: tuple[str, ...], ends: tuple[str, ...] = ()) -> str:
+    start_matches = []
+    for label in starts:
+        match = re.search(re.escape(label) + r"\s*[:.]?\s*", text, re.I)
+        if match:
+            start_matches.append(match)
+    if not start_matches:
+        return ""
+
+    start_match = min(start_matches, key=lambda item: item.start())
+    value_start = start_match.end()
+    value_end = len(text)
+    for label in ends:
+        match = re.search(re.escape(label), text[value_start:], re.I)
+        if match:
+            value_end = min(value_end, value_start + match.start())
+    return clean(text[value_start:value_end])
+
+
 def line_value(text: str, label: str) -> str:
     escaped = re.escape(label)
     match = re.search(rf"{escaped}\s*[:.]?\s*(.+)", text, re.I)
@@ -177,6 +199,14 @@ def split_name(full_name: str, surname_position: str) -> dict[str, str]:
         first = parts[1] if len(parts) > 1 else ""
         middle = " ".join(parts[2:])
     return {"surname": surname.title(), "first_name": first.title(), "middle_name": middle.title()}
+
+
+def detect_surname_position(text: str, fallback: str) -> str:
+    if re.search(r"surname\s+last", text, re.I):
+        return "last"
+    if re.search(r"surname\s+first", text, re.I):
+        return "first"
+    return fallback
 
 
 def parse_referee(value: str) -> tuple[str, str]:
@@ -251,6 +281,50 @@ def answer_after_label(lines: list[str], number: int, label: str) -> str:
     return clean(" ".join(block))
 
 
+def answer_until_label(lines: list[str], number: int, label: str, stop_labels: tuple[str, ...]) -> str:
+    block = numbered_block(lines, number)
+    for idx, line in enumerate(block):
+        if line.lower().startswith(label.lower()):
+            values = []
+            for item in block[idx + 1 :]:
+                if any(item.lower().startswith(stop.lower()) for stop in stop_labels):
+                    break
+                values.append(item)
+            return clean(" ".join(values))
+    return ""
+
+
+def parse_table_referees(block: list[str]) -> list[tuple[str, str]]:
+    referees: list[tuple[str, str]] = []
+    in_referees = False
+    after_header = False
+    idx = 0
+    while idx < len(block):
+        line = clean(block[idx])
+        if line.lower() == "referees":
+            in_referees = True
+            idx += 1
+            continue
+        if not in_referees:
+            idx += 1
+            continue
+        if line.lower().startswith("sponsor"):
+            break
+        if line.lower() in {"referee", "name & address", "name and address"}:
+            after_header = True
+            idx += 1
+            continue
+        if line in {"1", "2", "3"}:
+            value = clean(block[idx + 1]) if idx + 1 < len(block) else ""
+            referees.append(parse_referee(value.replace(" — ", ", ")))
+            idx += 2
+            continue
+        if after_header and line and line not in {"#", "Field", "Details"}:
+            referees.append(parse_referee(line.replace(" — ", ", ")))
+        idx += 1
+    return referees
+
+
 def parse_registration_date(lines: list[str]) -> str:
     block = numbered_block(lines, 22)
     for line in block:
@@ -262,6 +336,7 @@ def parse_registration_date(lines: list[str]) -> str:
 
 def parse_numbered_pg_pdf(text: str, path: Path, surname_position: str) -> dict[str, Any]:
     lines = normalized_pdf_lines(text)
+    effective_surname_position = detect_surname_position(text, surname_position)
     data: dict[str, Any] = {"source_file": str(path)}
 
     data["full_name"] = answer_after_label(lines, 1, "Full Name")
@@ -289,28 +364,41 @@ def parse_numbered_pg_pdf(text: str, path: Path, surname_position: str) -> dict[
                 second_six = block
                 break
             seen_first_six = True
-    data["proposed_course_name"] = clean(" ".join(line for line in second_six if not line.lower().startswith("proposed course of study")))
+    legacy_proposed_course = clean(" ".join(line for line in second_six if not line.lower().startswith("proposed course of study")))
+    data["proposed_course_name"] = answer_after_label(lines, 7, "Proposed Course of Study") or legacy_proposed_course
 
-    data["proposed_faculty_name"] = answer_after_label(lines, 7, "Proposed Faculty")
-    data["degree_name"] = answer_after_label(lines, 8, "Degree in View")
-    data["area_of_specialisation"] = answer_after_label(lines, 9, "Area of Specialization")
-    data["proposed_research_title"] = answer_after_label(lines, 10, "Proposed Title of Research")
+    data["proposed_faculty_name"] = answer_after_label(lines, 8, "Proposed Faculty")
+    data["degree_name"] = answer_after_label(lines, 9, "Degree in View")
+    data["area_of_specialisation"] = answer_after_label(lines, 10, "Area of Specialization")
+    data["proposed_research_title"] = answer_after_label(lines, 11, "Proposed Title of Research")
 
-    mode_lines = numbered_block(lines, 11)
+    mode_lines = numbered_block(lines, 12)
+    if not re.search(r"Mode of Study|Full[- ]Time|Part[- ]Time", " ".join(mode_lines), re.I):
+        mode_lines = numbered_block(lines, 11)
     mode_block = " ".join(mode_lines)
     if re.search(r"Part[- ]Time\s*\(\s*X\s*\)", mode_block, re.I):
         data["mode_of_study"] = "Part-Time"
     elif re.search(r"Full[- ]Time\s*\(\s*X\s*\)", mode_block, re.I):
         data["mode_of_study"] = "Full-Time"
+    elif re.search(r"Full[- ]Time", mode_block, re.I):
+        data["mode_of_study"] = "Full-Time"
+    elif re.search(r"Part[- ]Time", mode_block, re.I):
+        data["mode_of_study"] = "Part-Time"
     else:
-        data["mode_of_study"] = clean(mode_block)
+        data["mode_of_study"] = answer_after_label(lines, 12, "Mode of Study") or clean(mode_block)
 
-    data["transcript_uploaded"] = answer_after_label(lines, 12, "Indicate if you uploaded")
+    data["transcript_uploaded"] = answer_until_label(lines, 13, "Uploaded Academic Transcript", ("Referees",))
+    if not data["transcript_uploaded"] and any("Indicate if you uploaded".lower() in item.lower() for item in numbered_block(lines, 12)):
+        data["transcript_uploaded"] = answer_after_label(lines, 12, "Indicate if you uploaded")
     refs_block = numbered_block(lines, 13)
     refs_text = " ".join(refs_block)
     refs = re.findall(r"\([abc]\)\s*(.*?)(?=\s*\([abc]\)|$)", refs_text, re.I)
+    table_refs = parse_table_referees(refs_block)
     for idx in range(3):
-        name, address = parse_referee(refs[idx] if idx < len(refs) else "")
+        if idx < len(table_refs):
+            name, address = table_refs[idx]
+        else:
+            name, address = parse_referee(refs[idx] if idx < len(refs) else "")
         data[f"referee{idx + 1}_name"] = name
         data[f"referee{idx + 1}_address"] = address
 
@@ -322,13 +410,18 @@ def parse_numbered_pg_pdf(text: str, path: Path, surname_position: str) -> dict[
     p1, p2 = parse_phone_pair(phone_block)
     data["phone_number"] = p1
     data["secondary_phone_number"] = p2
-    data["physically_challenged"] = answer_after_label(lines, 19, "Are you Physically Challenged") or "No"
+    if any("Physically Challenged".lower() in item.lower() for item in numbered_block(lines, 19)):
+        data["physically_challenged"] = answer_after_label(lines, 19, "Physically Challenged") or "No"
+    else:
+        data["physically_challenged"] = answer_after_label(lines, 19, "Are you Physically Challenged") or "No"
     data["address"] = answer_after_label(lines, 20, "Address of Candidate")
+    if "signature" in data["address"].lower():
+        data["address"] = ""
     email_text = answer_after_label(lines, 21, "Email of Candidate")
     email_match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", email_text, re.I)
     data["email"] = email_match.group(0).lower() if email_match else email_text
     data["registration_date"] = parse_registration_date(lines)
-    data.update(split_name(data.get("full_name", ""), surname_position))
+    data.update(split_name(data.get("full_name", ""), effective_surname_position))
     return data
 
 
@@ -336,62 +429,81 @@ def parse_filled_pg_pdf(path: Path, surname_position: str) -> dict[str, Any]:
     raw = extract_pdf_text(path)
     if not clean(raw):
         return {"source_file": str(path), "_error": OCR_UNAVAILABLE_MESSAGE}
+    effective_surname_position = detect_surname_position(raw, surname_position)
 
-    numbered = parse_numbered_pg_pdf(raw, path, surname_position)
+    numbered = parse_numbered_pg_pdf(raw, path, effective_surname_position)
     if numbered.get("email") or numbered.get("full_name"):
         return numbered
 
     compact = re.sub(r"\s+", " ", raw)
 
     data: dict[str, Any] = {"source_file": str(path)}
-    data["full_name"] = between(compact, "Full Name (Surname last, in CAPITALS)", "Previous Institution")
-    data["previous_institution"] = between(compact, "Previous Institution(s) Attended", "Date of Birth")
+    data["full_name"] = flexible_between(
+        compact,
+        ("Full Name (Surname last, in CAPITALS)", "Full Name (Surname last)", "Full Name"),
+        ("Previous Institution",),
+    )
+    data["previous_institution"] = flexible_between(
+        compact,
+        ("Previous Institution(s) Attended", "Previous Institution"),
+        ("Date of Birth",),
+    )
 
-    dob_sex = between(compact, "Date of Birth:", "Department:")
+    dob_sex = flexible_between(compact, ("Date of Birth",), ("Department",))
     sex_match = re.search(r"Sex[:\s]*([A-Za-z]+|M|F)", dob_sex, re.I)
     data["gender"] = {"m": "Male", "f": "Female"}.get((sex_match.group(1) if sex_match else "").lower(), clean(sex_match.group(1)).title() if sex_match else "")
     data["date_of_birth"] = parse_date(re.sub(r"Sex[:\s]*(Male|Female|M|F).*", "", dob_sex, flags=re.I))
 
-    data["department"] = between(compact, "Department:", "Previous Course of Study")
-    data["previous_course"] = between(compact, "Previous Course of Study", "Class of First Degree")
-    data["class_of_degree"] = between(compact, "Class of First Degree:", "Proposed Course of Study")
-    data["proposed_course_name"] = between(compact, "Proposed Course of Study:", "Proposed Faculty")
-    data["proposed_faculty_name"] = between(compact, "Proposed Faculty/Institute/Centre:", "Degree in View")
-    data["degree_name"] = between(compact, "Degree in View:", "Area of Specialization")
-    data["area_of_specialisation"] = between(compact, "Area of Specialization:", "Proposed Title of Research")
-    data["proposed_research_title"] = between(compact, "Proposed Title of Research (In the case of MPhil/PhD/Ph.D):", "Mode of Study")
+    if not data["gender"]:
+        data["gender"] = flexible_between(compact, ("Sex",), ("Department",))
+    data["department"] = flexible_between(compact, ("Department",), ("Previous Course of Study",))
+    data["previous_course"] = flexible_between(compact, ("Previous Course of Study",), ("Class of First Degree",))
+    data["class_of_degree"] = flexible_between(compact, ("Class of First Degree",), ("Proposed Course of Study",))
+    data["proposed_course_name"] = flexible_between(compact, ("Proposed Course of Study",), ("Proposed Faculty",))
+    data["proposed_faculty_name"] = flexible_between(compact, ("Proposed Faculty/Institute/Centre", "Proposed Faculty"), ("Degree in View",))
+    data["degree_name"] = flexible_between(compact, ("Degree in View",), ("Area of Specialization", "Area of Specialisation"))
+    data["area_of_specialisation"] = flexible_between(compact, ("Area of Specialization", "Area of Specialisation"), ("Proposed Title of Research",))
+    data["proposed_research_title"] = flexible_between(compact, ("Proposed Title of Research (In the case of MPhil/PhD/Ph.D)", "Proposed Title of Research (MPhil/PhD)", "Proposed Title of Research"), ("Mode of Study",))
 
-    mode_block = between(compact, "Mode of Study:", "Indicate if you uploaded")
+    mode_block = flexible_between(compact, ("Mode of Study",), ("Indicate if you uploaded", "Academic Transcript Uploaded", "Uploaded Academic Transcript", "Name and Addresses"))
     if re.search(r"Part[- ]Time\s*\(\s*x\s*\)", mode_block, re.I):
         data["mode_of_study"] = "Part-Time"
     elif re.search(r"Full[- ]Time\s*\(\s*x\s*\)", mode_block, re.I):
         data["mode_of_study"] = "Full-Time"
+    elif re.search(r"Full[- ]Time", mode_block, re.I):
+        data["mode_of_study"] = "Full-Time"
+    elif re.search(r"Part[- ]Time", mode_block, re.I):
+        data["mode_of_study"] = "Part-Time"
     else:
         data["mode_of_study"] = clean(mode_block)
 
-    data["transcript_uploaded"] = between(compact, "academic transcript:", "Name and Addresses")
-    refs_block = between(compact, "Name and Addresses of your 3 referees:", "Name of Sponsor")
+    data["transcript_uploaded"] = flexible_between(
+        compact,
+        ("Academic Transcript Uploaded", "Uploaded Academic Transcript", "academic transcript"),
+        ("Name and Addresses", "Name of Sponsor"),
+    )
+    refs_block = flexible_between(compact, ("Name and Addresses of your 3 referees", "Name and Addresses of 3 Referees"), ("Name of Sponsor",))
     refs = re.findall(r"\([abc]\)\s*(.*?)(?=\s*\([abc]\)|$)", refs_block, re.I)
     for idx in range(3):
         name, address = parse_referee(refs[idx] if idx < len(refs) else "")
         data[f"referee{idx + 1}_name"] = name
         data[f"referee{idx + 1}_address"] = address
 
-    data["sponsor_name"] = between(compact, "Name of Sponsor:", "Address of Sponsor")
-    data["sponsor_address"] = between(compact, "Address of Sponsor:", "Name of Next of Kin")
-    data["next_of_kin_name"] = between(compact, "Name of Next of Kin:", "Address of Next of Kin")
-    data["next_of_kin_address"] = between(compact, "Address of Next of Kin:", "Phone Number of Next of Kin")
-    phones = between(compact, "Necessary:", "Are you Physically Challenged")
+    data["sponsor_name"] = flexible_between(compact, ("Name of Sponsor",), ("Address of Sponsor",))
+    data["sponsor_address"] = flexible_between(compact, ("Address of Sponsor",), ("Name of Next of Kin",))
+    data["next_of_kin_name"] = flexible_between(compact, ("Name of Next of Kin",), ("Address of Next of Kin",))
+    data["next_of_kin_address"] = flexible_between(compact, ("Address of Next of Kin",), ("Phone Number of Next of Kin",))
+    phones = flexible_between(compact, ("Necessary", "Phone Number of Next of Kin / Alternate", "Phone Number of Next of Kin"), ("Are you Physically Challenged", "Physically Challenged"))
     p1, p2 = parse_phone_pair(phones)
     data["phone_number"] = p1
     data["secondary_phone_number"] = p2
-    data["physically_challenged"] = between(compact, "If yes, State:", "Address of Candidate") or "No"
-    data["address"] = between(compact, "Address of Candidate:", "Email of Candidate")
-    data["email"] = between(compact, "Email of Candidate:", "Student's Signature")
-    signature_block = between(compact, "Student's Signature and Date:", "SECTION B")
+    data["physically_challenged"] = flexible_between(compact, ("If yes, State", "Physically Challenged", "Are you Physically Challenged"), ("Address of Candidate", "Student's Signature")) or "No"
+    data["address"] = flexible_between(compact, ("Address of Candidate",), ("Email of Candidate", "Student's Signature"))
+    data["email"] = flexible_between(compact, ("Email of Candidate",), ("Student's Signature", "SECTION B"))
+    signature_block = flexible_between(compact, ("Student's Signature and Date",), ("SECTION B",))
     date_match = re.search(r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}", signature_block)
     data["registration_date"] = parse_date(date_match.group(0)) if date_match else ""
-    data.update(split_name(data.get("full_name", ""), surname_position))
+    data.update(split_name(data.get("full_name", ""), effective_surname_position))
     return data
 
 
@@ -439,6 +551,136 @@ def db_insert_id(query: str, params: tuple[Any, ...], key: str = "id") -> Any:
     return rows[0][key]
 
 
+def name_tokens(*values: Any) -> list[str]:
+    tokens: list[str] = []
+    for value in values:
+        for token in re.findall(r"[a-z0-9]+", clean(value).lower()):
+            if token and token not in tokens:
+                tokens.append(token)
+    return tokens
+
+
+def tokens_match(left: str, right: str) -> bool:
+    return left == right or SequenceMatcher(None, left, right).ratio() >= 0.82
+
+
+def user_name_match_score(record_tokens: list[str], user: dict[str, Any]) -> int:
+    user_tokens = name_tokens(user.get("firstname"), user.get("middlename"), user.get("surname"))
+    score = 0
+    for record_token in record_tokens:
+        if any(tokens_match(record_token, user_token) for user_token in user_tokens):
+            score += 1
+    return score
+
+
+def lookup_similar_users_by_name(data: dict[str, Any], fields: list[str]) -> list[dict[str, Any]]:
+    record_tokens = name_tokens(*(data.get(field) for field in fields))
+    if not record_tokens:
+        return []
+
+    clauses = []
+    params: list[Any] = []
+    for token in record_tokens:
+        clauses.append(
+            "(LOWER(firstname) = %s OR LOWER(middlename) = %s OR LOWER(surname) = %s "
+            "OR LOWER(firstname) LIKE %s OR LOWER(middlename) LIKE %s OR LOWER(surname) LIKE %s)"
+        )
+        params.extend([token, token, token, f"%{token}%", f"%{token}%", f"%{token}%"])
+
+    candidates = Database.execute_query(
+        f"""
+        SELECT id, firstname, surname, middlename, email, user_type_id
+        FROM users
+        WHERE NULLIF(TRIM(email), '') IS NOT NULL
+          AND ({' OR '.join(clauses)})
+        ORDER BY created_at DESC NULLS LAST, updated_at DESC NULLS LAST
+        LIMIT 50
+        """,
+        tuple(params),
+    ) or []
+
+    scored = [
+        (user_name_match_score(record_tokens, candidate), candidate)
+        for candidate in candidates
+    ]
+    scored = [(score, candidate) for score, candidate in scored if score >= max(1, len(record_tokens) - 1)]
+    if not scored:
+        return []
+
+    best_score = max(score for score, _candidate in scored)
+    return [candidate for score, candidate in scored if score == best_score]
+
+
+def lookup_existing_user_by_name(data: dict[str, Any], fields: list[str]) -> list[dict[str, Any]]:
+    clauses = ["NULLIF(TRIM(email), '') IS NOT NULL"]
+    params: list[Any] = []
+
+    for field in fields:
+        value = clean(data.get(field))
+        if not value:
+            continue
+        column = {"first_name": "firstname", "middle_name": "middlename", "surname": "surname"}[field]
+        clauses.append(f"LOWER(TRIM({column})) = LOWER(%s)")
+        params.append(value)
+
+    if len(clauses) == 1:
+        return []
+
+    return Database.execute_query(
+        f"""
+        SELECT id, firstname, surname, middlename, email, user_type_id
+        FROM users
+        WHERE {' AND '.join(clauses)}
+        ORDER BY created_at DESC NULLS LAST, updated_at DESC NULLS LAST
+        """,
+        tuple(params),
+    ) or []
+
+
+def resolve_missing_email_from_db(data: dict[str, Any], fields: list[str]) -> str | None:
+    if clean(data.get("email")):
+        return None
+
+    matches = lookup_existing_user_by_name(data, fields)
+    if not matches:
+        matches = lookup_similar_users_by_name(data, fields)
+        if not matches:
+            return "missing email; no existing user matched selected name fields"
+
+        emails = sorted({clean(row.get("email")).lower() for row in matches if clean(row.get("email"))})
+        if len(emails) != 1 or len(matches) != 1:
+            candidates = "; ".join(
+                f"{row.get('firstname') or ''} {row.get('middlename') or ''} {row.get('surname') or ''} <{row.get('email') or ''}>".strip()
+                for row in matches
+            )
+            return f"ambiguous similar users for missing email: {candidates}"
+
+        candidate = matches[0]
+        parsed_name = " ".join(
+            filter(None, [clean(data.get("first_name")), clean(data.get("middle_name")), clean(data.get("surname"))])
+        )
+        candidate_name = " ".join(
+            filter(None, [clean(candidate.get("firstname")), clean(candidate.get("middlename")), clean(candidate.get("surname"))])
+        )
+        if not prompt_yes_no(f"Did you mean {candidate_name} <{emails[0]}> for {parsed_name}?", default=False):
+            return f"missing email; similar user was not confirmed: {candidate_name} <{emails[0]}>"
+    if not matches:
+        return "missing email; no existing user matched selected name fields"
+
+    emails = sorted({clean(row.get("email")).lower() for row in matches if clean(row.get("email"))})
+    if len(emails) != 1:
+        candidates = "; ".join(
+            f"{row.get('firstname') or ''} {row.get('middlename') or ''} {row.get('surname') or ''} <{row.get('email') or ''}>".strip()
+            for row in matches
+        )
+        return f"ambiguous existing users for missing email: {candidates}"
+
+    data["email"] = emails[0]
+    data["_matched_existing_user_id"] = str(matches[0]["id"])
+    data["_matched_existing_user_email"] = emails[0]
+    return None
+
+
 def active_session_id() -> int:
     row = db_one("SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     if not row:
@@ -473,6 +715,21 @@ def normalize_degree_code(value: str) -> str:
 def strip_degree_prefix(value: str) -> str:
     text = clean(value)
     return clean(re.sub(r"^(ph\.?d|msc|m\.?sc|ma|m\.?a|mba|pgd|pgde|dba)\.?\s+", "", text, flags=re.I))
+
+
+def course_name_alternatives(value: str) -> list[str]:
+    text = clean(value)
+    candidates: list[str] = []
+    for candidate in (
+        text,
+        strip_degree_prefix(text),
+        re.sub(r"\(\s*(ph\.?d|msc|m\.?sc|ma|m\.?a|mba|pgd|pgde|dba)\.?\s*\)", "", text, flags=re.I),
+        re.sub(r"\b(ph\.?d|msc|m\.?sc|ma|m\.?a|mba|pgd|pgde|dba)\.?\b", "", text, flags=re.I),
+    ):
+        cleaned = clean(candidate)
+        if cleaned and cleaned.lower() not in {item.lower() for item in candidates}:
+            candidates.append(cleaned)
+    return candidates
 
 
 def resolve_degree_id(data: dict[str, Any]) -> int | None:
@@ -546,10 +803,7 @@ def resolve_program(data: dict[str, Any]) -> tuple[int | None, int | None, int |
     if not name:
         return None, resolve_faculty_id(data), degree_id
 
-    alternatives = [name]
-    stripped = strip_degree_prefix(name)
-    if stripped and stripped.lower() != name.lower():
-        alternatives.insert(0, stripped)
+    alternatives = course_name_alternatives(name)
 
     for candidate in alternatives:
         if degree_id:
@@ -612,7 +866,8 @@ def create_or_update_user(data: dict[str, Any], commit: bool) -> tuple[str | Non
         raise ValueError("email is required")
 
     existing = db_one("SELECT id FROM users WHERE LOWER(email) = LOWER(%s) LIMIT 1", (email,))
-    password_hash = AuthHandler.hash_password(DEFAULT_PASSWORD)
+    preserve_existing_password = bool(data.get("_matched_existing_user_id"))
+    password_hash = None if preserve_existing_password else AuthHandler.hash_password(DEFAULT_PASSWORD)
     phone = clean(data.get("phone_number"))
     registered_at = registration_timestamp(data)
     if existing:
@@ -625,7 +880,7 @@ def create_or_update_user(data: dict[str, Any], commit: bool) -> tuple[str | Non
                        surname = COALESCE(NULLIF(%s, ''), surname),
                        middlename = COALESCE(NULLIF(%s, ''), middlename),
                        phone_number = COALESCE(NULLIF(%s, ''), phone_number),
-                       password_hash = %s,
+                       password_hash = COALESCE(%s, password_hash),
                        user_type_id = 2,
                        updated_at = NOW()
                  WHERE id = %s
@@ -642,6 +897,7 @@ def create_or_update_user(data: dict[str, Any], commit: bool) -> tuple[str | Non
         return user_id, "updated_user"
 
     user_id = str(uuid.uuid4())
+    password_hash = password_hash or AuthHandler.hash_password(DEFAULT_PASSWORD)
     if commit:
         Database.execute_update(
             """
@@ -888,6 +1144,39 @@ def collect_records(args: argparse.Namespace) -> list[dict[str, Any]]:
     return records
 
 
+def normalize_name_match_fields(values: list[str]) -> list[str]:
+    fields = []
+    for value in values:
+        normalized = norm_key(value)
+        if normalized in {"first", "firstname"}:
+            normalized = "first_name"
+        elif normalized in {"middle", "middlename"}:
+            normalized = "middle_name"
+        elif normalized in {"last", "last_name"}:
+            normalized = "surname"
+        if normalized not in {"surname", "first_name", "middle_name"}:
+            raise ValueError(f"Unsupported name field: {value}")
+        if normalized not in fields:
+            fields.append(normalized)
+    return fields
+
+
+def prompt_yes_no(question: str, default: bool = False) -> bool:
+    if not sys.stdin.isatty():
+        return default
+
+    suffix = "[Y/n]" if default else "[y/N]"
+    while True:
+        answer = input(f"{question} {suffix} ").strip().lower()
+        if not answer:
+            return default
+        if answer in {"y", "yes"}:
+            return True
+        if answer in {"n", "no"}:
+            return False
+        print("Please enter y or n.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import filled PG PDF forms into users, pg_application, and payment_transactions.")
     parser.add_argument("pdfs", nargs="*", help="Filled PG PDF path(s). Globs are supported.")
@@ -896,15 +1185,53 @@ def main() -> int:
     parser.add_argument("--commit", action="store_true", help="Write to the database. Without this, only previews parsed data.")
     parser.add_argument("--stage", default=DEFAULT_STAGE, help=f"Applicant stage to set. Default: {DEFAULT_STAGE}")
     parser.add_argument("--surname-position", choices=("first", "last"), default="first", help="How to split full_name when surname is not supplied.")
+    parser.add_argument(
+        "--resolve-missing-email-from-db",
+        action="store_true",
+        help=(
+            "For records without email, find an existing users.email by matching name fields. "
+            "If exactly one email matches, account creation is skipped and that user is upgraded/backfilled."
+        ),
+    )
+    parser.add_argument(
+        "--name-match-fields",
+        nargs="+",
+        default=["surname", "first_name"],
+        help=(
+            "Fields used with --resolve-missing-email-from-db. "
+            "Choices: surname, first_name, middle_name. Default: surname first_name."
+        ),
+    )
     args = parser.parse_args()
+    try:
+        name_match_fields = normalize_name_match_fields(args.name_match_fields)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     records = collect_records(args)
     if not records:
         parser.error("Provide at least one PDF, --data-json, or --data-csv")
 
-    results: list[ImportResult] = []
+    resolve_missing_email = args.resolve_missing_email_from_db
+    missing_email_count = sum(
+        1 for record in records
+        if not record.get("_error") and not clean(record.get("email"))
+    )
+    if missing_email_count and not resolve_missing_email:
+        fields_label = ", ".join(name_match_fields)
+        resolve_missing_email = prompt_yes_no(
+            f"{missing_email_count} record(s) have no email. Search users by {fields_label} to resolve?",
+            default=False,
+        )
+
+    valid_records: list[tuple[int, dict[str, Any]]] = []
     had_errors = False
     for idx, record in enumerate(records, 1):
+        if resolve_missing_email:
+            error = resolve_missing_email_from_db(record, name_match_fields)
+            if error:
+                record["_error"] = error
+
         errors = validate_record(record)
         if errors:
             had_errors = True
@@ -912,22 +1239,35 @@ def main() -> int:
             print(json.dumps(record, indent=2, default=str))
             continue
 
+        valid_records.append((idx, record))
         if not args.commit:
             print(f"\n[{idx}] DRY RUN parsed record")
             print(json.dumps(record, indent=2, default=str))
-            continue
 
-        result = create_application_and_receipt(record, commit=True, stage=args.stage)
-        results.append(result)
-        print(
-            f"[{idx}] {result.action}: {result.email} | "
-            f"form_no={result.form_no} | receipt_no={result.receipt_no}"
+    commit_now = args.commit
+    if not commit_now and valid_records:
+        commit_now = prompt_yes_no(
+            f"Commit {len(valid_records)} valid record(s) now?",
+            default=False,
         )
 
-    if args.commit and results:
+    results: list[ImportResult] = []
+    if commit_now:
+        for idx, record in valid_records:
+            result = create_application_and_receipt(record, commit=True, stage=args.stage)
+            results.append(result)
+            matched_existing = ""
+            if record.get("_matched_existing_user_email"):
+                matched_existing = f" | matched_existing_email={record['_matched_existing_user_email']}"
+            print(
+                f"[{idx}] {result.action}: {result.email} | "
+                f"form_no={result.form_no} | receipt_no={result.receipt_no}{matched_existing}"
+            )
+
+    if commit_now and results:
         print(f"\nImported {len(results)} record(s). Default password is {DEFAULT_PASSWORD!r}.")
-    elif not args.commit:
-        print("\nDry run only. Re-run with --commit to write to the database.")
+    elif not commit_now:
+        print("\nDry run only. No database changes were made.")
 
     return 1 if had_errors else 0
 

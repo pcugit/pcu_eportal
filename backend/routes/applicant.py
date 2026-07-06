@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, Response, send_file, redirect
 from database import Database
 from utils.auth import AuthHandler
+from utils.application_notifications import notify_admin_new_application
 from datetime import datetime, timedelta, timezone
 from utils.document_handler import DocumentHandler
 from utils.scanner import scan_document, ScannerError
@@ -3328,10 +3329,15 @@ def submit_application(payload):
     if not applicant_id:
         return jsonify({'message': 'applicant_id is required'}), 400
 
+    was_already_submitted = False
+    is_pg_application = False
+
     pg_check = Database.execute_query(
-        'SELECT uuid FROM pg_application WHERE uuid = %s AND user_id = %s', (applicant_id, user_id)
+        'SELECT uuid, applicant_stage FROM pg_application WHERE uuid = %s AND user_id = %s', (applicant_id, user_id)
     )
     if pg_check:
+        is_pg_application = True
+        was_already_submitted = pg_check[0].get('applicant_stage') == 'submitted'
         success = Database.execute_update(
             '''UPDATE pg_application
                SET applicant_stage = 'submitted',
@@ -3347,10 +3353,11 @@ def submit_application(payload):
         )
     else:
         app_check = Database.execute_query(
-            'SELECT id FROM applications WHERE id = %s AND user_id = %s', (applicant_id, user_id)
+            'SELECT id, applicant_stage, prog_type FROM applications WHERE id = %s AND user_id = %s', (applicant_id, user_id)
         )
         if not app_check:
             return jsonify({'message': 'Application not found or access denied'}), 404
+        was_already_submitted = app_check[0].get('applicant_stage') == 'submitted'
 
         success = Database.execute_update(
             "UPDATE applications SET applicant_stage = 'submitted', updated_at = NOW() WHERE id = %s AND user_id = %s",
@@ -3358,6 +3365,8 @@ def submit_application(payload):
         )
     if not success:
         return jsonify({'message': 'Failed to submit application'}), 500
+    if not was_already_submitted:
+        notify_admin_new_application(applicant_id, is_pg=is_pg_application)
     return jsonify({'message': 'Application submitted successfully'}), 200
 
 

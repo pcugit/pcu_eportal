@@ -11,12 +11,12 @@ import {
   History,
   Search,
   Download,
+  Printer,
   CheckCircle2,
   X,
   AlertCircle,
   Loader2,
   Clock,
-  Receipt,
   BadgeCheck,
   ArrowLeft,
 } from "lucide-react";
@@ -38,13 +38,25 @@ type SessionPayment = {
   payment_percentage?: number;
 };
 type Tab = "pay" | "history";
+type StudentTransactionsContentProps = {
+  embedded?: boolean;
+  onBack?: () => void;
+};
 
-function StudentTransactionsContent() {
+export function StudentTransactionsContent({
+  embedded = false,
+  onBack,
+}: StudentTransactionsContentProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isPgPortal = pathname.startsWith("/pgstudents");
-  const dashboardPath = isPgPortal ? "/pgstudents/dashboard" : "/student/dashboard";
+  const isPtPortal = pathname.startsWith("/ptstudents");
+  const dashboardPath = isPgPortal
+    ? "/pgstudents/dashboard"
+    : isPtPortal
+      ? "/ptstudents/dashboard"
+      : "/student/dashboard";
   const { user, student, isAuthenticated, isLoading } = useAuth();
 
   // Active tab (URL-driven: ?tab=history or ?tab=pay)
@@ -98,6 +110,15 @@ function StudentTransactionsContent() {
   const isFullyPaid =
     Boolean(sessionPayment?.is_fully_paid) ||
     (totalExpected > 0 && totalPaid >= totalExpected);
+  const feeComponentTotal = feeComponents.reduce(
+    (sum, component) => sum + Number(component.amount || 0),
+    0,
+  );
+  const installmentPayableBase = Number(installmentAmount || 0);
+  const displayTotalPayable =
+    (paymentMode === "installment" && installmentPayableBase > 0
+      ? installmentPayableBase
+      : feeComponentTotal) + processingFee;
   const getInstallmentDue = (
     plans: any[],
     planIndex: number,
@@ -149,7 +170,23 @@ function StudentTransactionsContent() {
         ApiClient.getTuitionBreakdown(),
         ApiClient.getInstallmentPlans(),
       ]);
-      setFeeComponents(breakdown.components);
+      const expectedDevelopmentFee = Number(
+        breakdown.development_fee_due ??
+          breakdown.session_payment?.development_fee_expected ??
+          0,
+      );
+      const hasDevelopmentFeeRow = (breakdown.components || []).some((component) =>
+        component.name.toLowerCase().includes("development"),
+      );
+      const displayComponents =
+        expectedDevelopmentFee > 0 && !hasDevelopmentFeeRow
+          ? [
+              ...(breakdown.components || []),
+              { name: "Development Fee", amount: expectedDevelopmentFee },
+            ]
+          : breakdown.components || [];
+
+      setFeeComponents(displayComponents);
       setFeeTotal(breakdown.total);
       setRecurringFeeTotal(
         typeof breakdown.recurring_total === "number" ? breakdown.recurring_total : breakdown.total,
@@ -276,14 +313,14 @@ function StudentTransactionsContent() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#f3eee6] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-[#c99b45]" />
+      <div className="min-h-screen bg-[#f6f5f2] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[#0f2c4c]" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f3eee6]">
+    <div className={embedded ? "bg-transparent" : "min-h-screen bg-[#f6f5f2]"}>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Page header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -294,8 +331,8 @@ function StudentTransactionsContent() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.push(dashboardPath)}
-            className="h-10 w-fit gap-2 rounded-xl border-[#e8dfd2] bg-white px-4 text-sm font-bold text-slate-700 hover:bg-[#f8f5f0]"
+            onClick={() => (onBack ? onBack() : router.push(dashboardPath))}
+            className="h-10 w-fit gap-2 rounded-xl border-[#e4e0d8] bg-white px-4 text-sm font-bold text-[#0f2c4c] hover:bg-[#f6f5f2]"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Dashboard
@@ -303,7 +340,7 @@ function StudentTransactionsContent() {
         </div>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 bg-white border border-[#e8dfd2] rounded-2xl p-1.5 w-fit shadow-sm">
+        <div className="flex gap-1 bg-white border border-[#e4e0d8] rounded-2xl p-1.5 w-fit shadow-sm">
           {(
             [
               { key: "pay", label: "Pay Fees", icon: CreditCard },
@@ -315,8 +352,8 @@ function StudentTransactionsContent() {
               onClick={() => switchTab(key)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
                 activeTab === key
-                  ? "bg-[#151515] text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-800 hover:bg-[#f3eee6]"
+                  ? "bg-[#0f2c4c] text-white shadow-sm"
+                  : "text-[#6b7686] hover:text-[#0f2c4c] hover:bg-[#f6f5f2]"
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -329,11 +366,11 @@ function StudentTransactionsContent() {
         {activeTab === "pay" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             {/* Left: Status card */}
-            <div className="bg-white rounded-2xl border border-[#e8dfd2] shadow-sm overflow-hidden">
-              <div className="h-1.5 bg-[#e39519] w-full" />
+            <div className="bg-white rounded-2xl border border-[#e4e0d8] shadow-sm overflow-hidden">
+              <div className="h-1.5 bg-[#0f2c4c] w-full" />
               <div className="p-6 space-y-5">
                 <div className="flex items-center gap-3">
-                  <div className="bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] p-2.5 rounded-xl">
+                  <div className="bg-[#f6f5f2] text-[#b8863d] border border-[#e4e0d8] p-2.5 rounded-xl">
                     <CreditCard className="w-6 h-6" />
                   </div>
                   <div>
@@ -358,9 +395,9 @@ function StudentTransactionsContent() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200">
-                    <Clock className="w-5 h-5 text-amber-600 shrink-0" />
-                    <p className="text-sm text-amber-700 font-medium">
+                  <div className="flex items-center gap-3 p-4 bg-[#f6f5f2] rounded-xl border border-[#e4e0d8]">
+                    <Clock className="w-5 h-5 text-[#b8863d] shrink-0" />
+                    <p className="text-sm text-[#0f2c4c] font-medium">
                       {isAdmitted
                         ? "Your admission is confirmed. Pay school fees to complete enrolment."
                         : "Ensure your school fees are up to date for this session."}
@@ -386,11 +423,11 @@ function StudentTransactionsContent() {
                         ₦ {totalPaid.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                       </p>
                     </div>
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500">
+                    <div className="rounded-xl border border-[#e4e0d8] bg-[#f6f5f2] p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#b8863d]">
                         Balance
                       </p>
-                      <p className="mt-1 text-sm font-black text-amber-800">
+                      <p className="mt-1 text-sm font-black text-[#0f2c4c]">
                         ₦ {remainingBalance.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                       </p>
                     </div>
@@ -418,10 +455,10 @@ function StudentTransactionsContent() {
             </div>
 
             {/* Right: Fee Breakdown */}
-            <div className="bg-white rounded-2xl border border-[#e8dfd2] shadow-sm overflow-hidden">
-              <div className="bg-gradient-to-r from-amber-500 to-amber-600 p-5 text-white">
+            <div className="bg-white rounded-2xl border border-[#e4e0d8] shadow-sm overflow-hidden">
+              <div className="bg-[#0f2c4c] p-5 text-white">
                 <h3 className="text-base font-black tracking-tight">Fee Breakdown</h3>
-                <p className="text-amber-100 text-xs mt-0.5">
+                <p className="text-white/70 text-xs mt-0.5">
                   Review your fee components before proceeding.
                 </p>
               </div>
@@ -438,7 +475,7 @@ function StudentTransactionsContent() {
                     ))}
                     <div className="flex justify-between pt-2">
                       <div className="h-5 bg-slate-200 rounded w-1/3" />
-                      <div className="h-5 bg-amber-200 rounded w-1/4" />
+                      <div className="h-5 bg-[#e4e0d8] rounded w-1/4" />
                     </div>
                   </div>
                 )}
@@ -462,8 +499,8 @@ function StudentTransactionsContent() {
                       <button
                         className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
                           paymentMode === "full"
-                            ? "bg-amber-500 text-white"
-                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                            ? "bg-[#0f2c4c] text-white"
+                            : "bg-[#f6f5f2] text-[#0f2c4c] hover:bg-[#eee9df]"
                         }`}
                         onClick={() => { setPaymentMode("full"); setInstallmentAmount(null); }}
                       >
@@ -473,8 +510,8 @@ function StudentTransactionsContent() {
                         <button
                           className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
                             paymentMode === "installment"
-                              ? "bg-amber-500 text-white"
-                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              ? "bg-[#0f2c4c] text-white"
+                              : "bg-[#f6f5f2] text-[#0f2c4c] hover:bg-[#eee9df]"
                           }`}
                           onClick={() => {
                             setPaymentMode("installment");
@@ -511,7 +548,7 @@ function StudentTransactionsContent() {
                               key={plan.id}
                               className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all ${
                                 isNextDue
-                                  ? "border-[#c99b45] bg-[#c99b45]/5 text-[#7a5a1a] font-bold shadow-sm"
+                                  ? "border-[#b8863d] bg-[#b8863d]/10 text-[#0f2c4c] font-bold shadow-sm"
                                   : "border-slate-200 text-slate-500 bg-slate-50/50"
                               } ${isCovered ? "opacity-45" : ""}`}
                             >
@@ -551,17 +588,15 @@ function StudentTransactionsContent() {
                     </div>
 
                     {/* Total */}
-                    <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-amber-300">
+                    <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-[#b8863d]">
                       <span className="text-base font-black text-slate-800 uppercase tracking-tight">
                         Total Payable
                       </span>
-                      <span className="text-xl font-black text-amber-600 tabular-nums">
+                      <span className="text-xl font-black text-[#0f2c4c] tabular-nums">
                         ₦{" "}
-                        {(
-                          (paymentMode === "installment"
-                            ? installmentAmount || 0
-                            : remainingBalance || feeTotal * (remainingPercentage / 100)) + processingFee
-                        ).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                        {displayTotalPayable.toLocaleString("en-NG", {
+                          minimumFractionDigits: 2,
+                        })}
                       </span>
                     </div>
                   </div>
@@ -577,7 +612,7 @@ function StudentTransactionsContent() {
                 {/* Pay button */}
                 {!tuitionPaySuccess && (
                   <Button
-                    className="w-full h-14 font-black text-base bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/25 disabled:opacity-60 mt-4"
+                    className="w-full h-14 font-black text-base bg-[#0f2c4c] hover:bg-[#153d67] text-white rounded-xl shadow-lg shadow-[#0f2c4c]/20 disabled:opacity-60 mt-4"
                     onClick={confirmAndPay}
                     disabled={
                       isFullyPaid ||
@@ -610,8 +645,8 @@ function StudentTransactionsContent() {
 
         {/* ── TAB: TRANSACTION HISTORY ──────────────────────────────────────── */}
         {activeTab === "history" && (
-          <div className="bg-white rounded-2xl border border-[#e8dfd2] shadow-sm overflow-hidden">
-            <div className="h-1.5 bg-[#151515] w-full" />
+          <div className="bg-white rounded-2xl border border-[#e4e0d8] shadow-sm overflow-hidden">
+            <div className="h-1.5 bg-[#0f2c4c] w-full" />
             <div className="p-6 space-y-4">
               {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -623,7 +658,7 @@ function StudentTransactionsContent() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <Input
                     placeholder="Search by reference, receipt..."
-                    className="pl-9 h-10 bg-[#f8f5f0] border-[#e8dfd2] rounded-xl text-sm focus:ring-0 focus:border-[#c99b45]"
+                    className="pl-9 h-10 bg-[#f6f5f2] border-[#e4e0d8] rounded-xl text-sm focus:ring-0 focus:border-[#b8863d]"
                     value={search}
                     onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
                   />
@@ -708,13 +743,13 @@ function StudentTransactionsContent() {
                                   onClick={() => handleDownload(tx.receipt_no)}
                                   disabled={downloading === tx.receipt_no}
                                   variant="outline"
-                                  className="h-8 px-3 text-xs border-[#e8dfd2] hover:bg-[#f3eee6] rounded-lg gap-1.5"
+                                  className="h-8 px-3 text-xs border-[#e4e0d8] hover:bg-[#f6f5f2] rounded-lg gap-1.5"
                                 >
                                   {downloading === tx.receipt_no ? (
                                     <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin" />
                                   ) : (
                                     <>
-                                      <Receipt size={12} /> Print
+                                      <Printer size={12} /> Print
                                     </>
                                   )}
                                 </Button>
@@ -747,7 +782,7 @@ function StudentTransactionsContent() {
                       onClick={() => setCurrentPage((p) => p - 1)}
                       disabled={currentPage === 1}
                       variant="outline"
-                      className="h-8 px-3 text-xs rounded-lg border-[#e8dfd2]"
+                      className="h-8 px-3 text-xs rounded-lg border-[#e4e0d8]"
                     >
                       Previous
                     </Button>
@@ -756,7 +791,7 @@ function StudentTransactionsContent() {
                         key={n}
                         onClick={() => setCurrentPage(n)}
                         variant={currentPage === n ? "secondary" : "outline"}
-                        className={`h-8 w-8 text-xs p-0 rounded-lg border-[#e8dfd2] ${currentPage === n ? "bg-slate-100" : ""}`}
+                        className={`h-8 w-8 text-xs p-0 rounded-lg border-[#e4e0d8] ${currentPage === n ? "bg-[#f6f5f2]" : ""}`}
                       >
                         {n}
                       </Button>
@@ -765,7 +800,7 @@ function StudentTransactionsContent() {
                       onClick={() => setCurrentPage((p) => p + 1)}
                       disabled={currentPage === totalPages}
                       variant="outline"
-                      className="h-8 px-3 text-xs rounded-lg border-[#e8dfd2]"
+                      className="h-8 px-3 text-xs rounded-lg border-[#e4e0d8]"
                     >
                       Next
                     </Button>
@@ -784,8 +819,8 @@ export default function StudentTransactionsPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#f3eee6] flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#c99b45]" />
+        <div className="min-h-screen bg-[#f6f5f2] flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[#0f2c4c]" />
         </div>
       }
     >

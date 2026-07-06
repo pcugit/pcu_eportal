@@ -19,8 +19,10 @@ from utils.payment_status import (
     atomic_settle_payment,
     build_update_sql_params,
     generate_receipt_no,
+    get_development_fee_amount,
     get_recurring_tuition_paid,
     get_required_development_fee_amount,
+    has_successful_tuition_payment,
     requires_development_fee,
 )
 from config import Config
@@ -2631,8 +2633,15 @@ def get_tuition_fee_breakdown(payload):
         development_fee_due = 0.0
         if current_session_id and requires_development_fee(user_id, context):
             development_fee_due = get_required_development_fee_amount(user_id, context, current_session_id)
-            if development_fee_due > 0:
-                total += development_fee_due
+        elif (
+            current_session_id
+            and not has_successful_tuition_payment(user_id, before_session_id=current_session_id)
+        ):
+            development_fee_due = get_development_fee_amount(context, current_session_id)
+
+        if development_fee_due > 0:
+            total += development_fee_due
+            if not any('development' in str(c.get('name', '')).lower() for c in components):
                 components.append({'name': 'Development Fee', 'amount': development_fee_due})
 
         processing_fee = _get_processing_fee()
@@ -3587,12 +3596,19 @@ def get_payment_receipt(payload, receipt_no):
                          AND pf.faculty_id = %s
                          AND pf.academic_session_id = %s
                          AND LOWER(fc.name) NOT LIKE '%%acceptance%%'
+                         AND LOWER(fc.name) NOT LIKE '%%development%%'
                        ORDER BY fc.name ASC''',
                     (str(context['program_type']), str(context['level']), str(context['faculty_id']), session_id)
                 )
             except Exception as e:
                 print(f"[get_payment_receipt] Error fetching tuition fee components: {e}")
-                
+
+        development_fee_on_receipt = 0.0
+        if context and session_id and not has_successful_tuition_payment(user_id, before_session_id=session_id):
+            configured_development_fee = get_development_fee_amount(context, session_id)
+            development_fee_on_receipt = min(configured_development_fee, max(0.0, base_amount))
+        recurring_receipt_amount = max(0.0, base_amount - development_fee_on_receipt)
+
         if fees:
             total_config_amount = sum(float(f['amount'] or 0) for f in fees)
             if total_config_amount > 0:
@@ -3600,18 +3616,24 @@ def get_payment_receipt(payload, receipt_no):
                     name = f['fee_name'] or 'Tuition & Accommodation'
                     config_amt = float(f['amount'] or 0)
                     proportion = config_amt / total_config_amount
-                    scaled_amt = base_amount * proportion
-                    breakdown.append({'name': name, 'amount': scaled_amt})
+                    scaled_amt = recurring_receipt_amount * proportion
+                    if scaled_amt > 0:
+                        breakdown.append({'name': name, 'amount': scaled_amt})
+                if development_fee_on_receipt > 0:
+                    breakdown.append({'name': 'Development Fee', 'amount': development_fee_on_receipt})
                 if processing_fee > 0:
                     breakdown.append({'name': 'Processing Fee', 'amount': processing_fee})
             else:
                 fees = []
                 
         if not fees:
-            breakdown = [
-                {'name': 'Tuition Fee Payment', 'amount': base_amount},
-                {'name': 'Processing Fee', 'amount': processing_fee}
-            ]
+            breakdown = []
+            if recurring_receipt_amount > 0:
+                breakdown.append({'name': 'Tuition Fee Payment', 'amount': recurring_receipt_amount})
+            if development_fee_on_receipt > 0:
+                breakdown.append({'name': 'Development Fee', 'amount': development_fee_on_receipt})
+            if processing_fee > 0:
+                breakdown.append({'name': 'Processing Fee', 'amount': processing_fee})
     else:
         payment_type_display = tran_type.replace('_', ' ').title()
         breakdown = [

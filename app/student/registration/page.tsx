@@ -32,14 +32,22 @@ export default function CourseRegistration() {
 
   const [firstCourses, setFirstCourses] = useState<CourseData[]>([]);
   const [secondCourses, setSecondCourses] = useState<CourseData[]>([]);
+  const [ptCourses, setPtCourses] = useState<CourseData[]>([]);
   const [availableCourses, setAvailableCourses] = useState<CourseData[]>([]); // electives + required
 
   const [firstSelectedIds, setFirstSelectedIds] = useState<number[]>([]);
   const [secondSelectedIds, setSecondSelectedIds] = useState<number[]>([]);
+  const [ptSelectedIds, setPtSelectedIds] = useState<number[]>([]);
   const [initialRegisteredIds, setInitialRegisteredIds] = useState<number[]>([]);
 
   const [firstStatus, setFirstStatus] = useState<string | null>(null);
   const [secondStatus, setSecondStatus] = useState<string | null>(null);
+  const [ptStatus, setPtStatus] = useState<string | null>(null);
+  const [isPtRegistration, setIsPtRegistration] = useState(false);
+  const [canSubmitRegistration, setCanSubmitRegistration] = useState(true);
+  const [activeSemesterName, setActiveSemesterName] = useState<string | null>(
+    null,
+  );
 
   const [deadline, setDeadline] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +61,7 @@ export default function CourseRegistration() {
 
   const [firstAvailablePage, setFirstAvailablePage] = useState(1);
   const [secondAvailablePage, setSecondAvailablePage] = useState(1);
+  const [ptCoursesPage, setPtCoursesPage] = useState(1);
 
   const loadCourses = async () => {
     try {
@@ -64,6 +73,7 @@ export default function CourseRegistration() {
       const data = await ApiClient.getStudentCourses();
 
       setIsGlobalLocked(!!data.is_global_locked);
+      setCanSubmitRegistration(data.can_submit_registration !== false);
 
       // Helper: normalise a course object so category field is always present
       const norm = (c: any): CourseData => ({
@@ -74,6 +84,17 @@ export default function CourseRegistration() {
       // Build first/second semester course lists from structured response
       const sems: Record<string, { compulsory: any[]; core: any[] }> =
         (data as any).semesters ?? {};
+      const registeredIds: number[] = (data as any).registered_course_ids ?? [];
+      const regStatusBySem: Record<string, string> =
+        (data as any).reg_status_by_semester ?? {};
+      const activeName = (data as any).active_semester?.name ?? null;
+      const isPtMode =
+        Boolean((data as any).is_pt_registration) ||
+        Boolean((data as any).student?.is_pt_student) ||
+        Boolean(student?.is_pt_student);
+      setIsPtRegistration(isPtMode);
+      setActiveSemesterName(activeName);
+      setInitialRegisteredIds(registeredIds);
 
       const firstSem = sems["First semester"] ?? { compulsory: [], core: [] };
       const secondSem = sems["Second semester"] ?? { compulsory: [], core: [] };
@@ -85,22 +106,50 @@ export default function CourseRegistration() {
         norm,
       );
 
+      const MANDATORY = new Set(["compulsory", "compulsary", "core"]);
+      if (isPtMode) {
+        const sourceCourses: CourseData[] = ((data as any).all_courses ?? [
+          ...newFirstCourses,
+          ...newSecondCourses,
+          ...((data as any).available_courses ?? []),
+        ]).map(norm);
+        const allPtCourses: CourseData[] = Array.from(
+          new Map(sourceCourses.map((c: CourseData) => [c.id, c])).values(),
+        );
+        const semesterStatus = activeName ? regStatusBySem[activeName] : null;
+
+        setPtCourses(allPtCourses);
+        setPtStatus(semesterStatus);
+        setFirstCourses([]);
+        setSecondCourses([]);
+        setAvailableCourses([]);
+        setFirstSelectedIds([]);
+        setSecondSelectedIds([]);
+        const registeredPtIds = registeredIds.filter((id) =>
+          allPtCourses.some((c) => c.id === id),
+        );
+        const firstFiveMandatoryIds = allPtCourses
+          .filter((c) => MANDATORY.has((c.category || "").toLowerCase()))
+          .slice(0, 5)
+          .map((c) => c.id);
+
+        setPtSelectedIds(
+          registeredPtIds.length > 0
+            ? registeredPtIds
+            : firstFiveMandatoryIds,
+        );
+        return;
+      }
+
       setFirstCourses(newFirstCourses);
       setSecondCourses(newSecondCourses);
       setAvailableCourses(((data as any).available_courses ?? []).map(norm));
-
-      const registeredIds: number[] = (data as any).registered_course_ids ?? [];
-      setInitialRegisteredIds(registeredIds);
-      const regStatusBySem: Record<string, string> =
-        (data as any).reg_status_by_semester ?? {};
 
       setFirstStatus(regStatusBySem["First"] ?? null);
       setSecondStatus(regStatusBySem["Second"] ?? null);
 
       // Auto-select compulsory/core if not already submitted;
       // otherwise restore the previously registered selection
-      const MANDATORY = new Set(["compulsory", "compulsary", "core"]);
-
       const parsedAvailable = ((data as any).available_courses ?? []).map(norm);
       const allFirstPossible = [
         ...newFirstCourses,
@@ -192,6 +241,7 @@ export default function CourseRegistration() {
           const existingIds = new Set([
             ...firstSelectedIds,
             ...secondSelectedIds,
+            ...ptSelectedIds,
           ]);
           setGlobalSearchRes(res.courses.filter((c) => !existingIds.has(c.id)));
         } catch (err) {
@@ -205,7 +255,7 @@ export default function CourseRegistration() {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, firstSelectedIds, secondSelectedIds]);
+  }, [searchQuery, firstSelectedIds, secondSelectedIds, ptSelectedIds]);
 
   const isDeadlinePassed = deadline ? new Date(deadline) < new Date() : false;
   const isFirstLocked = isGlobalLocked || isDeadlinePassed;
@@ -229,10 +279,31 @@ export default function CourseRegistration() {
     );
   };
 
+  const togglePtCourse = (courseId: number, isCompulsory: boolean) => {
+    if (isGlobalLocked || isDeadlinePassed) return;
+    setPtSelectedIds((prev) =>
+      prev.includes(courseId)
+        ? prev.filter((id) => id !== courseId)
+        : [...prev, courseId],
+    );
+  };
+
   const addFromSearch = (
     course: CourseData,
-    targetSemester: "First" | "Second",
+    targetSemester?: "First" | "Second",
   ) => {
+    if (isPtRegistration) {
+      setPtCourses((prev) => [
+        ...prev.filter((c) => c.id !== course.id),
+        course,
+      ]);
+      if (!ptSelectedIds.includes(course.id)) {
+        setPtSelectedIds((prev) => [...prev, course.id]);
+      }
+      setSearchQuery("");
+      return;
+    }
+
     if (targetSemester === "First") {
       setFirstCourses((prev) => [
         ...prev.filter((c) => c.id !== course.id),
@@ -278,28 +349,72 @@ export default function CourseRegistration() {
   const calculateTotalCredits = () =>
     calculateFirstCredits() + calculateSecondCredits();
 
-  const hasChanges =
-    initialRegisteredIds.length !== firstSelectedIds.length + secondSelectedIds.length ||
-    !initialRegisteredIds.every((id) => [...firstSelectedIds, ...secondSelectedIds].includes(id));
+  const calculatePtCredits = () =>
+    ptCourses
+      .filter((c) => ptSelectedIds.includes(c.id))
+      .reduce((sum, c) => sum + Number(c.credit_units || 0), 0);
 
-  const isDraft = firstStatus === "draft" || secondStatus === "draft";
+  const selectedIds = isPtRegistration
+    ? ptSelectedIds
+    : [...firstSelectedIds, ...secondSelectedIds];
+
+  const hasChanges =
+    initialRegisteredIds.length !== selectedIds.length ||
+    !initialRegisteredIds.every((id) => selectedIds.includes(id));
+
+  const isDraft = isPtRegistration
+    ? ptStatus === "draft"
+    : firstStatus === "draft" || secondStatus === "draft";
 
   const isSaveDisabled =
     submitting ||
     isGlobalLocked ||
-    (firstSelectedIds.length === 0 && secondSelectedIds.length === 0) ||
+    selectedIds.length === 0 ||
     !hasChanges;
 
   const isSubmitDisabled =
     submitting ||
     isGlobalLocked ||
-    (firstSelectedIds.length === 0 && secondSelectedIds.length === 0) ||
+    selectedIds.length === 0 ||
+    (isPtRegistration && calculatePtCredits() < 15) ||
+    (isPtRegistration && !canSubmitRegistration) ||
     (!hasChanges && !isDraft);
 
   const handleRegister = async (status: "draft" | "submitted" = "submitted") => {
+    const confirmed = window.confirm(
+      status === "draft"
+        ? "Are you sure you want to save this course registration as a draft?"
+        : "Are you sure you want to submit this course registration?",
+    );
+
+    if (!confirmed) return;
+
     setSubmitting(true);
     setError(null);
     try {
+      if (isPtRegistration) {
+        if (status === "submitted" && !canSubmitRegistration) {
+          setError("Pay the installment for the active semester before submitting registration.");
+          return;
+        }
+        if (status === "submitted" && calculatePtCredits() < 15) {
+          setError("Part-time students must register a minimum of 15 units per semester.");
+          return;
+        }
+        await ApiClient.registerCourses(
+          ptSelectedIds,
+          activeSemesterName ?? "Current",
+          status,
+        );
+        await loadCourses();
+        alert(
+          status === "draft"
+            ? "Course registration draft saved successfully!"
+            : "Course registration submitted successfully!"
+        );
+        return;
+      }
+
       if (!isFirstLocked && firstSelectedIds.length > 0) {
         await ApiClient.registerCourses(firstSelectedIds, "First", status);
       }
@@ -323,7 +438,7 @@ export default function CourseRegistration() {
 
   if (
     authLoading ||
-    (loading && !firstCourses.length && !secondCourses.length)
+    (loading && !firstCourses.length && !secondCourses.length && !ptCourses.length)
   ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -438,6 +553,22 @@ export default function CourseRegistration() {
     (activeSecondAvailablePage - 1) * ITEMS_PER_PAGE,
     activeSecondAvailablePage * ITEMS_PER_PAGE
   );
+
+  const PT_ITEMS_PER_PAGE = 20;
+  const selectedPtCourses = ptCourses.filter((course) =>
+    ptSelectedIds.includes(course.id),
+  );
+  const availablePtCourses = ptCourses.filter(
+    (course) => !ptSelectedIds.includes(course.id),
+  );
+  const ptTotalPages = Math.max(1, Math.ceil(availablePtCourses.length / PT_ITEMS_PER_PAGE));
+  const activePtPage = ptCoursesPage > ptTotalPages ? 1 : ptCoursesPage;
+  const paginatedPtCourses = availablePtCourses.slice(
+    (activePtPage - 1) * PT_ITEMS_PER_PAGE,
+    activePtPage * PT_ITEMS_PER_PAGE,
+  );
+  const ptLeftColumn = paginatedPtCourses.slice(0, 10);
+  const ptRightColumn = paginatedPtCourses.slice(10, 20);
 
   const PaginationControls = ({
     currentPage,
@@ -559,24 +690,38 @@ export default function CourseRegistration() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-8 gap-1 border-primary/20 hover:bg-primary/5 hover:text-primary"
-                          onClick={() => addFromSearch(course, "First")}
-                          disabled={isFirstLocked}
-                        >
-                          <Plus className="h-3 w-3" /> 1st Sem
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-8 gap-1 border-primary/20 hover:bg-primary/5 hover:text-primary"
-                          onClick={() => addFromSearch(course, "Second")}
-                          disabled={isSecondLocked}
-                        >
-                          <Plus className="h-3 w-3" /> 2nd Sem
-                        </Button>
+                        {isPtRegistration ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-8 gap-1 border-primary/20 hover:bg-primary/5 hover:text-primary"
+                            onClick={() => addFromSearch(course)}
+                            disabled={isGlobalLocked || isDeadlinePassed}
+                          >
+                            <Plus className="h-3 w-3" /> Add
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs h-8 gap-1 border-primary/20 hover:bg-primary/5 hover:text-primary"
+                              onClick={() => addFromSearch(course, "First")}
+                              disabled={isFirstLocked}
+                            >
+                              <Plus className="h-3 w-3" /> 1st Sem
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs h-8 gap-1 border-primary/20 hover:bg-primary/5 hover:text-primary"
+                              onClick={() => addFromSearch(course, "Second")}
+                              disabled={isSecondLocked}
+                            >
+                              <Plus className="h-3 w-3" /> 2nd Sem
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -586,6 +731,208 @@ export default function CourseRegistration() {
           )}
         </div>
 
+        {isPtRegistration ? (
+          <div className="flex flex-col md:flex-row gap-6 relative z-10">
+            <div className="flex-1 min-w-0">
+              <div className="bg-card rounded-xl border border-border p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="text-primary w-4 h-4" />
+                    <h3 className="text-sm font-black text-foreground uppercase tracking-tight">
+                      Courses
+                    </h3>
+                  </div>
+                  <Badge variant="outline" className="font-bold text-xs w-fit">
+                    {calculatePtCredits()} Units
+                  </Badge>
+                </div>
+
+                {ptStatus === "submitted" && (
+                  <div className="bg-green-100 text-green-800 px-2 py-1 rounded text-[10px] flex items-center gap-1.5 font-medium mb-3 w-fit">
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                    Submitted
+                  </div>
+                )}
+
+                {ptCourses.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic border-t pt-3">
+                    No courses found for your programme.
+                  </p>
+                ) : (
+                  <div className="space-y-5 border-t pt-3">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <h4 className="text-xs font-black uppercase tracking-tight text-foreground">
+                          Selected Courses
+                        </h4>
+                        <Badge variant="secondary" className="text-[10px] font-bold">
+                          {selectedPtCourses.length}
+                        </Badge>
+                      </div>
+                      {selectedPtCourses.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          No courses selected.
+                        </p>
+                      ) : (
+                        <div className="grid md:grid-cols-2 gap-x-6">
+                          {selectedPtCourses.map((course) => (
+                            <CourseRow
+                              key={course.id}
+                              course={course}
+                              isSelected={true}
+                              toggleCourse={togglePtCourse}
+                              isLocked={isGlobalLocked || isDeadlinePassed}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between border-t pt-4">
+                        <h4 className="text-xs font-black uppercase tracking-tight text-foreground">
+                          Available Courses
+                        </h4>
+                        <Badge variant="secondary" className="text-[10px] font-bold">
+                          {availablePtCourses.length}
+                        </Badge>
+                      </div>
+
+                      {availablePtCourses.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">
+                          No available courses.
+                        </p>
+                      ) : (
+                        <div className="grid md:grid-cols-2 gap-6">
+                          <div>
+                            {ptLeftColumn.map((course) => (
+                              <CourseRow
+                                key={course.id}
+                                course={course}
+                                isSelected={false}
+                                toggleCourse={togglePtCourse}
+                                isLocked={isGlobalLocked || isDeadlinePassed}
+                              />
+                            ))}
+                          </div>
+                          <div>
+                            {ptRightColumn.map((course) => (
+                              <CourseRow
+                                key={course.id}
+                                course={course}
+                                isSelected={false}
+                                toggleCourse={togglePtCourse}
+                                isLocked={isGlobalLocked || isDeadlinePassed}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <PaginationControls
+                  currentPage={activePtPage}
+                  totalPages={ptTotalPages}
+                  onPageChange={setPtCoursesPage}
+                />
+              </div>
+            </div>
+
+            <div className="md:w-72 shrink-0">
+              <div className="sticky top-24">
+                <Card className="shadow-2xl border-none overflow-hidden">
+                  <div className="h-2 bg-primary" />
+                  <CardHeader className="bg-muted px-6 py-4">
+                    <CardTitle className="text-base font-black uppercase text-foreground tracking-wider">
+                      Registration Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm items-center pb-2 border-b">
+                        <span className="font-medium text-muted-foreground">
+                          Semester
+                        </span>
+                        <span className="font-black text-foreground">
+                          {activeSemesterName ?? "Current"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm items-center pb-2 border-b">
+                        <span className="font-medium text-muted-foreground">
+                          Selected Courses
+                        </span>
+                        <span className="font-black text-foreground">
+                          {ptSelectedIds.length}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-base items-center pt-2">
+                        <span className="font-bold text-foreground">
+                          Valid Credits
+                        </span>
+                        <span className="font-black text-primary text-xl">
+                          {calculatePtCredits()}{" "}
+                          <span className="text-xs text-muted-foreground font-bold">
+                            UNITS
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {calculatePtCredits() < 15 && (
+                      <p className="text-[11px] text-destructive font-bold leading-tight">
+                        Minimum of 15 units is required before submission.
+                      </p>
+                    )}
+
+                    {!canSubmitRegistration && (
+                      <p className="text-[11px] text-amber-700 font-bold leading-tight">
+                        Pay the active semester installment before submitting.
+                        You can still save your selection as a draft.
+                      </p>
+                    )}
+
+                    <div className="pt-6 space-y-3">
+                      <Button
+                        onClick={() => handleRegister("draft")}
+                        disabled={isSaveDisabled}
+                        variant="outline"
+                        className="w-full font-black py-6 text-base rounded-xl shadow-sm hover:scale-[1.02] transition-transform border-primary/20 hover:bg-primary/5 hover:text-primary"
+                      >
+                        {submitting ? (
+                          <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                        ) : (
+                          <>Save Draft</>
+                        )}
+                      </Button>
+
+                      <Button
+                        onClick={() => handleRegister("submitted")}
+                        disabled={isSubmitDisabled}
+                        className="w-full font-black py-6 text-base rounded-xl shadow-xl hover:scale-[1.02] transition-transform text-white"
+                        style={{
+                          background:
+                            "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)",
+                        }}
+                      >
+                        {submitting ? (
+                          <span className="animate-spin relative flex h-4 w-4">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-foreground/20 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-4 w-4 bg-foreground"></span>
+                          </span>
+                        ) : (
+                          <>Submit Registration</>
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Main content: courses left, summary right (sticky) */}
         <div className="flex flex-col md:flex-row gap-6 relative z-10">
           {/* Left: course lists (scrollable) */}
@@ -855,6 +1202,8 @@ export default function CourseRegistration() {
           </div>
         </div>
         {/* end flex row */}
+          </>
+        )}
       </div>
     </div>
   );

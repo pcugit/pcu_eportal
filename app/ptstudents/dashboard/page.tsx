@@ -1,11 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import CourseRegistration from "@/app/student/registration/page";
+import { StudentTransactionsContent } from "@/app/student/transactions/page";
+import { ApiClient } from "@/lib/api";
 import {
+  AlertCircle,
+  ArrowLeft,
   ChevronDown,
+  CheckCircle2,
   CreditCard,
   Download,
   FileText,
@@ -64,8 +70,20 @@ const menuGroups = [
 export default function PtStudentsDashboardPage() {
   const router = useRouter();
   const { user, student, isAuthenticated, isLoading, logout, isLoggingOut } = useAuth();
+  const [activeView, setActiveView] = useState<"dashboard" | "course-registration" | "payments">("dashboard");
+  const [firstLoginResolved, setFirstLoginResolved] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    new_password: "",
+    confirm_password: "",
+  });
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const canAccess =
     isAuthenticated && user?.role === "student" && student?.is_pt_student === true;
+  const mustChangePassword = Boolean(student?.is_first_login) && !firstLoginResolved;
   const availableReceipts = [
     "Tuition",
     "Acceptance Fee",
@@ -104,6 +122,55 @@ export default function PtStudentsDashboardPage() {
 
   const handleLogout = async () => {
     await logout("/ptstudents/login");
+  };
+
+  const handleMenuItemClick = (label: string) => {
+    if (mustChangePassword) return;
+
+    if (label === "Course Registration") {
+      setActiveView("course-registration");
+      return;
+    }
+
+    if (label === "Pay School Fees") {
+      setActiveView("payments");
+    }
+  };
+
+  const handleChangePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordMessage(null);
+
+    if (passwordForm.new_password.length < 6) {
+      setPasswordMessage({
+        type: "error",
+        text: "New password must be at least 6 characters.",
+      });
+      return;
+    }
+
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      setPasswordMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    try {
+      setPasswordLoading(true);
+      await ApiClient.changePassword("", passwordForm.new_password);
+      setPasswordForm({ new_password: "", confirm_password: "" });
+      setFirstLoginResolved(true);
+      setPasswordMessage({
+        type: "success",
+        text: "Password successfully updated. You can now continue.",
+      });
+    } catch (error: any) {
+      setPasswordMessage({
+        type: "error",
+        text: error?.message || "Failed to update password.",
+      });
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -211,6 +278,111 @@ export default function PtStudentsDashboardPage() {
           </dl>
         </section>
 
+        {mustChangePassword ? (
+          <section className="mx-auto max-w-2xl rounded-xl border border-[#e4e0d8] bg-white">
+            <div className="border-b border-[#e4e0d8] px-5 py-4">
+              <h2 className="font-serif text-xl text-[#0f2c4c]">
+                Change Password
+              </h2>
+              <p className="mt-1 text-sm text-[#6b7686]">
+                Update your default password before using the part-time portal.
+              </p>
+            </div>
+            <form noValidate onSubmit={handleChangePassword} className="space-y-4 px-5 py-5">
+              {passwordMessage && (
+                <div
+                  className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+                    passwordMessage.type === "success"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-red-50 text-red-700"
+                  }`}
+                >
+                  {passwordMessage.type === "success" ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>{passwordMessage.text}</span>
+                </div>
+              )}
+
+              <label className="block text-sm text-[#1c2b3a]">
+                <span className="font-semibold text-[#6b7686]">New Password</span>
+                <input
+                  type="password"
+                  value={passwordForm.new_password}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      new_password: event.target.value,
+                    }))
+                  }
+                  disabled={passwordLoading}
+                  className="mt-1 h-11 w-full rounded-md border border-[#e4e0d8] px-3 text-sm outline-none focus:border-[#b8863d]"
+                  minLength={6}
+                  required
+                />
+              </label>
+
+              <label className="block text-sm text-[#1c2b3a]">
+                <span className="font-semibold text-[#6b7686]">Confirm Password</span>
+                <input
+                  type="password"
+                  value={passwordForm.confirm_password}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({
+                      ...current,
+                      confirm_password: event.target.value,
+                    }))
+                  }
+                  disabled={passwordLoading}
+                  className="mt-1 h-11 w-full rounded-md border border-[#e4e0d8] px-3 text-sm outline-none focus:border-[#b8863d]"
+                  minLength={6}
+                  required
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={passwordLoading}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#0f2c4c] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#153d67] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+              >
+                <Lock className="h-4 w-4" />
+                {passwordLoading ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          </section>
+        ) : activeView === "course-registration" ? (
+          <section className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setActiveView("dashboard")}
+              className="inline-flex items-center gap-2 rounded-md border border-[#e4e0d8] bg-white px-3 py-2 text-sm font-medium text-[#0f2c4c] transition-colors hover:bg-[#f6f5f2]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </button>
+            <div className="overflow-hidden rounded-xl border border-[#e4e0d8] bg-white">
+              <CourseRegistration />
+            </div>
+          </section>
+        ) : activeView === "payments" ? (
+          <section className="space-y-4">
+            <Suspense
+              fallback={
+                <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-[#e4e0d8] bg-white">
+                  <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#0f2c4c]" />
+                </div>
+              }
+            >
+              <StudentTransactionsContent
+                embedded
+                onBack={() => setActiveView("dashboard")}
+              />
+            </Suspense>
+          </section>
+        ) : (
+
         <div className="flex flex-col gap-8 md:flex-row">
           <nav className="flex shrink-0 gap-2 overflow-x-auto pb-2 md:sticky md:top-24 md:w-44 md:flex-col md:self-start md:overflow-visible md:pb-0">
             {navSections.map((section) => (
@@ -248,6 +420,7 @@ export default function PtStudentsDashboardPage() {
                       <button
                         key={item.label}
                         type="button"
+                        onClick={() => handleMenuItemClick(item.label)}
                         className="flex w-full items-center gap-3 px-5 py-3.5 text-left text-sm text-[#1c2b3a] transition-colors hover:bg-[#f6f5f2]"
                       >
                         <Icon className="h-[18px] w-[18px] shrink-0 text-[#b8863d]" />
@@ -325,6 +498,7 @@ export default function PtStudentsDashboardPage() {
             </section>
           </div>
         </div>
+        )}
       </div>
 
       <footer className="mt-12 border-t border-[#e4e0d8] bg-white px-4 py-4 text-center text-xs text-[#6b7686] md:px-8">

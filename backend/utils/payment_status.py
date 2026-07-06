@@ -1287,18 +1287,30 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
         'faculty_id': faculty_id,
     }
     recurring_paid = get_recurring_tuition_paid(user_id, session_id, fee_context)
-    development_fee_due = (
+    development_fee_expected = (
         get_development_fee_amount(fee_context, session_id)
-        if should_charge_development_fee(user_id, fee_context, session_id)
+        if is_pt_hnd_program(fee_context.get('program_type'))
+        and not has_successful_tuition_payment(user_id, before_session_id=session_id)
         else 0.0
     )
 
     # Get expected recurring tuition fees using SAME filters as frontend.
     expected_fees = get_recurring_tuition_total(fee_context, session_id)
-    total_expected = expected_fees + development_fee_due
+    total_expected = expected_fees + development_fee_expected
     
-    is_fully_paid = (recurring_paid >= expected_fees) if expected_fees > 0 else False
-    remaining = max(0, expected_fees - recurring_paid) + development_fee_due
+    development_fee_paid = min(
+        development_fee_expected,
+        max(0.0, total_paid - recurring_paid),
+    )
+    is_fully_paid = (
+        total_paid >= total_expected
+        if total_expected > 0
+        else False
+    )
+    remaining = (
+        max(0, expected_fees - recurring_paid)
+        + max(0, development_fee_expected - development_fee_paid)
+    )
     
     if total_expected > 0:
         paid_for_progress = max(0, total_expected - remaining)
@@ -1311,7 +1323,9 @@ def get_session_payment_summary(user_id: int, session_id: int) -> dict:
         'total_paid': total_paid,
         'recurring_expected': expected_fees,
         'recurring_paid': recurring_paid,
-        'development_fee_due': development_fee_due,
+        'development_fee_due': max(0, development_fee_expected - development_fee_paid),
+        'development_fee_expected': development_fee_expected,
+        'development_fee_paid': development_fee_paid,
         'is_fully_paid': is_fully_paid,
         'remaining': remaining,
         'payment_percentage': payment_percentage,

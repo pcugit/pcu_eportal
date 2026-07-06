@@ -77,6 +77,106 @@ def _has_any_tuition_paid(user_id):
     return bool(res)
 
 
+def _has_installment_tuition_paid(user_id):
+    """Return True when the student is paying tuition through semester installments."""
+    res = Database.execute_query(
+        """SELECT id FROM payment_transactions
+           WHERE user_id = %s
+             AND tran_type = 'tuition'
+             AND tran_status = 'successful'
+             AND installment_plan_id IS NOT NULL
+           LIMIT 1""",
+        (user_id,)
+    )
+    return bool(res)
+
+
+def _is_pt_or_hnd(student_row):
+    return str(student_row.get('prog_type')) in {'4', '7'}
+
+
+def _registration_payment_satisfied(user_id, active_semester, is_pt_or_hnd_student):
+    if not active_semester:
+        return _has_any_tuition_paid(user_id)
+
+    paid_for_active_semester = _verify_tuition_paid(
+        user_id,
+        active_semester['session_id'],
+        active_semester['id'],
+    )
+
+    if is_pt_or_hnd_student and _has_installment_tuition_paid(user_id):
+        return paid_for_active_semester
+
+    return paid_for_active_semester or _has_any_tuition_paid(user_id)
+
+
+def _course_department_candidates(student_row):
+    candidates = []
+
+    def add(value):
+        value = (value or '').strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    add(student_row.get('course_department'))
+    add(student_row.get('finalised_course'))
+    add(student_row.get('department_name'))
+    return candidates
+
+
+def _fetch_courses_for_departments(cur, departments, level, semester=None):
+    sem_filter = ''
+    params = []
+    if semester:
+        sem_filter = 'AND c.semester ILIKE %s'
+
+    for department in departments:
+        query_params = [department, str(level)]
+        if semester:
+            query_params.append(f'{semester} semester')
+
+        cur.execute(
+            f'''SELECT c.id, c.course_code, c.course_title,
+                      c.unit AS credit_units, c.semester,
+                      LOWER(TRIM(c.remark)) AS remark
+               FROM course c
+               WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s))
+                 AND c.level::text = %s
+                 AND c.status = 'active'
+                 {sem_filter}
+               ORDER BY c.semester, c.remark, c.course_code''',
+            query_params
+        )
+        courses = cur.fetchall()
+        if courses:
+            return courses
+
+    return []
+
+
+def _fetch_valid_courses_for_departments(departments, level, db_semester=None):
+    sem_filter = ''
+    params_suffix = []
+    if db_semester:
+        sem_filter = 'AND c.semester ILIKE %s'
+        params_suffix.append(db_semester)
+
+    for department in departments:
+        courses = Database.execute_query(
+            f'''SELECT c.id, c.unit AS credit_units, c.remark AS category, c.course_code
+               FROM course c
+               WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s))
+                 AND c.level::text = %s
+                 {sem_filter}
+                 AND c.status = 'active' ''',
+            (department, str(level), *params_suffix)
+        )
+        if courses:
+            return courses
+    return []
+
+
 @student_bp.route('/change-password', methods=['POST'])
 @AuthHandler.token_required
 def change_password(payload):
@@ -273,15 +373,19 @@ def get_courses(payload):
             # unmatched finalised_course does not silently drop the entire row.
             cur.execute(
                 '''SELECT a.degree_id,
+                          a.prog_type,
                           COALESCE(l.name, '100') AS current_level,
                           acs.name AS session,
                           s.department AS department_name,
                           a.finalised_course,
+                          d.name AS course_department,
                           COALESCE(s."Id", 0) AS student_id
                    FROM applications a
                    JOIN academic_sessions acs ON acs.id = a.academic_session_id
                    LEFT JOIN students s ON s."UserId" = a.user_id
                    LEFT JOIN level l ON l.id = s.current_level_id
+                   LEFT JOIN program_setup ps ON ps.id = a.program_setup_id
+                   LEFT JOIN departments d ON d.id = ps.department_id
                    WHERE a.user_id = %s
                    AND a.applicant_stage IN ('accepted', 'enrolled')
                    ORDER BY a.updated_at DESC LIMIT 1''',
@@ -293,12 +397,12 @@ def get_courses(payload):
 
             # ── Tuition payment guard ─────────────────────────────────────────
             active_sem = _get_active_semester()
+            is_pt_hnd_student = _is_pt_or_hnd(student)
+            can_submit_registration = True
             if active_sem:
-                paid = (
-                    _verify_tuition_paid(user_id, active_sem['session_id'], active_sem['id'])
-                    or _has_any_tuition_paid(user_id)
-                )
-                if not paid:
+                paid = _registration_payment_satisfied(user_id, active_sem, is_pt_hnd_student)
+                can_submit_registration = paid
+                if not paid and not is_pt_hnd_student:
                     return jsonify({
                         'message': (
                             f'Tuition payment for {active_sem["session_name"]} '
@@ -313,56 +417,12 @@ def get_courses(payload):
             current_level   = student['current_level'] 
             db_session      = student['session']
             student_id      = student['student_id']
-            finalised_course = student['finalised_course']
-            department_name = finalised_course if finalised_course else student['department_name']
-
-            sem_filter = ''
-            sem_params = [department_name, current_level]
-            if semester:
-                sem_filter = "AND c.semester ILIKE %s"
-                sem_params.append(f'{semester} semester')
-
-            cur.execute(
-                f'''SELECT c.id, c.course_code, c.course_title,
-                          c.unit AS credit_units, c.semester,
-                          LOWER(TRIM(c.remark)) AS remark
-                   FROM course c
-                    WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s))
-                     AND c.level::text = %s
-                     AND c.status = 'active'
-                     {sem_filter}
-                   ORDER BY c.semester, c.remark, c.course_code''',
-                sem_params
+            all_courses = _fetch_courses_for_departments(
+                cur,
+                _course_department_candidates(student),
+                current_level,
+                semester,
             )
-            all_courses = cur.fetchall()
-
-            # If no courses are found and we used finalised_course, fallback to query using students.department
-            if not all_courses and finalised_course and student['department_name'] and student['department_name'].strip() != finalised_course:
-                fallback_dept = student['department_name'].strip()
-                sem_params[0] = fallback_dept
-                cur.execute(
-                    f'''SELECT c.id, c.course_code, c.course_title,
-                              c.unit AS credit_units, c.semester,
-                              LOWER(TRIM(c.remark)) AS remark
-                       FROM course c
-                        WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s))
-                         AND c.level::text = %s
-                         AND c.status = 'active'
-                         {sem_filter}
-                       ORDER BY c.semester, c.remark, c.course_code''',
-                    sem_params
-                )
-                all_courses = cur.fetchall()
-                
-                # Deduplicate by course_code (case and space insensitive) in fallback case
-                seen_codes = set()
-                dedup = []
-                for row in all_courses:
-                    code_key = (row['course_code'] or '').strip().upper().replace(' ', '')
-                    if code_key not in seen_codes:
-                        seen_codes.add(code_key)
-                        dedup.append(row)
-                all_courses = dedup
 
             # 3) Registered course ids for this student + session
             #    Fetch across ALL semesters so the UI knows what's already saved.
@@ -418,9 +478,13 @@ def get_courses(payload):
         return jsonify({
             'student':               dict(student),
             'semesters':             semesters_data,
+            'all_courses':           [dict(c) for c in all_courses],
             'available_courses':     available,
             'registered_course_ids': registered_ids,
             'reg_status_by_semester': reg_status_by_sem,
+            'active_semester':       dict(active_sem) if active_sem else None,
+            'is_pt_registration':    is_pt_hnd_student,
+            'can_submit_registration': can_submit_registration,
             'is_global_locked':      check_registration_status(),
         }), 200
 
@@ -457,15 +521,19 @@ def register_courses(payload):
 
     student = Database.execute_query(
         '''SELECT a.degree_id,
+                  a.prog_type,
                   COALESCE(l.name, '100') AS current_level,
                   acs.name as session,
                   s.department AS department_name,
                   a.finalised_course,
+                  d.name AS course_department,
                   COALESCE(s."Id", 0) AS student_id
            FROM applications a
            JOIN academic_sessions acs ON acs.id = a.academic_session_id
            LEFT JOIN students s ON s."UserId" = a.user_id
            LEFT JOIN level l ON l.id = s.current_level_id
+           LEFT JOIN program_setup ps ON ps.id = a.program_setup_id
+           LEFT JOIN departments d ON d.id = ps.department_id
            WHERE a.user_id = %s
            AND a.applicant_stage IN ('accepted', 'enrolled')
            ORDER BY a.updated_at DESC LIMIT 1''',
@@ -477,12 +545,11 @@ def register_courses(payload):
 
     # ── Independent tuition payment check per session + semester ─────────────
     active_sem = _get_active_semester()
+    s_data = student[0]
+    is_pt_hnd_student = _is_pt_or_hnd(s_data)
     if active_sem:
-        paid = (
-            _verify_tuition_paid(user_id, active_sem['session_id'], active_sem['id'])
-            or _has_any_tuition_paid(user_id)   # grandfather: pre-tracking payments
-        )
-        if not paid:
+        paid = _registration_payment_satisfied(user_id, active_sem, is_pt_hnd_student)
+        if not paid and (not is_pt_hnd_student or status == 'submitted'):
             return jsonify({
                 'message': (
                     f'Tuition payment for {active_sem["session_name"]} '
@@ -494,45 +561,24 @@ def register_courses(payload):
                 'session':  active_sem['session_name'],
             }), 402
 
-    s_data = student[0]
     student_id = s_data['student_id']
     current_session = s_data['session']
-    finalised_course = s_data['finalised_course']
-    department_name = finalised_course if finalised_course else s_data['department_name']
     current_level = s_data['current_level']
+    registration_semester = active_sem['name'] if is_pt_hnd_student and active_sem else semester
     
     # Check for existing registration record (no longer locks if submitted)
     reg = Database.execute_query(
         'SELECT id, status FROM course_registrations WHERE student_id = %s AND session = %s AND semester = %s',
-        (student_id, current_session, semester)
+        (student_id, current_session, registration_semester)
     )
     
-    db_semester = f"{semester} semester"
+    db_semester = None if is_pt_hnd_student else f"{semester} semester"
 
-    valid_courses = Database.execute_query(
-         '''SELECT c.id, c.unit as credit_units, c.remark as category 
-            FROM course c
-            WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s)) AND c.level = %s AND c.semester ILIKE %s''',
-         (department_name, current_level, db_semester)
+    valid_courses = _fetch_valid_courses_for_departments(
+        _course_department_candidates(s_data),
+        current_level,
+        db_semester,
     )
-    if not valid_courses and finalised_course and s_data['department_name'] and s_data['department_name'].strip() != finalised_course:
-        fallback_dept = s_data['department_name'].strip()
-        valid_courses = Database.execute_query(
-             '''SELECT c.id, c.unit as credit_units, c.remark as category, c.course_code 
-                FROM course c
-                WHERE UPPER(TRIM(c.department)) = UPPER(TRIM(%s)) AND c.level = %s AND c.semester ILIKE %s''',
-             (fallback_dept, current_level, db_semester)
-        )
-        
-        # Deduplicate by course_code (case and space insensitive) in fallback case
-        seen_codes = set()
-        dedup = []
-        for row in (valid_courses or []):
-            code_key = (row.get('course_code') or '').strip().upper().replace(' ', '')
-            if code_key not in seen_codes:
-                seen_codes.add(code_key)
-                dedup.append(row)
-        valid_courses = dedup
     valid_map = {c['id']: c for c in (valid_courses or [])}
     
     # Calculate totals
@@ -557,6 +603,9 @@ def register_courses(payload):
              
     # Compulsory courses are pre-selected in the UI but students can remove them if needed
     # so we no longer enforce that all compulsory courses must be selected.
+
+    if is_pt_hnd_student and status == 'submitted' and total_credits < 15:
+        return jsonify({'message': 'Part-time and HND conversion students must register a minimum of 15 units per semester.'}), 400
         
     try:
         if reg:
@@ -570,7 +619,7 @@ def register_courses(payload):
             reg_id = Database.execute_update(
                 '''INSERT INTO course_registrations (student_id, session, semester, status, total_credits, submitted_at)
                    VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id''',
-                (student_id, current_session, semester, status, total_credits),
+                (student_id, current_session, registration_semester, status, total_credits),
                 return_id=True
             )
             

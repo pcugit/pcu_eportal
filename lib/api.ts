@@ -63,10 +63,22 @@ export interface CourseData {
 
 export interface CourseRegistrationResponse {
   courses: CourseData[];
+  all_courses?: CourseData[];
+  available_courses?: CourseData[];
+  semesters?: Record<string, { compulsory: CourseData[]; core: CourseData[] }>;
   registration_status: string | null;
   registered_course_ids: number[];
+  reg_status_by_semester?: Record<string, string>;
   student: StudentData;
+  active_semester?: {
+    id: number;
+    name: string;
+    session_id: number;
+    session_name: string;
+  } | null;
   registration_deadline: string | null;
+  is_pt_registration?: boolean;
+  can_submit_registration?: boolean;
   is_global_locked?: boolean;
 }
 
@@ -641,6 +653,8 @@ export class ApiClient {
       recurring_expected?: number;
       recurring_paid?: number;
       development_fee_due?: number;
+      development_fee_expected?: number;
+      development_fee_paid?: number;
       is_fully_paid: boolean;
       remaining: number;
       payment_percentage: number;
@@ -662,6 +676,8 @@ export class ApiClient {
         recurring_expected?: number;
         recurring_paid?: number;
         development_fee_due?: number;
+        development_fee_expected?: number;
+        development_fee_paid?: number;
         is_fully_paid: boolean;
         remaining: number;
         payment_percentage: number;

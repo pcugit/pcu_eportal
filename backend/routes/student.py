@@ -177,6 +177,76 @@ def _fetch_valid_courses_for_departments(departments, level, db_semester=None):
     return []
 
 
+def _fetch_pg_courses(cur, program_setup_id, degree_id, semester=None, departments=None):
+    # If program_setup_id is not resolved directly, fall back to matching department names
+    if not program_setup_id and departments:
+        for department in departments:
+            cur.execute(
+                "SELECT id FROM program_setup WHERE UPPER(TRIM(name)) = UPPER(TRIM(%s)) LIMIT 1",
+                (department,)
+            )
+            res = cur.fetchone()
+            if res:
+                program_setup_id = res['id']
+                break
+            
+    if not program_setup_id:
+        return []
+        
+    sem_filter = ''
+    params = [program_setup_id, degree_id]
+    if semester:
+        sem_filter = 'AND c.semester ILIKE %s'
+        params.append(f'{semester} semester')
+        
+    cur.execute(
+        f'''SELECT c.id, c.course_code, c.course_title,
+                  c.unit AS credit_units, c.semester,
+                  LOWER(TRIM(c.remark)) AS remark
+           FROM pg_courses c
+           WHERE c.program_setup_id = %s
+             AND c.degree_id = %s
+             AND c.status = 'active'
+             {sem_filter}
+           ORDER BY c.semester, c.remark, c.course_code''',
+        params
+    )
+    return cur.fetchall()
+
+
+def _fetch_valid_pg_courses(program_setup_id, degree_id, db_semester=None, departments=None):
+    # If program_setup_id is not resolved directly, fall back to matching department names
+    if not program_setup_id and departments:
+        for department in departments:
+            res = Database.execute_query(
+                "SELECT id FROM program_setup WHERE UPPER(TRIM(name)) = UPPER(TRIM(%s)) LIMIT 1",
+                (department,)
+            )
+            if res:
+                program_setup_id = res[0]['id']
+                break
+            
+    if not program_setup_id:
+        return []
+        
+    sem_filter = ''
+    params = [program_setup_id, degree_id]
+    if db_semester:
+        sem_filter = 'AND c.semester ILIKE %s'
+        params.append(db_semester)
+        
+    courses = Database.execute_query(
+        f'''SELECT c.id, c.unit AS credit_units, c.remark AS category, c.course_code
+           FROM pg_courses c
+           WHERE c.program_setup_id = %s
+             AND c.degree_id = %s
+             AND c.status = 'active'
+             {sem_filter}''',
+        params
+    )
+    return courses
+
+
 @student_bp.route('/change-password', methods=['POST'])
 @AuthHandler.token_required
 def change_password(payload):
@@ -369,29 +439,70 @@ def get_courses(payload):
 
         with conn.cursor() as cur:
             # 1) Resolve student's program context
-            # Use LEFT JOINs on level and program_setup so NULL level_id or an
-            # unmatched finalised_course does not silently drop the entire row.
+            # Try to resolve as PG student first from pg_application
             cur.execute(
-                '''SELECT a.degree_id,
-                          a.prog_type,
-                          COALESCE(l.name, '100') AS current_level,
+                '''SELECT pg.uuid as pg_app_uuid,
+                          pg.degree_id,
+                          pg.academic_session_id,
                           acs.name AS session,
+                          COALESCE(l.name, '700') AS current_level,
                           s.department AS department_name,
-                          a.finalised_course,
-                          d.name AS course_department,
-                          COALESCE(s."Id", 0) AS student_id
-                   FROM applications a
-                   JOIN academic_sessions acs ON acs.id = a.academic_session_id
-                   LEFT JOIN students s ON s."UserId" = a.user_id
+                          pg.finalised_course,
+                          COALESCE(s."Id", 0) AS student_id,
+                          d.name as degree_name,
+                          COALESCE(ps.id, ps_fallback.id) AS program_setup_id
+                   FROM pg_application pg
+                   JOIN academic_sessions acs ON acs.id = pg.academic_session_id
+                   LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+                   LEFT JOIN program_setup ps ON UPPER(TRIM(ps.name)) = UPPER(TRIM(pgps.name)) AND ps.department_id = pgps.department_id
+                   LEFT JOIN students s ON s."UserId" = pg.user_id
+                   LEFT JOIN program_setup ps_fallback ON UPPER(TRIM(ps_fallback.name)) = UPPER(TRIM(s.department))
                    LEFT JOIN level l ON l.id = s.current_level_id
-                   LEFT JOIN program_setup ps ON ps.id = a.program_setup_id
-                   LEFT JOIN departments d ON d.id = ps.department_id
-                   WHERE a.user_id = %s
-                   AND a.applicant_stage IN ('accepted', 'enrolled')
-                   ORDER BY a.updated_at DESC LIMIT 1''',
+                   LEFT JOIN degrees d ON d.id = pg.degree_id
+                   WHERE pg.user_id = %s
+                     AND pg.applicant_stage IN ('accepted', 'enrolled')
+                   ORDER BY pg.updated_date DESC LIMIT 1''',
                 (user_id,)
+            )
+            pg_row = cur.fetchone()
+            
+            if pg_row:
+                student = {
+                    'degree_id': pg_row['degree_id'],
+                    'prog_type': 2,  # Postgraduate program type
+                    'current_level': pg_row['current_level'],
+                    'session': pg_row['session'],
+                    'department_name': pg_row['department_name'],
+                    'finalised_course': pg_row['finalised_course'],
+                    'course_department': pg_row['finalised_course'] or pg_row['department_name'],
+                    'student_id': pg_row['student_id'],
+                    'degree_name': pg_row['degree_name'],
+                    'program_setup_id': pg_row['program_setup_id']
+                }
+            else:
+                # Resolve regular student's program context
+                cur.execute(
+                    '''SELECT a.degree_id,
+                              a.prog_type,
+                              COALESCE(l.name, '100') AS current_level,
+                              acs.name AS session,
+                              s.department AS department_name,
+                              a.finalised_course,
+                              d.name AS course_department,
+                              COALESCE(s."Id", 0) AS student_id
+                       FROM applications a
+                       JOIN academic_sessions acs ON acs.id = a.academic_session_id
+                       LEFT JOIN students s ON s."UserId" = a.user_id
+                       LEFT JOIN level l ON l.id = s.current_level_id
+                       LEFT JOIN program_setup ps ON ps.id = a.program_setup_id
+                       LEFT JOIN departments d ON d.id = ps.department_id
+                       WHERE a.user_id = %s
+                       AND a.applicant_stage IN ('accepted', 'enrolled')
+                       ORDER BY a.updated_at DESC LIMIT 1''',
+                    (user_id,)
                 )
-            student = cur.fetchone()
+                student = cur.fetchone()
+                
             if not student:
                 return jsonify({'message': 'Student record not found. Please contact the admissions office.', 'payment_required': False}), 404
 
@@ -417,12 +528,23 @@ def get_courses(payload):
             current_level   = student['current_level'] 
             db_session      = student['session']
             student_id      = student['student_id']
-            all_courses = _fetch_courses_for_departments(
-                cur,
-                _course_department_candidates(student),
-                current_level,
-                semester,
-            )
+            
+            is_pg_student = (student.get('prog_type') == 2)
+            if is_pg_student:
+                all_courses = _fetch_pg_courses(
+                    cur,
+                    student.get('program_setup_id'),
+                    student['degree_id'],
+                    semester,
+                    _course_department_candidates(student),
+                )
+            else:
+                all_courses = _fetch_courses_for_departments(
+                    cur,
+                    _course_department_candidates(student),
+                    current_level,
+                    semester,
+                )
 
             # 3) Registered course ids for this student + session
             #    Fetch across ALL semesters so the UI knows what's already saved.
@@ -458,6 +580,9 @@ def get_courses(payload):
             row['is_registered'] = c['id'] in registered_ids
             remark = (c['remark'] or '').lower().strip()
             sem    = c['semester'] or 'Unknown'   # "First semester" / "Second semester"
+            if sem and sem.lower().endswith('semester'):
+                parts = sem.split()
+                sem = f"{parts[0].capitalize()} semester"
 
             if remark in COMPULSORY_REMARKS or remark in CORE_REMARKS:
                 bucket = 'compulsory' if remark in COMPULSORY_REMARKS else 'core'
@@ -484,6 +609,7 @@ def get_courses(payload):
             'reg_status_by_semester': reg_status_by_sem,
             'active_semester':       dict(active_sem) if active_sem else None,
             'is_pt_registration':    is_pt_hnd_student,
+            'is_pg_registration':    is_pg_student,
             'can_submit_registration': can_submit_registration,
             'is_global_locked':      check_registration_status(),
         }), 200
@@ -519,33 +645,73 @@ def register_courses(payload):
     if not isinstance(course_ids, list):
          return jsonify({'message': 'course_ids must be a list'}), 400
 
-    student = Database.execute_query(
-        '''SELECT a.degree_id,
-                  a.prog_type,
-                  COALESCE(l.name, '100') AS current_level,
-                  acs.name as session,
+    # Try resolving as PG student first from pg_application
+    pg_student = Database.execute_query(
+        '''SELECT pg.uuid as pg_app_uuid,
+                  pg.degree_id,
+                  pg.academic_session_id,
+                  acs.name AS session,
+                  COALESCE(l.name, '700') AS current_level,
                   s.department AS department_name,
-                  a.finalised_course,
-                  d.name AS course_department,
-                  COALESCE(s."Id", 0) AS student_id
-           FROM applications a
-           JOIN academic_sessions acs ON acs.id = a.academic_session_id
-           LEFT JOIN students s ON s."UserId" = a.user_id
+                  pg.finalised_course,
+                  COALESCE(s."Id", 0) AS student_id,
+                  d.name as degree_name,
+                  COALESCE(ps.id, ps_fallback.id) AS program_setup_id
+           FROM pg_application pg
+           JOIN academic_sessions acs ON acs.id = pg.academic_session_id
+           LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+           LEFT JOIN program_setup ps ON UPPER(TRIM(ps.name)) = UPPER(TRIM(pgps.name)) AND ps.department_id = pgps.department_id
+           LEFT JOIN students s ON s."UserId" = pg.user_id
+           LEFT JOIN program_setup ps_fallback ON UPPER(TRIM(ps_fallback.name)) = UPPER(TRIM(s.department))
            LEFT JOIN level l ON l.id = s.current_level_id
-           LEFT JOIN program_setup ps ON ps.id = a.program_setup_id
-           LEFT JOIN departments d ON d.id = ps.department_id
-           WHERE a.user_id = %s
-           AND a.applicant_stage IN ('accepted', 'enrolled')
-           ORDER BY a.updated_at DESC LIMIT 1''',
+           LEFT JOIN degrees d ON d.id = pg.degree_id
+           WHERE pg.user_id = %s
+             AND pg.applicant_stage IN ('accepted', 'enrolled')
+           ORDER BY pg.updated_date DESC LIMIT 1''',
         (user_id,)
     )
 
-    if not student:
-        return jsonify({'message': 'Student record not found. Please contact the admissions office.', 'payment_required': False}), 404
+    if pg_student:
+        pg_row = pg_student[0]
+        s_data = {
+            'degree_id': pg_row['degree_id'],
+            'prog_type': 2,  # Postgraduate program type
+            'current_level': pg_row['current_level'],
+            'session': pg_row['session'],
+            'department_name': pg_row['department_name'],
+            'finalised_course': pg_row['finalised_course'],
+            'course_department': pg_row['finalised_course'] or pg_row['department_name'],
+            'student_id': pg_row['student_id'],
+            'degree_name': pg_row['degree_name'],
+            'program_setup_id': pg_row['program_setup_id']
+        }
+    else:
+        student = Database.execute_query(
+            '''SELECT a.degree_id,
+                      a.prog_type,
+                      COALESCE(l.name, '100') AS current_level,
+                      acs.name as session,
+                      s.department AS department_name,
+                      a.finalised_course,
+                      d.name AS course_department,
+                      COALESCE(s."Id", 0) AS student_id
+               FROM applications a
+               JOIN academic_sessions acs ON acs.id = a.academic_session_id
+               LEFT JOIN students s ON s."UserId" = a.user_id
+               LEFT JOIN level l ON l.id = s.current_level_id
+               LEFT JOIN program_setup ps ON ps.id = a.program_setup_id
+               LEFT JOIN departments d ON d.id = ps.department_id
+               WHERE a.user_id = %s
+               AND a.applicant_stage IN ('accepted', 'enrolled')
+               ORDER BY a.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
+        if not student:
+            return jsonify({'message': 'Student record not found. Please contact the admissions office.', 'payment_required': False}), 404
+        s_data = student[0]
 
     # ── Independent tuition payment check per session + semester ─────────────
     active_sem = _get_active_semester()
-    s_data = student[0]
     is_pt_hnd_student = _is_pt_or_hnd(s_data)
     if active_sem:
         paid = _registration_payment_satisfied(user_id, active_sem, is_pt_hnd_student)
@@ -574,11 +740,20 @@ def register_courses(payload):
     
     db_semester = None if is_pt_hnd_student else f"{semester} semester"
 
-    valid_courses = _fetch_valid_courses_for_departments(
-        _course_department_candidates(s_data),
-        current_level,
-        db_semester,
-    )
+    is_pg_student = (s_data.get('prog_type') == 2)
+    if is_pg_student:
+        valid_courses = _fetch_valid_pg_courses(
+            s_data.get('program_setup_id'),
+            s_data['degree_id'],
+            db_semester,
+            _course_department_candidates(s_data),
+        )
+    else:
+        valid_courses = _fetch_valid_courses_for_departments(
+            _course_department_candidates(s_data),
+            current_level,
+            db_semester,
+        )
     valid_map = {c['id']: c for c in (valid_courses or [])}
     
     # Calculate totals
@@ -596,7 +771,8 @@ def register_courses(payload):
              total_credits += valid_map[cid]['credit_units']
         else:
              # Look it up globally if it is an external elective that they searched for explicitly
-             ext_course = Database.execute_query('SELECT id, unit as credit_units FROM course WHERE id = %s', (cid,))
+             course_table = 'pg_courses' if is_pg_student else 'course'
+             ext_course = Database.execute_query(f'SELECT id, unit as credit_units FROM {course_table} WHERE id = %s', (cid,))
              if ext_course:
                   selected_valid.append(cid)
                   total_credits += ext_course[0]['credit_units']
@@ -641,6 +817,7 @@ def register_courses(payload):
 @AuthHandler.require_password_change
 def search_courses(payload):
     """Search for courses across the whole database"""
+    user_id = payload['user_id']
     query = request.args.get('q', '').strip()
     if not query or len(query) < 2:
         return jsonify({'courses': []}), 200
@@ -648,9 +825,16 @@ def search_courses(payload):
     term = f"%{query}%"
     term_no_space = f"%{query.replace(' ', '')}%"
     try:
+        # Check if they are a PG student to query pg_courses instead
+        is_pg = False
+        pg_check = Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,))
+        if pg_check:
+            is_pg = True
+
+        course_table = 'pg_courses' if is_pg else 'course'
         courses = Database.execute_query(
-            '''SELECT c.id, c.course_code, c.course_title, c.unit as credit_units, c.remark as category 
-               FROM course c
+            f'''SELECT c.id, c.course_code, c.course_title, c.unit as credit_units, c.remark as category 
+               FROM {course_table} c
                WHERE REPLACE(c.course_code, ' ', '') ILIKE %s OR c.course_title ILIKE %s
                ORDER BY c.course_code
                LIMIT 20''',

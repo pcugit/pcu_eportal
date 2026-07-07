@@ -692,18 +692,21 @@ def review_application(payload):
         stored_approved_course = current_approved_course or approved_course
         finalised_course = None
     else:  # decision == 'accept'
+        # Admission stage invariant:
+        # PG admin acceptance grants an offer (`accepted`); acceptance-fee
+        # payment secures the spot and promotes the application to `admitted`.
         stored_approved_course = current_approved_course or approved_course
         if current_stage == 'accepted_recommendation':
             # Applicant accepted the recommendation → finalize it
-            new_status = 'admitted'
+            new_status = 'accepted'
             finalised_course = approved_course
         elif current_stage == 'applicant_recommended':
             # Applicant recommended alternative → accept their recommendation
-            new_status = 'admitted'
+            new_status = 'accepted'
             finalised_course = approved_course
         else:
             # Direct acceptance
-            new_status = 'admitted'
+            new_status = 'accepted'
             finalised_course = approved_course
         if current_stage == 'applicant_recommended':
             finalised_course = applicant_rec_course or finalised_course

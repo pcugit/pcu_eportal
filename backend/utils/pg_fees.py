@@ -133,11 +133,7 @@ def get_pg_fee_context_by_application(applicant_id):
 def get_pg_program_fee_rows(context, include_acceptance=None, session_id=None):
     resolved_session_id = session_id or context.get("academic_session_id")
     session_clause = "pf.academic_session_id = %s"
-    params = [
-        str(context["program_type"]),
-        str(context["level"]),
-        str(context["faculty_id"]),
-    ]
+    params = [str(context["program_type"])]
 
     if resolved_session_id:
         params.append(resolved_session_id)
@@ -146,19 +142,30 @@ def get_pg_program_fee_rows(context, include_acceptance=None, session_id=None):
             SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1
         )"""
 
-    fee_filter = ""
     if include_acceptance is True:
+        # PG acceptance fee is program/session based, like application fee.
+        # Do not require level/faculty here; those only apply to tuition/other fees.
         fee_filter = "AND LOWER(fc.name) LIKE '%%acceptance%%'"
     elif include_acceptance is False:
+        params.extend([str(context["level"]), str(context["faculty_id"])])
         fee_filter = "AND LOWER(fc.name) NOT LIKE '%%acceptance%%'"
+        fee_filter += "\n              AND pf.level = %s\n              AND pf.faculty_id = %s"
+    else:
+        params.extend([str(context["level"]), str(context["faculty_id"])])
+        fee_filter = """AND (
+                  LOWER(fc.name) LIKE '%%acceptance%%'
+                  OR (
+                      LOWER(fc.name) NOT LIKE '%%acceptance%%'
+                      AND pf.level = %s
+                      AND pf.faculty_id = %s
+                  )
+              )"""
 
     return Database.execute_query(
         f"""SELECT fc.name AS fee_name, fc.name, pf.amount
             FROM program_fees pf
             JOIN fee_components fc ON fc.id = pf.fee_component_id
             WHERE pf.program_type = %s
-              AND pf.level = %s
-              AND pf.faculty_id = %s
               AND {session_clause}
               {fee_filter}
             ORDER BY fc.name ASC""",

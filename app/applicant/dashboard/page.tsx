@@ -324,7 +324,10 @@ function ApplicantDashboardInner() {
       const apps = response.applicants || [];
       setApplicants(apps);
 
-      if (response.applicant?.admission_status === "admitted") {
+      if (
+        response.applicant?.application_status === "accepted" &&
+        !response.applicant.has_paid_acceptance_fee
+      ) {
         if (!response.applicant.has_paid_acceptance_fee) {
           const modalSeen =
             typeof window !== "undefined" &&
@@ -341,6 +344,17 @@ function ApplicantDashboardInner() {
         } catch {
           setAdmissionLetter(null);
         }
+      } else if (response.applicant?.has_paid_acceptance_fee) {
+        setShowAdmissionModal(false);
+        try {
+          const letterResponse = await ApiClient.getAdmissionLetter();
+          setAdmissionLetter(letterResponse);
+        } catch {
+          setAdmissionLetter(null);
+        }
+      } else {
+        setShowAdmissionModal(false);
+        setAdmissionLetter(null);
       }
 
       const recommendationApp = apps.find(

@@ -44,6 +44,7 @@ export default function CourseRegistration() {
   const [secondStatus, setSecondStatus] = useState<string | null>(null);
   const [ptStatus, setPtStatus] = useState<string | null>(null);
   const [isPtRegistration, setIsPtRegistration] = useState(false);
+  const [isPgRegistration, setIsPgRegistration] = useState(false);
   const [canSubmitRegistration, setCanSubmitRegistration] = useState(true);
   const [activeSemesterName, setActiveSemesterName] = useState<string | null>(
     null,
@@ -88,11 +89,13 @@ export default function CourseRegistration() {
       const regStatusBySem: Record<string, string> =
         (data as any).reg_status_by_semester ?? {};
       const activeName = (data as any).active_semester?.name ?? null;
+      const isPgMode = false; // Reverted active-semester filtering; show all courses
       const isPtMode =
         Boolean((data as any).is_pt_registration) ||
         Boolean((data as any).student?.is_pt_student) ||
         Boolean(student?.is_pt_student);
       setIsPtRegistration(isPtMode);
+      setIsPgRegistration(isPgMode);
       setActiveSemesterName(activeName);
       setInitialRegisteredIds(registeredIds);
 
@@ -107,6 +110,7 @@ export default function CourseRegistration() {
       );
 
       const MANDATORY = new Set(["compulsory", "compulsary", "core"]);
+
       if (isPtMode) {
         const sourceCourses: CourseData[] = ((data as any).all_courses ?? [
           ...newFirstCourses,
@@ -292,7 +296,7 @@ export default function CourseRegistration() {
     course: CourseData,
     targetSemester?: "First" | "Second",
   ) => {
-    if (isPtRegistration) {
+    if (isPtRegistration || isPgRegistration) {
       setPtCourses((prev) => [
         ...prev.filter((c) => c.id !== course.id),
         course,
@@ -354,7 +358,7 @@ export default function CourseRegistration() {
       .filter((c) => ptSelectedIds.includes(c.id))
       .reduce((sum, c) => sum + Number(c.credit_units || 0), 0);
 
-  const selectedIds = isPtRegistration
+  const selectedIds = isPtRegistration || isPgRegistration
     ? ptSelectedIds
     : [...firstSelectedIds, ...secondSelectedIds];
 
@@ -362,7 +366,7 @@ export default function CourseRegistration() {
     initialRegisteredIds.length !== selectedIds.length ||
     !initialRegisteredIds.every((id) => selectedIds.includes(id));
 
-  const isDraft = isPtRegistration
+  const isDraft = isPtRegistration || isPgRegistration
     ? ptStatus === "draft"
     : firstStatus === "draft" || secondStatus === "draft";
 
@@ -392,12 +396,12 @@ export default function CourseRegistration() {
     setSubmitting(true);
     setError(null);
     try {
-      if (isPtRegistration) {
-        if (status === "submitted" && !canSubmitRegistration) {
+      if (isPtRegistration || isPgRegistration) {
+        if (isPtRegistration && status === "submitted" && !canSubmitRegistration) {
           setError("Pay the installment for the active semester before submitting registration.");
           return;
         }
-        if (status === "submitted" && calculatePtCredits() < 15) {
+        if (isPtRegistration && status === "submitted" && calculatePtCredits() < 15) {
           setError("Part-time students must register a minimum of 15 units per semester.");
           return;
         }
@@ -461,10 +465,26 @@ export default function CourseRegistration() {
     const cat = (course.category || "").toLowerCase();
     const isMandatory =
       cat === "compulsory" || cat === "compulsary" || cat === "core";
+    const categoryLabel =
+      cat === "compulsory" || cat === "compulsary"
+        ? "Compulsory"
+        : cat === "core"
+        ? "Core"
+        : cat === "required"
+        ? "Required"
+        : cat === "elective" || cat === "rlective"
+        ? "Elective"
+        : (course.category ?? "Elective");
+    const categoryColor =
+      isMandatory
+        ? "bg-blue-100 text-blue-700"
+        : cat === "required"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-muted text-muted-foreground";
     return (
       <div
         onClick={() => !isLocked && toggleCourse(course.id, isMandatory)}
-        className={`flex items-center gap-2 py-1 px-1 rounded group ${
+        className={`flex items-center gap-2 py-1.5 px-1 rounded group ${
           isLocked
             ? "opacity-60 cursor-not-allowed"
             : "cursor-pointer hover:bg-muted"
@@ -493,12 +513,16 @@ export default function CourseRegistration() {
           )}
         </div>
         {/* Code */}
-        <span className="text-[10px] font-black text-primary shrink-0 w-20 truncate">
+        <span className="text-[10px] font-black text-primary shrink-0 w-16 truncate">
           {course.course_code}
         </span>
         {/* Title */}
         <span className="text-xs text-foreground flex-1 truncate leading-tight">
           {course.course_title}
+        </span>
+        {/* Category badge */}
+        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 hidden sm:inline-block ${categoryColor}`}>
+          {categoryLabel}
         </span>
         {/* Units */}
         <span className="text-[10px] font-bold text-muted-foreground shrink-0">
@@ -508,10 +532,7 @@ export default function CourseRegistration() {
     );
   };
 
-  // Pagination Calculations
   const ITEMS_PER_PAGE = 10;
-
-  // First semester available courses (unselected)
   const firstAvailableList = Array.from(
     new Map(
       [
@@ -731,7 +752,7 @@ export default function CourseRegistration() {
           )}
         </div>
 
-        {isPtRegistration ? (
+        {isPtRegistration || isPgRegistration ? (
           <div className="flex flex-col md:flex-row gap-6 relative z-10">
             <div className="flex-1 min-w-0">
               <div className="bg-card rounded-xl border border-border p-4">

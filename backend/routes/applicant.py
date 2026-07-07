@@ -354,17 +354,22 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
 
     if payment_type == 'acceptance_fee':
         try:
-            context = get_pg_fee_context_by_user(user_id)
+            context = get_pg_fee_context_by_user(user_id, admitted_only=False)
             fee_res = get_pg_program_fee_rows(context, include_acceptance=True)
             if not fee_res:
-                raise ValueError('Acceptance fee not configured for this PG degree and faculty')
+                raise ValueError('Acceptance fee not configured for postgraduate program')
             return float(fee_res[0]['amount'])
         except ValueError as e:
             if 'No eligible PG application' not in str(e):
                 raise
 
         app_res = Database.execute_query(
-            'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+            '''SELECT prog_type
+               FROM applications
+               WHERE user_id = %s
+                 AND applicant_stage IN ('accepted', 'admitted', 'enrolled')
+               ORDER BY updated_at DESC, created_at DESC
+               LIMIT 1''',
             (user_id,)
         )
         if not app_res:
@@ -2450,7 +2455,7 @@ def get_applicant_status(payload):
                        WHERE txn_p.reference_no = pg.application_payment_reference
                          AND txn_p.tran_status IN ('pending', 'requery_error')
                    ) AS has_pending_application_payment,
-                   (pg.applicant_stage IN ('accepted','enrolled')) AS has_paid_acceptance_fee,
+                   (pg.applicant_stage IN ('admitted','enrolled')) AS has_paid_acceptance_fee,
                    COALESCE(pg.admission_letter_sent, FALSE) AS admission_letter_sent,
                    EXISTS (
                        SELECT 1 FROM payment_transactions txn2
@@ -2460,7 +2465,7 @@ def get_applicant_status(payload):
                    ) AS has_paid_tuition,
                    CASE WHEN pg.applicant_stage != 'started' THEN pg.updated_date ELSE NULL END AS submitted_at,
                    CASE 
-                       WHEN pg.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted' 
+                       WHEN pg.applicant_stage IN ('accepted','admitted','enrolled') THEN pg.applicant_stage
                        WHEN pg.applicant_stage IN ('accepted_recommendation','applicant_recommended') THEN pg.applicant_stage
                        WHEN pg.applicant_stage = 'recommended' OR pg.decision = 'recommend' THEN 'recommend'
                        WHEN pg.applicant_stage = 'screening' THEN 'screening'
@@ -2526,10 +2531,7 @@ def get_applicant_status(payload):
                    WHERE txn_p.reference_no = app.application_payment_reference
                      AND txn_p.tran_status IN ('pending', 'requery_error')
                ) AS has_pending_application_payment,
-               CASE
-                   WHEN app.prog_type IN (4, 7) THEN app.applicant_stage IN ('admitted','enrolled')
-                   ELSE app.applicant_stage IN ('accepted','enrolled')
-               END AS has_paid_acceptance_fee,
+               (app.applicant_stage IN ('admitted','enrolled')) AS has_paid_acceptance_fee,
                COALESCE(app.admission_letter_sent, FALSE) AS admission_letter_sent,
                EXISTS (
                    SELECT 1 FROM payment_transactions txn2
@@ -2539,7 +2541,7 @@ def get_applicant_status(payload):
                ) AS has_paid_tuition,
                CASE WHEN app.applicant_stage != 'started' THEN app.updated_at ELSE NULL END AS submitted_at,
                CASE
-                   WHEN app.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted'
+                   WHEN app.applicant_stage IN ('accepted','admitted','enrolled') THEN app.applicant_stage
                    WHEN app.applicant_stage IN ('accepted_recommendation','applicant_recommended') THEN app.applicant_stage
                    WHEN app.applicant_stage = 'recommended' OR app.decision = 'recommend' THEN 'recommend'
                    WHEN app.applicant_stage = 'screening' THEN 'screening'
@@ -2718,10 +2720,9 @@ def get_admission_letter(payload):
         )
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
-    program_id = applicant[0].get('program_id')
-    paid_acceptance_stages = ('admitted', 'enrolled') if not is_pg and str(program_id) in ('4', '7') else ('accepted', 'enrolled')
-    if applicant[0]['applicant_stage'] not in paid_acceptance_stages:
-        return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
+    offer_letter_stages = ('accepted', 'admitted', 'enrolled')
+    if applicant[0]['applicant_stage'] not in offer_letter_stages:
+        return jsonify({'message': 'Admission letter is only available after an admission offer is accepted'}), 403
 
     applicant_data = applicant[0]
     if is_pg:
@@ -2859,10 +2860,9 @@ def print_admission_letter(payload):
         )
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
-    program_id = applicant[0].get('program_id')
-    paid_acceptance_stages = ('admitted', 'enrolled') if not is_pg and str(program_id) in ('4', '7') else ('accepted', 'enrolled')
-    if applicant[0]['applicant_stage'] not in paid_acceptance_stages:
-        return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
+    offer_letter_stages = ('accepted', 'admitted', 'enrolled')
+    if applicant[0]['applicant_stage'] not in offer_letter_stages:
+        return jsonify({'message': 'Admission letter is only available after an admission offer is accepted'}), 403
 
     applicant_data = applicant[0]
     if is_pg:

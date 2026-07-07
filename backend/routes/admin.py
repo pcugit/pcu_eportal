@@ -261,7 +261,7 @@ def get_application_details(payload, applicant_id):
                        pg.approved_course,
                        pg.finalised_course,
                        pg.admission_letter_sent,
-                       (pg.applicant_stage = 'accepted') AS has_paid_acceptance_fee
+                       (pg.applicant_stage IN ('admitted', 'enrolled')) AS has_paid_acceptance_fee
                 FROM pg_application pg
                 JOIN users u ON pg.user_id = u.id
                 LEFT JOIN degrees dg ON pg.degree_id = dg.id
@@ -296,7 +296,7 @@ def get_application_details(payload, applicant_id):
                        app.finalised_course,
                        app.applicant_recommended_course,
                        app.admission_letter_sent,
-                       (app.applicant_stage = 'accepted') AS has_paid_acceptance_fee
+                       (app.applicant_stage IN ('admitted', 'enrolled')) AS has_paid_acceptance_fee
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
@@ -587,7 +587,10 @@ def review_application(payload):
         stored_approved_course = current_approved_course or approved_course
         finalised_course = None
     else:
-        new_status = 'admitted'
+        # Admission stage invariant:
+        # admin acceptance grants an offer (`accepted`); acceptance-fee payment
+        # secures the spot and promotes the application to `admitted`.
+        new_status = 'accepted'
         stored_approved_course = current_approved_course or approved_course
         if current_stage == 'applicant_recommended':
             finalised_course = applicant_rec_course or approved_course

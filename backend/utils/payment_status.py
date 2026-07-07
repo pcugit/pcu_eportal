@@ -581,12 +581,14 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
         )
 
     elif payment_type == 'acceptance_fee':
-        # Mark application as accepted
+        # Admission stage invariant:
+        # admin acceptance sets applicant_stage = 'accepted'; paying the
+        # acceptance fee secures the spot and advances it to 'admitted'.
         if is_pg:
             Database.execute_update(
                 """UPDATE pg_application
-                   SET applicant_stage = 'accepted', acceptance_payment_reference = %s, updated_date = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'admitted'""",
+                   SET applicant_stage = 'admitted', acceptance_payment_reference = %s, updated_date = NOW()
+                   WHERE user_id = %s AND applicant_stage = 'accepted'""",
                 (reference_no, user_id)
             )
         else:
@@ -594,16 +596,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                 """UPDATE applications
                    SET applicant_stage = 'admitted', updated_at = NOW()
                    WHERE user_id = %s
-                     AND prog_type IN (4, 7)
                      AND applicant_stage = 'accepted'""",
-                (user_id,)
-            )
-            Database.execute_update(
-                """UPDATE applications
-                   SET applicant_stage = 'accepted', updated_at = NOW()
-                   WHERE user_id = %s
-                     AND (prog_type NOT IN (4, 7) OR prog_type IS NULL)
-                     AND applicant_stage = 'admitted'""",
                 (user_id,)
             )
         # Promote user to 'admitted' role (id=13) — stays on applicant portal
@@ -618,7 +611,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
             Database.execute_update(
                 """UPDATE pg_application
                    SET applicant_stage = 'enrolled', updated_date = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'accepted'""",
+                   WHERE user_id = %s AND applicant_stage = 'admitted'""",
                 (user_id,)
             )
         else:
@@ -627,7 +620,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                    SET applicant_stage = 'enrolled', updated_at = NOW()
                    WHERE user_id = %s
                      AND prog_type IN (4, 7)
-                     AND applicant_stage IN ('admitted', 'accepted')""",
+                     AND applicant_stage = 'admitted'""",
                 (user_id,)
             )
             Database.execute_update(
@@ -635,7 +628,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
                    SET applicant_stage = 'enrolled', updated_at = NOW()
                    WHERE user_id = %s
                      AND (prog_type NOT IN (4, 7) OR prog_type IS NULL)
-                     AND applicant_stage = 'accepted'""",
+                     AND applicant_stage = 'admitted'""",
                 (user_id,)
             )
         # Promote to full student role (user_type_id = 7)

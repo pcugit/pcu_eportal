@@ -457,6 +457,9 @@ def review_application(payload):
 
     # Map decision to new applicant_stage status
     status_map = {
+        # Admission stage invariant:
+        # admin acceptance grants an offer (`accepted`); acceptance-fee payment
+        # secures the spot and promotes the application to `admitted`.
         'accept':     'accepted',
         'reject':     'rejected',
         'incomplete': 'incomplete',

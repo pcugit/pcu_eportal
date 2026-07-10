@@ -29,6 +29,7 @@ from utils.payment_status import (
 from config import Config
 from datetime import datetime, date
 import os
+import re
 import uuid
 import secrets
 import string
@@ -62,6 +63,20 @@ def _ensure_application_recommendation_columns():
            ADD COLUMN IF NOT EXISTS finalised_course TEXT,
            ADD COLUMN IF NOT EXISTS applicant_recommended_course TEXT'''
     )
+
+
+def _format_pg_degree_programme(programme, degree_code):
+    clean_programme = (programme or '').strip()
+    clean_degree = (degree_code or '').strip()
+    if not clean_programme:
+        return 'Postgraduate'
+    if not clean_degree:
+        return clean_programme
+
+    escaped_degree = re.escape(clean_degree)
+    if re.match(rf'^{escaped_degree}\.?\s+', clean_programme, re.IGNORECASE):
+        return clean_programme
+    return f'{clean_degree} {clean_programme}'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2688,14 +2703,17 @@ def get_admission_letter(payload):
             '''SELECT pg.uuid AS id,
                       u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
                       2 AS program_id,
-                      'Postgraduate' AS program_name,
+                      COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
                       pg.form_no,
                       pg.approved_course,
+                      pg.finalised_course,
+                      COALESCE(NULLIF(dg.code, ''), dg.name, '') AS degree_code,
                       pg.applicant_stage,
                       asess.name AS session_name
                FROM pg_application pg
                JOIN users u ON pg.user_id = u.id
                LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+               LEFT JOIN degrees dg ON pg.degree_id = dg.id
                WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted','accepted','enrolled')
                ORDER BY pg.updated_date DESC LIMIT 1''',
             (user_id,)
@@ -2798,7 +2816,10 @@ def get_admission_letter(payload):
     ref_no = f"PCU/PG/ADM/{session_year}" if is_pg else f"PCU/ADM/{session_year}"
     return jsonify({
         'candidateName':  applicant_data['name'],
-        'programme':      applicant_data['approved_course'] or applicant_data['program_name'] or '',
+        'programme':      _format_pg_degree_programme(
+            applicant_data.get('finalised_course') or applicant_data.get('approved_course') or applicant_data.get('program_name'),
+            applicant_data.get('degree_code'),
+        ) if is_pg else (applicant_data['approved_course'] or applicant_data['program_name'] or ''),
         'level':          level,
         'department':     department,
         'faculty':        faculty,
@@ -2825,15 +2846,17 @@ def print_admission_letter(payload):
                       u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
                       u.email,
                       2 AS program_id,
-                      'Postgraduate' AS program_name,
+                      COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
                       pg.form_no,
                       pg.approved_course,
                       pg.finalised_course,
+                      COALESCE(NULLIF(dg.code, ''), dg.name, '') AS degree_code,
                       pg.applicant_stage,
                       asess.name AS session_name
                FROM pg_application pg
                JOIN users u ON pg.user_id = u.id
                LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+               LEFT JOIN degrees dg ON pg.degree_id = dg.id
                WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted','accepted','enrolled')
                ORDER BY pg.updated_date DESC LIMIT 1''',
             (user_id,)
@@ -2904,6 +2927,8 @@ def print_admission_letter(payload):
         or (applicant_data.get('approved_course') or '').strip()
         or (applicant_data.get('program_name') or '')
     )
+    if is_pg:
+        programme = _format_pg_degree_programme(programme, applicant_data.get('degree_code'))
 
     # Fetch configurable resumption date from system_settings if available
     res_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'resumption_date' LIMIT 1")

@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import CourseRegistration from "@/app/student/registration/page";
+import { CourseRegistrationPrintHistory } from "@/components/CourseRegistrationPrintHistory";
 import { ApiClient, PaymentTransaction } from "@/lib/api";
 import {
   AlertCircle,
@@ -70,7 +71,9 @@ const menuGroups = [
 export default function PgStudentsDashboardPage() {
   const router = useRouter();
   const { user, student, isAuthenticated, isLoading, logout, isLoggingOut } = useAuth();
-  const [activeView, setActiveView] = useState<"dashboard" | "course-registration">("dashboard");
+  const [activeView, setActiveView] = useState<
+    "dashboard" | "course-registration" | "print-course-form"
+  >("dashboard");
   const [firstLoginResolved, setFirstLoginResolved] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
   const [receiptsLoading, setReceiptsLoading] = useState(false);
@@ -173,6 +176,10 @@ export default function PgStudentsDashboardPage() {
 
     if (label === "Course Registration") {
       setActiveView("course-registration");
+      return;
+    }
+    if (label === "Print Course Form") {
+      setActiveView("print-course-form");
       return;
     }
     if (groupId === "payments" && label === "Pay School Fees") {
@@ -423,6 +430,18 @@ export default function PgStudentsDashboardPage() {
             <div className="overflow-hidden rounded-xl border border-[#e4e0d8] bg-white">
               <CourseRegistration />
             </div>
+          </section>
+        ) : activeView === "print-course-form" ? (
+          <section className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setActiveView("dashboard")}
+              className="inline-flex items-center gap-2 rounded-md border border-[#e4e0d8] bg-white px-3 py-2 text-sm font-medium text-[#0f2c4c] transition-colors hover:bg-[#f6f5f2]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </button>
+            <CourseRegistrationPrintHistory />
           </section>
         ) : (
         <div className="flex flex-col gap-8 md:flex-row">

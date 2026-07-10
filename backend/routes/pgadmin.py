@@ -3,6 +3,7 @@ import base64
 import mimetypes
 import os
 import math
+import re
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
 from database import Database
@@ -92,6 +93,20 @@ def _display_admission_date(admission_date_str):
         return admission_date_str
 
 
+def _format_pg_degree_programme(programme, degree_code):
+    clean_programme = (programme or '').strip()
+    clean_degree = (degree_code or '').strip()
+    if not clean_programme:
+        return 'Postgraduate'
+    if not clean_degree:
+        return clean_programme
+
+    escaped_degree = re.escape(clean_degree)
+    if re.match(rf'^{escaped_degree}\.?\s+', clean_programme, re.IGNORECASE):
+        return clean_programme
+    return f'{clean_degree} {clean_programme}'
+
+
 def _build_pg_admission_letter_pdf(applicant_id, admission_date_str):
     from utils.pdf_generator import PDFGenerator
 
@@ -106,10 +121,12 @@ def _build_pg_admission_letter_pdf(applicant_id, admission_date_str):
                    {USER_NAME_EXPR} AS name,
                    u.email,
                    COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                   COALESCE(NULLIF(dg.code, ''), dg.name, '') AS degree_code,
                    COALESCE(s.name, %s) AS session
             FROM pg_application pg
             JOIN users u ON pg.user_id = u.id
             LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+            LEFT JOIN degrees dg ON pg.degree_id = dg.id
             WHERE pg.uuid = %s
               AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
         (default_session, applicant_id)
@@ -125,7 +142,7 @@ def _build_pg_admission_letter_pdf(applicant_id, admission_date_str):
     return PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],
         email=applicant_data['email'],
-        programme=applicant_data['program_name'] or 'Postgraduate',
+        programme=_format_pg_degree_programme(applicant_data['program_name'], applicant_data.get('degree_code')),
         level='100 Level',
         department='Postgraduate Studies',
         faculty='The Postgraduate School',
@@ -788,12 +805,14 @@ def send_admission_letter(payload):
                    {USER_NAME_EXPR} AS name,
                    u.email,
                    2 AS program_id,
-                   'Postgraduate' AS program_name,
+                   COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                   COALESCE(NULLIF(dg.code, ''), dg.name, '') AS degree_code,
                    '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
                    'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date,
                    pg.applicant_stage
             FROM pg_application pg
             JOIN users u ON pg.user_id = u.id
+            LEFT JOIN degrees dg ON pg.degree_id = dg.id
             WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
         (applicant_id,)
     )
@@ -814,7 +833,7 @@ def send_admission_letter(payload):
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],
         email=applicant_data['email'],
-        programme=applicant_data['program_name'] or '',
+        programme=_format_pg_degree_programme(applicant_data['program_name'], applicant_data.get('degree_code')),
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or 'Postgraduate Studies',
         faculty=applicant_data.get('faculty') or 'The Postgraduate School',
@@ -1104,11 +1123,13 @@ def send_pg_department_letters(payload):
                            {USER_NAME_EXPR} AS name,
                            u.email,
                            COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                           COALESCE(NULLIF(dg.code, ''), dg.name, '') AS degree_code,
                            COALESCE(s.name, %s) AS session,
                            pg.applicant_stage
                     FROM pg_application pg
                     JOIN users u ON pg.user_id = u.id
                     LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+                    LEFT JOIN degrees dg ON pg.degree_id = dg.id
                     WHERE pg.uuid = %s
                       AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
                 (default_session, applicant_id)
@@ -1125,7 +1146,7 @@ def send_pg_department_letters(payload):
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidate_name=applicant_data['name'],
                 email=applicant_data['email'],
-                programme=applicant_data['program_name'] or 'Postgraduate',
+                programme=_format_pg_degree_programme(applicant_data['program_name'], applicant_data.get('degree_code')),
                 level='100 Level',
                 department='Postgraduate Studies',
                 faculty='The Postgraduate School',
@@ -1280,10 +1301,12 @@ def resend_pg_letter(payload, applicant_id):
                    {USER_NAME_EXPR} AS name,
                    u.email,
                    COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                   COALESCE(NULLIF(dg.code, ''), dg.name, '') AS degree_code,
                    COALESCE(s.name, %s) AS session
             FROM pg_application pg
             JOIN users u ON pg.user_id = u.id
             LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+            LEFT JOIN degrees dg ON pg.degree_id = dg.id
             WHERE pg.uuid = %s''',
         (default_session, applicant_id)
     )
@@ -1298,7 +1321,7 @@ def resend_pg_letter(payload, applicant_id):
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidate_name=applicant_data['name'],
         email=applicant_data['email'],
-        programme=applicant_data['program_name'] or 'Postgraduate',
+        programme=_format_pg_degree_programme(applicant_data['program_name'], applicant_data.get('degree_code')),
         level='100 Level', department='Postgraduate Studies', faculty='The Postgraduate School',
         session=applicant_data.get('session') or default_session,
         mode='Full Time',

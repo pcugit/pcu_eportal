@@ -535,7 +535,7 @@ def get_courses(payload):
                     cur,
                     student.get('program_setup_id'),
                     student['degree_id'],
-                    semester,
+                    None,
                     _course_department_candidates(student),
                 )
             else:
@@ -546,15 +546,25 @@ def get_courses(payload):
                     semester,
                 )
 
-            # 3) Registered course ids for this student + session
-            #    Fetch across ALL semesters so the UI knows what's already saved.
-            cur.execute(
-                '''SELECT rc.course_id, cr.semester, cr.id AS reg_id, cr.status
-                   FROM course_registrations cr
-                   JOIN registered_courses rc ON rc.registration_id = cr.id
-                   WHERE cr.student_id = %s AND cr.session = %s''',
-                (student_id, db_session)
-            )
+            # 3) Registered course ids for this student + session.
+            # PG registration is active-semester based, but the PG course catalog
+            # itself is not filtered by course semester.
+            if is_pg_student and active_sem:
+                cur.execute(
+                    '''SELECT rc.course_id, cr.semester, cr.id AS reg_id, cr.status
+                       FROM course_registrations cr
+                       JOIN registered_courses rc ON rc.registration_id = cr.id
+                       WHERE cr.student_id = %s AND cr.session = %s AND cr.semester = %s''',
+                    (student_id, db_session, active_sem['name'])
+                )
+            else:
+                cur.execute(
+                    '''SELECT rc.course_id, cr.semester, cr.id AS reg_id, cr.status
+                       FROM course_registrations cr
+                       JOIN registered_courses rc ON rc.registration_id = cr.id
+                       WHERE cr.student_id = %s AND cr.session = %s''',
+                    (student_id, db_session)
+                )
             reg_rows = cur.fetchall()
 
         # ── Build registered lookup ───────────────────────────────────────────
@@ -730,7 +740,8 @@ def register_courses(payload):
     student_id = s_data['student_id']
     current_session = s_data['session']
     current_level = s_data['current_level']
-    registration_semester = active_sem['name'] if is_pt_hnd_student and active_sem else semester
+    is_pg_student = (s_data.get('prog_type') == 2)
+    registration_semester = active_sem['name'] if (is_pt_hnd_student or is_pg_student) and active_sem else semester
     
     # Check for existing registration record (no longer locks if submitted)
     reg = Database.execute_query(
@@ -738,9 +749,8 @@ def register_courses(payload):
         (student_id, current_session, registration_semester)
     )
     
-    db_semester = None if is_pt_hnd_student else f"{semester} semester"
+    db_semester = None if (is_pt_hnd_student or is_pg_student) else f"{semester} semester"
 
-    is_pg_student = (s_data.get('prog_type') == 2)
     if is_pg_student:
         valid_courses = _fetch_valid_pg_courses(
             s_data.get('program_setup_id'),
@@ -811,6 +821,85 @@ def register_courses(payload):
     except Exception as e:
         print(f'Error in register_courses: {e}')
         return jsonify({'message': 'An unexpected error occurred while saving your registration. Please try again later.'}), 500
+
+
+@student_bp.route('/registration-history', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.require_password_change
+def get_registration_history(payload):
+    """Return the student's course registration history grouped by session/semester."""
+    user_id = payload['user_id']
+
+    try:
+        student_res = Database.execute_query(
+            '''SELECT s."Id" AS id,
+                      EXISTS (
+                          SELECT 1
+                          FROM pg_application pg
+                          WHERE pg.user_id = s."UserId"
+                            AND pg.applicant_stage IN ('accepted', 'enrolled')
+                      ) AS is_pg_student
+               FROM students s
+               WHERE s."UserId" = %s
+               LIMIT 1''',
+            (user_id,)
+        )
+        if not student_res:
+            return jsonify({'history': []}), 200
+
+        student_id = student_res[0]['id']
+        is_pg_student = bool(student_res[0].get('is_pg_student'))
+        course_table = 'pg_courses' if is_pg_student else 'course'
+        rows = Database.execute_query(
+            f'''SELECT cr.id AS registration_id,
+                      cr.session,
+                      cr.semester,
+                      cr.status,
+                      cr.total_credits,
+                      cr.submitted_at,
+                      rc.course_id,
+                      c.course_code,
+                      c.course_title,
+                      c.unit AS credit_units,
+                      c.remark AS category
+               FROM course_registrations cr
+               LEFT JOIN registered_courses rc ON rc.registration_id = cr.id
+               LEFT JOIN {course_table} c ON c.id = rc.course_id
+               WHERE cr.student_id = %s
+               ORDER BY cr.session DESC, cr.semester DESC, cr.submitted_at DESC NULLS LAST, cr.id DESC,
+                        c.course_code ASC''',
+            (student_id,)
+        ) or []
+
+        history_by_id = {}
+        for row in rows:
+            reg_id = row['registration_id']
+            if reg_id not in history_by_id:
+                submitted_at = row.get('submitted_at')
+                history_by_id[reg_id] = {
+                    'id': reg_id,
+                    'session': row.get('session'),
+                    'semester': row.get('semester'),
+                    'status': row.get('status'),
+                    'total_credits': row.get('total_credits') or 0,
+                    'submitted_at': submitted_at.isoformat() if submitted_at else None,
+                    'courses': [],
+                }
+
+            if row.get('course_id'):
+                history_by_id[reg_id]['courses'].append({
+                    'id': row.get('course_id'),
+                    'course_code': row.get('course_code') or '',
+                    'course_title': row.get('course_title') or '',
+                    'credit_units': row.get('credit_units') or 0,
+                    'category': row.get('category'),
+                })
+
+        return jsonify({'history': list(history_by_id.values())}), 200
+    except Exception as e:
+        print(f'Error in get_registration_history: {e}')
+        return jsonify({'message': 'An unexpected error occurred while fetching registration history.'}), 500
+
 
 @student_bp.route('/courses/search', methods=['GET'])
 @AuthHandler.token_required

@@ -89,7 +89,7 @@ export default function CourseRegistration() {
       const regStatusBySem: Record<string, string> =
         (data as any).reg_status_by_semester ?? {};
       const activeName = (data as any).active_semester?.name ?? null;
-      const isPgMode = false; // Reverted active-semester filtering; show all courses
+      const isPgMode = Boolean((data as any).is_pg_registration);
       const isPtMode =
         Boolean((data as any).is_pt_registration) ||
         Boolean((data as any).student?.is_pt_student) ||
@@ -111,7 +111,7 @@ export default function CourseRegistration() {
 
       const MANDATORY = new Set(["compulsory", "compulsary", "core"]);
 
-      if (isPtMode) {
+      if (isPtMode || isPgMode) {
         const sourceCourses: CourseData[] = ((data as any).all_courses ?? [
           ...newFirstCourses,
           ...newSecondCourses,
@@ -132,15 +132,17 @@ export default function CourseRegistration() {
         const registeredPtIds = registeredIds.filter((id) =>
           allPtCourses.some((c) => c.id === id),
         );
-        const firstFiveMandatoryIds = allPtCourses
-          .filter((c) => MANDATORY.has((c.category || "").toLowerCase()))
-          .slice(0, 5)
-          .map((c) => c.id);
+        const defaultSelectedIds = isPgMode
+          ? []
+          : allPtCourses
+              .filter((c) => MANDATORY.has((c.category || "").toLowerCase()))
+              .slice(0, 5)
+              .map((c) => c.id);
 
         setPtSelectedIds(
           registeredPtIds.length > 0
             ? registeredPtIds
-            : firstFiveMandatoryIds,
+            : defaultSelectedIds,
         );
         return;
       }
@@ -357,6 +359,13 @@ export default function CourseRegistration() {
     ptCourses
       .filter((c) => ptSelectedIds.includes(c.id))
       .reduce((sum, c) => sum + Number(c.credit_units || 0), 0);
+
+  const shortSemesterLabel = (semester?: string | null) => {
+    const value = (semester || "Current").toLowerCase();
+    if (value.startsWith("first")) return "1st Sem";
+    if (value.startsWith("second")) return "2nd Sem";
+    return semester || "Current";
+  };
 
   const selectedIds = isPtRegistration || isPgRegistration
     ? ptSelectedIds
@@ -760,7 +769,9 @@ export default function CourseRegistration() {
                   <div className="flex items-center gap-2">
                     <BookOpen className="text-primary w-4 h-4" />
                     <h3 className="text-sm font-black text-foreground uppercase tracking-tight">
-                      Courses
+                      {isPgRegistration
+                        ? `${shortSemesterLabel(activeSemesterName)} - Selected`
+                        : "Courses"}
                     </h3>
                   </div>
                   <Badge variant="outline" className="font-bold text-xs w-fit">
@@ -784,7 +795,9 @@ export default function CourseRegistration() {
                     <div>
                       <div className="mb-2 flex items-center justify-between">
                         <h4 className="text-xs font-black uppercase tracking-tight text-foreground">
-                          Selected Courses
+                          {isPgRegistration
+                            ? `${shortSemesterLabel(activeSemesterName)} - Selected`
+                            : "Selected Courses"}
                         </h4>
                         <Badge variant="secondary" className="text-[10px] font-bold">
                           {selectedPtCourses.length}
@@ -901,7 +914,7 @@ export default function CourseRegistration() {
                       </div>
                     </div>
 
-                    {calculatePtCredits() < 15 && (
+                    {isPtRegistration && calculatePtCredits() < 15 && (
                       <p className="text-[11px] text-destructive font-bold leading-tight">
                         Minimum of 15 units is required before submission.
                       </p>

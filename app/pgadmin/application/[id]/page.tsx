@@ -77,6 +77,23 @@ const formatDegreeProgramme = (
   return alreadyPrefixed ? cleanProgramme : `${cleanDegree} ${cleanProgramme}`;
 };
 
+const stripDegreePrefix = (
+  programme?: string | null,
+  degreeCode?: string | null,
+) => {
+  const cleanProgramme = (programme || "").trim();
+  const cleanDegree = (degreeCode || "").trim();
+
+  if (!cleanProgramme || !cleanDegree) return cleanProgramme || "N/A";
+
+  const escapedDegree = cleanDegree.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    cleanProgramme
+      .replace(new RegExp(`^${escapedDegree}\\.?\\s+`, "i"), "")
+      .trim() || cleanProgramme
+  );
+};
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function InfoCard({
@@ -118,9 +135,14 @@ function ApplicantInfoTab({
     isAdmissionFinalised && applicant?.finalised_course
       ? applicant.finalised_course
       : form?.proposed_course_name;
+  const degreeCode = form?.degree_code || applicant?.degree_code;
   const displayProgramme = formatDegreeProgramme(
     displayCourseName || applicant?.program_name,
-    form?.degree_code || applicant?.degree_code,
+    degreeCode,
+  );
+  const displayCourseOnly = stripDegreePrefix(
+    displayCourseName || applicant?.program_name,
+    degreeCode,
   );
 
   return (
@@ -242,7 +264,7 @@ function ApplicantInfoTab({
           />
           <InfoCard
             label={isAdmissionFinalised ? "Finalised Course" : "Proposed Course"}
-            value={displayProgramme}
+            value={displayCourseOnly}
             colSpan="md:col-span-2"
           />
           <InfoCard

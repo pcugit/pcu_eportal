@@ -52,6 +52,61 @@ OCR_UNAVAILABLE_MESSAGE = (
     "No selectable PDF text found. This looks like a scanned PDF. "
     "Install Tesseract OCR and pytesseract, then rerun the importer."
 )
+PLACEHOLDER_VALUES = {"not provided", "nil", "n/a", "na", "none"}
+FIELD_LABELS = (
+    "Section A - Background",
+    "Full Name",
+    "Previous Institution(s) Attended",
+    "Previous Institution",
+    "Date of Birth",
+    "Sex",
+    "Department",
+    "Previous Course of Study",
+    "Class of First Degree",
+    "Proposed Course of Study",
+    "Proposed Faculty/Institute/Centre",
+    "Proposed Faculty",
+    "Degree in View",
+    "Area of Specialization",
+    "Area of Specialisation",
+    "Proposed Title of Research",
+    "Mode of Study",
+    "Academic Transcript Uploaded",
+    "Uploaded Academic Transcript",
+    "Referees",
+    "Referee 1",
+    "Referee 2",
+    "Referee 3",
+    "Referee a)",
+    "Referee b)",
+    "Referee c)",
+    "Sponsor / Next of Kin / Contact",
+    "Name of Sponsor",
+    "Address of Sponsor",
+    "Name of Next of Kin",
+    "Address of Next of Kin",
+    "Phone Number(s)",
+    "Phone Number",
+    "Phone Number of Next of Kin",
+    "Physically Challenged",
+    "Are you Physically Challenged",
+    "Address of Candidate",
+    "Candidate Address",
+    "Email of Candidate",
+    "Candidate Email",
+    "Student Signature and Date",
+    "Student's Signature",
+    "SECTION B",
+)
+PG_FORM_OVERRIDES = {
+    "sharafa_adebbola_abdulhakeem.pdf": {
+        "full_name": "Sharrafa Adebola Abdulhakeem",
+        "email": "hakeemsharafa@yahoo.com",
+    },
+    "tunmise_hezekiah_ajolabi.pdf": {
+        "full_name": "Tunmise Hezekiah Afolabi",
+    },
+}
 
 
 @dataclass
@@ -72,8 +127,34 @@ def clean(value: Any) -> str:
     text = re.sub(r"[\u2026.]{3,}", " ", text)
     text = re.sub(r"[.]{3,}", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" :;\t\r\n")
-    text = re.sub(r"^\(?\s*\d+\s*\)?[.)]?\s*$", "", text)
+    text = re.sub(r"^\(?\s*\d{1,2}\s*\)?[.)]?\s*$", "", text)
     if text in {"-", "—", "–"}:
+        return ""
+    return text
+
+
+def strip_unclear_terms(value: Any) -> str:
+    text = clean(value)
+    if not text:
+        return ""
+
+    text = re.sub(r"\s*\((?:handwriting\s+)?partly unclear(?:\s+handwriting)?\)", "", text, flags=re.I)
+    text = re.sub(r"\s*\((?:partly\s+)?unclear(?:\s+handwriting)?\)", "", text, flags=re.I)
+    text = re.sub(r"\s*-\s*(?:partly\s+)?unclear(?:\s+handwriting)?\b", "", text, flags=re.I)
+    text = re.sub(r"\b(?:partly\s+)?unclear(?:\s+handwriting)?\b", "", text, flags=re.I)
+    text = re.sub(r"\bsignature (?:present|only)(?:;?\s*date (?:unclear|not written clearly))?", "", text, flags=re.I)
+    text = re.sub(r"\bsignature only\b.*\bdate not written clearly\b", "", text, flags=re.I)
+    text = re.sub(r"\bsigned\s*-\s*date unclear\b", "", text, flags=re.I)
+    text = re.sub(r"\bdate (?:unclear|not written clearly)\b", "", text, flags=re.I)
+    text = clean(text)
+    if text.lower() in {"handwriting", "date"}:
+        return ""
+    return text
+
+
+def clean_form_value(value: Any) -> str:
+    text = strip_unclear_terms(value)
+    if text.lower() in PLACEHOLDER_VALUES:
         return ""
     return text
 
@@ -169,8 +250,12 @@ def parse_date(value: str) -> str:
     value = clean(value)
     if not value:
         return ""
+    value = re.sub(r"^signed\s*-\s*", "", value, flags=re.I)
     value = re.sub(r"(\d+)(st|nd|rd|th)", r"\1", value, flags=re.I)
     value = value.replace(",", " ")
+    date_match = re.search(r"\b\d{4}-\d{1,2}-\d{1,2}\b|\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", value)
+    if date_match:
+        value = date_match.group(0)
     formats = [
         "%d %b %Y",
         "%d %B %Y",
@@ -223,6 +308,44 @@ def parse_phone_pair(value: str) -> tuple[str, str]:
     return (cleaned[0] if cleaned else "", cleaned[1] if len(cleaned) > 1 else "")
 
 
+def is_same_as_above(value: Any) -> bool:
+    text = clean_form_value(value).lower()
+    return bool(re.match(r"^(same\s+as\s+above|as\s+above|same\s+address|same)\b", text))
+
+
+def normalize_record_fields(data: dict[str, Any], surname_position: str = "last") -> dict[str, Any]:
+    for key, value in list(data.items()):
+        if key.startswith("_") or not isinstance(value, str):
+            continue
+        data[key] = clean_form_value(value)
+
+    source_name = Path(str(data.get("source_file", ""))).name.lower()
+    overrides = PG_FORM_OVERRIDES.get(source_name)
+    if overrides:
+        data.update(overrides)
+        data.pop("surname", None)
+        data.pop("first_name", None)
+        data.pop("middle_name", None)
+
+    sponsor_address = clean_form_value(data.get("sponsor_address"))
+    if sponsor_address:
+        for key in ("next_of_kin_address", "address"):
+            if is_same_as_above(data.get(key)):
+                data[key] = sponsor_address
+
+    email_text = clean_form_value(data.get("email"))
+    email_match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", email_text, re.I)
+    data["email"] = email_match.group(0).lower() if email_match else ""
+
+    if not clean(data.get("full_name")) and data.get("source_file"):
+        data["full_name"] = clean_form_value(Path(str(data["source_file"])).stem.replace("_", " "))
+
+    if clean(data.get("full_name")) and (not clean(data.get("surname")) or not clean(data.get("first_name"))):
+        data.update(split_name(clean(data["full_name"]), surname_position))
+
+    return data
+
+
 def normalized_pdf_lines(text: str) -> list[str]:
     lines: list[str] = []
     for raw in text.splitlines():
@@ -243,6 +366,37 @@ def normalized_pdf_lines(text: str) -> list[str]:
         if cleaned:
             lines.append(cleaned)
     return lines
+
+
+def is_known_label(line: str) -> bool:
+    normalized = clean(line).lower().rstrip(":")
+    return any(normalized == label.lower().rstrip(":") for label in FIELD_LABELS)
+
+
+def label_value(lines: list[str], labels: tuple[str, ...] | str, stop_labels: tuple[str, ...] = FIELD_LABELS) -> str:
+    if isinstance(labels, str):
+        labels = (labels,)
+
+    label_map = {label.lower().rstrip(":"): label for label in labels}
+    stop_set = {label.lower().rstrip(":") for label in stop_labels}
+    for idx, line in enumerate(lines):
+        normalized = clean(line).lower().rstrip(":")
+        matched_label = label_map.get(normalized)
+        if not matched_label:
+            for label in labels:
+                prefix = label.lower().rstrip(":")
+                if normalized.startswith(prefix + " "):
+                    return clean_form_value(line[len(label) :])
+            continue
+
+        values: list[str] = []
+        for item in lines[idx + 1 :]:
+            item_normalized = clean(item).lower().rstrip(":")
+            if item_normalized in stop_set or is_question_number(item):
+                break
+            values.append(item)
+        return clean_form_value(" ".join(values))
+    return ""
 
 
 def is_question_number(line: str) -> bool:
@@ -332,6 +486,64 @@ def parse_registration_date(lines: list[str]) -> str:
         if re.search(r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}", line) and parsed:
             return parsed
     return ""
+
+
+def parse_labeled_pg_pdf(text: str, path: Path, surname_position: str) -> dict[str, Any]:
+    lines = normalized_pdf_lines(text)
+    compact = re.sub(r"\s+", " ", text)
+    effective_surname_position = detect_surname_position(text, surname_position)
+    data: dict[str, Any] = {"source_file": str(path)}
+
+    applicant_match = re.search(r"\bApplicant\s+\d+\s*:\s*([^\r\n]+)", text, re.I)
+    data["full_name"] = clean_form_value(applicant_match.group(1) if applicant_match else label_value(lines, "Full Name"))
+    if not data["full_name"]:
+        data["full_name"] = clean_form_value(path.stem.replace("_", " "))
+
+    data["previous_institution"] = label_value(lines, ("Previous Institution(s) Attended", "Previous Institution"))
+    data["gender"] = label_value(lines, "Sex").title()
+    data["date_of_birth"] = parse_date(label_value(lines, "Date of Birth"))
+    data["department"] = label_value(lines, "Department")
+    data["previous_course"] = label_value(lines, "Previous Course of Study")
+    data["class_of_degree"] = label_value(lines, "Class of First Degree")
+    data["proposed_course_name"] = label_value(lines, "Proposed Course of Study")
+    data["proposed_faculty_name"] = label_value(lines, ("Proposed Faculty/Institute/Centre", "Proposed Faculty"))
+    data["degree_name"] = label_value(lines, "Degree in View")
+    data["area_of_specialisation"] = label_value(lines, ("Area of Specialization", "Area of Specialisation"))
+    data["proposed_research_title"] = label_value(lines, "Proposed Title of Research")
+    data["mode_of_study"] = label_value(lines, "Mode of Study")
+    data["transcript_uploaded"] = label_value(
+        lines,
+        ("Academic Transcript Uploaded", "Uploaded Academic Transcript"),
+        ("Referees", "Referee 1", "Referee a)", "Name of Sponsor"),
+    )
+
+    refs_block = flexible_between(compact, ("Referees",), ("Sponsor / Next of Kin / Contact", "Name of Sponsor"))
+    if not refs_block:
+        refs_block = flexible_between(compact, ("Referee 1",), ("Name of Sponsor",))
+        refs_block = f"Referee 1 {refs_block}" if refs_block else ""
+    refs = re.findall(r"Referee\s+(?:[abc]\)?|[123])\s*(.*?)(?=\s*Referee\s+(?:[abc]\)?|[123])|\s*$)", refs_block, re.I)
+    for idx in range(3):
+        name, address = parse_referee(clean_form_value(refs[idx] if idx < len(refs) else ""))
+        data[f"referee{idx + 1}_name"] = clean_form_value(name)
+        data[f"referee{idx + 1}_address"] = clean_form_value(address)
+
+    data["sponsor_name"] = label_value(lines, "Name of Sponsor")
+    data["sponsor_address"] = label_value(lines, "Address of Sponsor")
+    data["next_of_kin_name"] = label_value(lines, "Name of Next of Kin")
+    data["next_of_kin_address"] = label_value(lines, "Address of Next of Kin")
+    phones = label_value(lines, ("Phone Number(s)", "Phone Number", "Phone Number of Next of Kin"))
+    p1, p2 = parse_phone_pair(phones)
+    data["phone_number"] = p1
+    data["secondary_phone_number"] = p2
+    data["physically_challenged"] = label_value(lines, ("Physically Challenged", "Are you Physically Challenged")) or "No"
+    data["address"] = label_value(lines, ("Address of Candidate", "Candidate Address"))
+    email_text = label_value(lines, ("Email of Candidate", "Candidate Email"))
+    email_match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", email_text, re.I)
+    data["email"] = email_match.group(0).lower() if email_match else ""
+    data["registration_date"] = parse_date(label_value(lines, "Student Signature and Date"))
+    data.update(split_name(data.get("full_name", ""), effective_surname_position))
+    normalize_record_fields(data, effective_surname_position)
+    return data
 
 
 def parse_numbered_pg_pdf(text: str, path: Path, surname_position: str) -> dict[str, Any]:
@@ -431,8 +643,12 @@ def parse_filled_pg_pdf(path: Path, surname_position: str) -> dict[str, Any]:
         return {"source_file": str(path), "_error": OCR_UNAVAILABLE_MESSAGE}
     effective_surname_position = detect_surname_position(raw, surname_position)
 
+    if re.search(r"\bApplicant\s+\d+\s*:", raw, re.I):
+        return parse_labeled_pg_pdf(raw, path, effective_surname_position)
+
     numbered = parse_numbered_pg_pdf(raw, path, effective_surname_position)
     if numbered.get("email") or numbered.get("full_name"):
+        normalize_record_fields(numbered, effective_surname_position)
         return numbered
 
     compact = re.sub(r"\s+", " ", raw)
@@ -504,6 +720,7 @@ def parse_filled_pg_pdf(path: Path, surname_position: str) -> dict[str, Any]:
     date_match = re.search(r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}", signature_block)
     data["registration_date"] = parse_date(date_match.group(0)) if date_match else ""
     data.update(split_name(data.get("full_name", ""), effective_surname_position))
+    normalize_record_fields(data, effective_surname_position)
     return data
 
 
@@ -515,7 +732,7 @@ def load_json_records(path: Path, surname_position: str) -> list[dict[str, Any]]
         item = {norm_key(k): v for k, v in dict(record).items()}
         if item.get("full_name") and not item.get("surname"):
             item.update(split_name(str(item["full_name"]), surname_position))
-        out.append(item)
+        out.append(normalize_record_fields(item, surname_position))
     return out
 
 
@@ -525,6 +742,7 @@ def load_csv_records(path: Path, surname_position: str) -> list[dict[str, Any]]:
     for row in rows:
         if row.get("full_name") and not row.get("surname"):
             row.update(split_name(str(row["full_name"]), surname_position))
+        normalize_record_fields(row, surname_position)
     return rows
 
 
@@ -1184,7 +1402,7 @@ def main() -> int:
     parser.add_argument("--data-csv", help="CSV records to import. Headers should match PG field names.")
     parser.add_argument("--commit", action="store_true", help="Write to the database. Without this, only previews parsed data.")
     parser.add_argument("--stage", default=DEFAULT_STAGE, help=f"Applicant stage to set. Default: {DEFAULT_STAGE}")
-    parser.add_argument("--surname-position", choices=("first", "last"), default="first", help="How to split full_name when surname is not supplied.")
+    parser.add_argument("--surname-position", choices=("first", "last"), default="last", help="How to split full_name when surname is not supplied. Default follows the PG form template: surname last.")
     parser.add_argument(
         "--resolve-missing-email-from-db",
         action="store_true",

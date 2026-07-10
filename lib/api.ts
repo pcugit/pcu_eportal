@@ -1586,6 +1586,13 @@ export class ApiClient {
     return data;
   }
 
+  static async getStudentRegistrationHistory(): Promise<{ history: any[] }> {
+    const { data } = await this.fetch<{ history: any[] }>(
+      "/student/registration-history",
+    );
+    return data;
+  }
+
   static async searchCourses(
     query: string,
   ): Promise<{ courses: CourseData[] }> {

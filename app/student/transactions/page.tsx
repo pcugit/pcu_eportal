@@ -115,10 +115,22 @@ export function StudentTransactionsContent({
     0,
   );
   const installmentPayableBase = Number(installmentAmount || 0);
-  const displayTotalPayable =
-    (paymentMode === "installment" && installmentPayableBase > 0
+  const fullPaymentBase =
+    remainingBalance > 0 && remainingBalance < feeComponentTotal
+      ? remainingBalance
+      : feeComponentTotal;
+  const payableBase =
+    paymentMode === "installment" && installmentPayableBase > 0
       ? installmentPayableBase
-      : feeComponentTotal) + processingFee;
+      : fullPaymentBase;
+  const displayFeeComponents =
+    paymentMode === "installment" && installmentPayableBase > 0
+      ? [{ name: "Tuition Due", amount: installmentPayableBase }]
+      : remainingBalance > 0 && remainingBalance < feeComponentTotal
+        ? [{ name: "Fee Balance", amount: remainingBalance }]
+        : feeComponents;
+  const displayTotalPayable =
+    payableBase + processingFee;
   const getInstallmentDue = (
     plans: any[],
     planIndex: number,
@@ -568,7 +580,7 @@ export function StudentTransactionsContent({
                     )}
 
                     {/* Fee component rows */}
-                    {feeComponents.map((fc, idx) => (
+                    {displayFeeComponents.map((fc, idx) => (
                       <div key={idx} className="flex justify-between items-center py-3 border-b border-slate-100 last:border-0">
                         <span className="text-sm font-semibold text-slate-700">
                           {formatFeeComponentName(fc.name)}

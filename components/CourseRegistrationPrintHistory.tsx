@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
+import {
+  getSessionImageUrl,
+  setSessionImageUrl,
+} from "@/lib/sessionImageCache";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,11 +39,17 @@ const escapeHtml = (value: unknown) =>
     .replace(/'/g, "&#39;");
 
 export function CourseRegistrationPrintHistory() {
-  const { user, student } = useAuth();
+  const { user, student, isAuthenticated, isLoading } = useAuth();
   const [registrationHistory, setRegistrationHistory] = useState<
     RegistrationHistoryItem[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const [passportUrl, setPassportUrl] = useState<string | null>(null);
+  const studentName = user?.name || "N/A";
+  const matricNumber = student?.matric_number || "N/A";
+  const schoolName = student?.is_pg_student
+    ? "The Postgraduate School"
+    : "Part-Time Studies";
 
   useEffect(() => {
     let isMounted = true;
@@ -66,12 +76,63 @@ export function CourseRegistrationPrintHistory() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const fetchPassport = async () => {
+      if (!isAuthenticated || isLoading || !student) return;
+
+      try {
+        const profile = await ApiClient.getStudentProfile();
+        const passportDoc = (profile?.documents || []).find(
+          (document: any) =>
+            document.document_type?.toLowerCase().includes("passport") ||
+            document.display_name?.toLowerCase().includes("passport") ||
+            document.original_filename?.toLowerCase().includes("passport"),
+        );
+        const documentId = passportDoc?.document_id || passportDoc?.id;
+
+        if (!documentId) {
+          if (active) setPassportUrl(null);
+          return;
+        }
+
+        const cacheKey = `course-slip-passport:${user?.id ?? "current"}:${documentId}`;
+        const cachedUrl = getSessionImageUrl(cacheKey);
+        if (cachedUrl) {
+          if (active) setPassportUrl(cachedUrl);
+          return;
+        }
+
+        const token = localStorage.getItem("auth_token") || "";
+        const response = await fetch(
+          `${ApiClient.getBaseUrl()}/applicant/download-document/${documentId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (response.ok && active) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          setSessionImageUrl(cacheKey, url);
+          setPassportUrl(url);
+        }
+      } catch (err) {
+        console.error("Failed to load course slip passport:", err);
+      }
+    };
+
+    fetchPassport();
+
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated, isLoading, student, user?.id]);
+
   const printRegistrationSlip = (item: RegistrationHistoryItem) => {
-    const studentName = user?.name || "N/A";
-    const matricNumber = student?.matric_number || "N/A";
-    const schoolName = student?.is_pg_student
-      ? "The Postgraduate School"
-      : "Part-Time Studies";
     const totalUnits =
       item.total_credits ||
       item.courses.reduce(
@@ -95,13 +156,17 @@ export function CourseRegistrationPrintHistory() {
     const printWindow = window.open("", "_blank", "width=900,height=1100");
     if (!printWindow) return;
 
+    const passportMarkup = passportUrl
+      ? `<img class="passport" src="${passportUrl}" alt="Passport Photograph" />`
+      : `<div class="passport placeholder">Passport<br />Photograph</div>`;
+
     printWindow.document.write(`
       <!doctype html>
       <html>
         <head>
-          <title>Course Registration Slip</title>
+          <title></title>
           <style>
-            @page { size: A4; margin: 18mm; }
+            @page { size: A4; margin: 0; }
             * { box-sizing: border-box; }
             body {
               margin: 0;
@@ -109,13 +174,18 @@ export function CourseRegistrationPrintHistory() {
               font-family: "Times New Roman", Times, serif;
               background: #fff;
             }
-            .sheet { width: 100%; }
+            .sheet {
+              width: 210mm;
+              min-height: 297mm;
+              padding: 18mm;
+              margin: 0 auto;
+              background: #fff;
+            }
             .header {
               display: grid;
               grid-template-columns: 130px 1fr 130px;
               align-items: center;
               gap: 18px;
-              padding-top: 18px;
             }
             .logo {
               width: 92px;
@@ -140,6 +210,24 @@ export function CourseRegistrationPrintHistory() {
             .title .school {
               margin-top: 14px;
               font-size: 24px;
+            }
+            .passport {
+              width: 32mm;
+              height: 38mm;
+              border: 1.5px solid #000;
+              object-fit: cover;
+              justify-self: center;
+              align-self: start;
+              background: #fff;
+            }
+            .passport.placeholder {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              font-size: 10px;
+              line-height: 1.2;
+              color: #555;
             }
             .rule {
               border: 0;
@@ -211,11 +299,11 @@ export function CourseRegistrationPrintHistory() {
               font-weight: 700;
             }
             .date-line {
-              margin-top: 48px;
-              width: 260px;
+              display: none;
             }
             @media print {
               body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .sheet { margin: 0; }
             }
           </style>
         </head>
@@ -228,7 +316,7 @@ export function CourseRegistrationPrintHistory() {
                 <div class="place">Ibadan, Oyo State.</div>
                 <div class="school">${escapeHtml(schoolName)}</div>
               </div>
-              <div></div>
+              ${passportMarkup}
             </section>
             <hr class="rule" />
 
@@ -275,9 +363,8 @@ export function CourseRegistrationPrintHistory() {
 
             <section class="signatures">
               <div class="line">Course Adviser Signature</div>
-              <div class="line">Student Signature</div>
+              <div class="line">Student Signature &amp; Date</div>
             </section>
-            <div class="line date-line">Date</div>
           </main>
           <script>
             window.onload = () => {
@@ -293,12 +380,12 @@ export function CourseRegistrationPrintHistory() {
 
   return (
     <Card className="border-border bg-card shadow-sm">
-      <CardHeader className="px-4 py-3">
-        <CardTitle className="text-sm font-black uppercase tracking-tight text-foreground">
+      <CardHeader className="px-6 py-5">
+        <CardTitle className="text-base font-black uppercase tracking-tight text-foreground">
           Print Course Form
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 px-4 pb-4 pt-0">
+      <CardContent className="space-y-6 px-6 pb-6 pt-0">
         {loading ? (
           <p className="text-xs font-medium text-muted-foreground">
             Loading registered course forms...
@@ -308,66 +395,175 @@ export function CourseRegistrationPrintHistory() {
             No submitted course registration found.
           </p>
         ) : (
-          registrationHistory.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-xl border border-border/70 bg-background p-3"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-tight text-foreground">
-                    {item.session} / {item.semester}
-                  </p>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">
-                    {item.status}
-                    {item.submitted_at
-                      ? ` - ${new Date(item.submitted_at).toLocaleDateString()}`
-                      : ""}
-                  </p>
+          registrationHistory.map((item) => {
+            const totalUnits =
+              item.total_credits ||
+              item.courses.reduce(
+                (sum, course) => sum + Number(course.credit_units || 0),
+                0,
+              );
+
+            return (
+              <div
+                key={item.id}
+                className="overflow-hidden rounded-xl border border-border/70 bg-white shadow-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-5 py-3">
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-tight text-foreground">
+                      {item.session} / {item.semester}
+                    </p>
+                    <p className="text-[11px] font-bold uppercase text-muted-foreground">
+                      {item.status}
+                      {item.submitted_at
+                        ? ` - ${new Date(item.submitted_at).toLocaleDateString()}`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="font-bold">
+                      {totalUnits} Units
+                    </Badge>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-9 gap-2 px-3 text-xs font-bold"
+                      onClick={() => printRegistrationSlip(item)}
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] font-bold">
-                    {item.total_credits} Units
-                  </Badge>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-8 gap-1 px-2 text-[10px] font-bold"
-                    onClick={() => printRegistrationSlip(item)}
-                  >
-                    <Printer className="h-3 w-3" />
-                    Print
-                  </Button>
+
+                <div className="mx-auto max-w-4xl bg-white px-6 py-7 text-black">
+                  <div className="grid grid-cols-[96px_1fr_96px] items-start gap-4">
+                    <img
+                      src="/e-portal/images/logo new.png"
+                      alt="PCU Logo"
+                      className="mx-auto h-20 w-20 object-contain"
+                    />
+                    <div className="text-center font-serif font-bold leading-tight">
+                      <div className="text-2xl uppercase">
+                        Precious Cornerstone
+                        <br />
+                        University,
+                      </div>
+                      <div className="text-lg uppercase">Ibadan, Oyo State.</div>
+                      <div className="mt-3 text-lg">{schoolName}</div>
+                    </div>
+                    {passportUrl ? (
+                      <img
+                        src={passportUrl}
+                        alt="Passport Photograph"
+                        className="h-28 w-24 border border-black object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-28 w-24 items-center justify-center border border-black text-center text-[10px] leading-tight text-muted-foreground">
+                        Passport
+                        <br />
+                        Photograph
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="my-5 border-t-2 border-black" />
+                  <h3 className="text-center font-serif text-lg font-bold uppercase underline">
+                    Course Registration Slip
+                  </h3>
+
+                  <div className="mt-5 grid gap-x-8 gap-y-2 text-sm md:grid-cols-2">
+                    <div className="grid grid-cols-[96px_1fr] gap-3">
+                      <span className="font-bold">Full Name:</span>
+                      <span>{studentName}</span>
+                    </div>
+                    <div className="grid grid-cols-[96px_1fr] gap-3">
+                      <span className="font-bold">Matric No.:</span>
+                      <span>{matricNumber}</span>
+                    </div>
+                    <div className="grid grid-cols-[96px_1fr] gap-3">
+                      <span className="font-bold">Session:</span>
+                      <span>{item.session}</span>
+                    </div>
+                    <div className="grid grid-cols-[96px_1fr] gap-3">
+                      <span className="font-bold">Semester:</span>
+                      <span>{item.semester}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto">
+                    <table className="w-full border-collapse font-serif text-sm">
+                      <thead>
+                        <tr>
+                          <th className="border border-black px-2 py-2 text-center">
+                            S/N
+                          </th>
+                          <th className="border border-black px-2 py-2 text-left">
+                            Code
+                          </th>
+                          <th className="border border-black px-2 py-2 text-left">
+                            Course Title
+                          </th>
+                          <th className="border border-black px-2 py-2 text-left">
+                            Category
+                          </th>
+                          <th className="border border-black px-2 py-2 text-center">
+                            Units
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {item.courses.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="border border-black px-2 py-3 text-center"
+                            >
+                              No courses registered.
+                            </td>
+                          </tr>
+                        ) : (
+                          item.courses.map((course, index) => (
+                            <tr key={`${item.id}-${course.id}`}>
+                              <td className="border border-black px-2 py-2 text-center">
+                                {index + 1}
+                              </td>
+                              <td className="border border-black px-2 py-2 font-bold">
+                                {course.course_code}
+                              </td>
+                              <td className="border border-black px-2 py-2">
+                                {course.course_title}
+                              </td>
+                              <td className="border border-black px-2 py-2">
+                                {course.category || ""}
+                              </td>
+                              <td className="border border-black px-2 py-2 text-center font-bold">
+                                {course.credit_units}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-3 text-right font-serif text-sm font-bold">
+                    Total Units: {totalUnits}
+                  </div>
+
+                  <div className="mt-16 grid gap-12 font-serif text-sm font-bold md:grid-cols-2">
+                    <div className="border-t border-black pt-2 text-center">
+                      Course Adviser Signature
+                    </div>
+                    <div className="border-t border-black pt-2 text-center">
+                      Student Signature &amp; Date
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              {item.courses.length === 0 ? (
-                <p className="pt-2 text-xs italic text-muted-foreground">
-                  No courses recorded.
-                </p>
-              ) : (
-                <div className="grid gap-x-6 pt-2 md:grid-cols-2">
-                  {item.courses.map((course) => (
-                    <div
-                      key={`${item.id}-${course.id}`}
-                      className="flex items-center gap-2 py-1 text-xs"
-                    >
-                      <span className="w-16 shrink-0 truncate font-black text-primary">
-                        {course.course_code}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-foreground">
-                        {course.course_title}
-                      </span>
-                      <span className="shrink-0 font-bold text-muted-foreground">
-                        {course.credit_units}u
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
+            );
+          })
         )}
       </CardContent>
     </Card>

@@ -462,7 +462,11 @@ def upgrade_applicant(
                 if existing_tuition and not force_tuition
                 else ("(would create)" if should_record_tuition else None)
             ),
-            action=f"dry_run paid_for={paid_for}, acceptance={acceptance_display}, tuition={tuition_display}",
+            action=(
+                f"dry_run paid_for={paid_for}, target_stage="
+                f"{'enrolled' if should_record_tuition else 'admitted'}, "
+                f"acceptance={acceptance_display}, tuition={tuition_display}"
+            ),
         )
 
     acceptance_receipt = existing_acceptance.get("receipt_no") if existing_acceptance else None
@@ -547,6 +551,17 @@ def upgrade_applicant(
             paid_at=paid_at,
         )
 
+    Database.execute_update(
+        """
+        UPDATE pg_application
+        SET applicant_stage = 'enrolled',
+            acceptance_payment_reference = COALESCE(acceptance_payment_reference, %s),
+            updated_date = NOW()
+        WHERE uuid = %s
+          AND applicant_stage IN ('accepted', 'admitted', 'enrolled')
+        """,
+        (acceptance_ref, applicant["application_id"]),
+    )
     apply_downstream_success(user_id, "tuition", reference_no=tuition_ref)
     update_session_payment_status(tuition_ref, user_id)
 

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ type Student = {
 
 export default function LecturerDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading, logout: authLogout } = useAuth();
   const [courses, setCourses]     = useState<Course[]>([]);
   const [selected, setSelected]   = useState<Course | null>(null);
@@ -32,6 +33,7 @@ export default function LecturerDashboard() {
   const [history, setHistory]     = useState<any[]>([]);
   const [isLocked, setIsLocked]   = useState(false);
   const [sysSettings, setSysSettings] = useState<any>(null);
+  const requestedTab = searchParams.get("tab");
 
   useEffect(() => {
     if (authLoading) return;
@@ -44,6 +46,17 @@ export default function LecturerDashboard() {
     checkPortalLock();
     loadSysSettings();
   }, [isAuthenticated, user, authLoading, router]);
+
+  useEffect(() => {
+    if (requestedTab === "courses" || requestedTab === "upload" || requestedTab === "submissions") {
+      setTab(requestedTab);
+      return;
+    }
+
+    if (!requestedTab && (tab === "upload" || tab === "submissions")) {
+      setTab("courses");
+    }
+  }, [requestedTab]);
 
   async function loadSysSettings() {
     try {
@@ -303,6 +316,13 @@ export default function LecturerDashboard() {
     }
   }
 
+  const activeSection =
+    tab === "upload"
+      ? { id: "upload", label: "📤 Result Upload" }
+      : tab === "submissions"
+        ? { id: "submissions", label: "📜 Upload History" }
+        : { id: "courses", label: "📚 My Courses" };
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
 
@@ -312,28 +332,20 @@ export default function LecturerDashboard() {
           <div className="flex items-center gap-1 min-w-max">
             {[
               { id: "courses", label: "📚 My Courses" },
-              { id: "upload", label: "📤 Upload Results", locked: isLocked },
-              { id: "submissions", label: "📜 Upload History" },
             ].map((item) => {
-              const isActive = tab === item.id || (item.id === "courses" && tab === "details");
+              const isActive = true;
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    if (item.locked) return;
-                    setTab(item.id as any);
-                  }}
-                  disabled={item.locked}
+                  type="button"
                   className={cn(
                     "px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2",
                     isActive 
                       ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" 
-                      : "text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent",
-                    item.locked && "opacity-50 cursor-not-allowed grayscale"
+                      : "text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent"
                   )}
                 >
-                  {item.label}
-                  {item.locked && <span className="text-[10px]">🔒</span>}
+                  {activeSection.label}
                 </button>
               );
             })}
@@ -429,11 +441,6 @@ export default function LecturerDashboard() {
 
           {tab === "upload" && (
             <div style={{ maxWidth: 800 }}>
-              <h2 style={{ color: "#fff", marginTop: 0 }}>Bulk Result Upload</h2>
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.9rem", maxWidth: 600 }}>
-                Upload an Excel file containing results. The ICT Director will review and process these results into the official records.
-              </p>
-
               <div style={{
                 background: "rgba(255,255,255,0.03)", border: "2px dashed rgba(255,255,255,0.1)",
                 borderRadius: "1rem", padding: "3rem", textAlign: "center", marginTop: "1.5rem",
@@ -570,11 +577,6 @@ export default function LecturerDashboard() {
           )}
           {tab === "submissions" && (
             <div>
-              <h2 style={{ color: "#fff", marginTop: 0 }}>My Recent Submissions</h2>
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.9rem", marginBottom: "2rem" }}>
-                Track the status of your bulk result uploads here.
-              </p>
-
               {history.length === 0 ? (
                 <div style={{ 
                   textAlign: "center", padding: "4rem", 

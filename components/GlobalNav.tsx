@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useSidebar } from "@/context/SidebarContext";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,13 @@ import {
   ShieldCheck,
   Briefcase,
   History,
+  Upload,
   Lock,
   CreditCard,
   ChevronDown,
   Wallet,
   Mail,
+  School,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -131,6 +133,11 @@ const PTADMIN_NAV_ITEMS = [
     href: "/ptadmin/send-letters",
     icon: Mail,
   },
+  {
+    label: "Study Centers",
+    href: "/ptadmin/study-centers",
+    icon: School,
+  },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
@@ -140,7 +147,9 @@ const REGISTRAR_NAV_ITEMS = [
 ];
 
 const LECTURER_NAV_ITEMS = [
-  { label: "Dashboard", href: "/lecturer/dashboard", icon: LayoutDashboard },
+  { label: "Dashboard", href: "/lecturer/dashboard?tab=courses", icon: LayoutDashboard },
+  { label: "Upload Results", href: "/lecturer/dashboard?tab=upload", icon: Upload },
+  { label: "Upload History", href: "/lecturer/dashboard?tab=submissions", icon: History },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
@@ -170,6 +179,7 @@ function countPendingDegreeTypes(classifications: LetterClassificationMap = {}) 
 
 export function GlobalNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isAuthenticated, user, logout, isLoading, isLoggingOut } = useAuth();
   const { isOpen, toggle } = useSidebar();
   const [pendingCount, setPendingCount] = React.useState(0);
@@ -501,7 +511,16 @@ export function GlobalNav() {
           {/* Navigation Items */}
           <nav className="px-3 space-y-3 py-6">
             {navItems.map((item) => {
-              const isActive = pathname === item.href;
+              const [itemPath, itemQuery = ""] = item.href.split("?");
+              const itemParams = new URLSearchParams(itemQuery);
+              const hasItemQuery = Array.from(itemParams).length > 0;
+              const isActive =
+                pathname === itemPath &&
+                (hasItemQuery
+                  ? Array.from(itemParams).every(
+                      ([key, value]) => searchParams.get(key) === value,
+                    )
+                  : !(pathname === "/lecturer/dashboard" && searchParams.get("tab")));
               return (
                 <Link
                   key={item.label}

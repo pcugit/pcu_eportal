@@ -12,11 +12,22 @@ type StaffMember = {
   staff_id: string; title: string; department: string; faculty: string;
   department_id: number; faculty_id: number;
 };
-type Department = { id: number; name: string };
-type Faculty    = { id: number; name: string };
+type Department = { id: number; name: string; faculty_id?: number; faculty_name?: string };
+type Faculty    = { id: number; name: string; code?: string };
 type Course     = { id: number; course_code: string; course_title: string };
 
-const ROLES = ["lecturer","deo","hod","dean","registrar","admissions_officer","ict_director","admin"];
+const ROLES = [
+  "admissionofficer",
+  "pgadmin",
+  "pgdean",
+  "ptadmin",
+  "ictdirector",
+  "registrar",
+  "hod",
+  "dean",
+  "lecturer",
+  "deo",
+];
 
 export default function ICTStaffPage() {
   const router  = useRouter();
@@ -40,7 +51,7 @@ export default function ICTStaffPage() {
   });
 
   useEffect(() => {
-    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+    if (!isAuthenticated || user?.role !== "ictdirector") {
       router.replace("/staff/login");
       return;
     }
@@ -58,14 +69,25 @@ export default function ICTStaffPage() {
   async function loadMeta() {
     try {
       const [dr, fr, cr] = await Promise.all([
-        ApiClient.fetch<any>("/admission_officer/departments"),
-        ApiClient.fetch<any>("/admission_officer/faculties"),
-        ApiClient.fetch<any>("/admission_officer/courses-list"),
+        ApiClient.fetch<any>("/staff/departments"),
+        ApiClient.fetch<any>("/staff/faculties"),
+        ApiClient.fetch<any>("/staff/courses-list"),
       ]);
       setDepts(dr.data?.departments ?? []);
       setFaculties(fr.data?.faculties ?? []);
       setCourses(cr.data?.courses ?? []);
-    } catch {}
+    } catch (e: any) {
+      setMsg("Failed to load departments/faculties: " + e.message);
+    }
+  }
+
+  function handleDepartmentChange(departmentId: string) {
+    const department = depts.find(d => String(d.id) === departmentId);
+    setForm(p => ({
+      ...p,
+      department_id: departmentId,
+      faculty_id: department?.faculty_id ? String(department.faculty_id) : p.faculty_id,
+    }));
   }
 
   async function createStaff(e: React.FormEvent) {
@@ -151,8 +173,16 @@ export default function ICTStaffPage() {
   };
 
   const roleBadgeColor = (r: string) => ({
-    admin:"#ef4444",admissions_officer:"#f97316",hod:"#a78bfa",dean:"#60a5fa",
-    lecturer:"#34d399",deo:"#fbbf24",registrar:"#f472b6"
+    admissionofficer: "#f97316",
+    pgadmin:          "#818cf8",
+    pgdean:           "#a78bfa",
+    ptadmin:          "#fb923c",
+    ictdirector:      "#ef4444",
+    registrar:        "#f472b6",
+    hod:              "#60a5fa",
+    dean:             "#34d399",
+    lecturer:         "#22d3ee",
+    deo:              "#fbbf24",
   } as Record<string,string>)[r] || "#94a3b8";
 
   const fieldStyle = {
@@ -284,9 +314,9 @@ export default function ICTStaffPage() {
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem" }}>
                 <div>
                   <label style={labelStyle}>Department</label>
-                  <select value={form.department_id} onChange={e=>setForm(p=>({...p,department_id:e.target.value}))} style={fieldStyle}>
+                  <select value={form.department_id} onChange={e=>handleDepartmentChange(e.target.value)} style={fieldStyle}>
                     <option value="">— Choose —</option>
-                    {depts.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                    {depts.map(d=><option key={d.id} value={d.id}>{d.faculty_name ? `${d.name} (${d.faculty_name})` : d.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -382,9 +412,9 @@ export default function ICTStaffPage() {
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem" }}>
                 <div>
                   <label style={labelStyle}>Department</label>
-                  <select value={form.department_id} onChange={e=>setForm(p=>({...p,department_id:e.target.value}))} style={fieldStyle}>
+                  <select value={form.department_id} onChange={e=>handleDepartmentChange(e.target.value)} style={fieldStyle}>
                     <option value="">— Choose —</option>
-                    {depts.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                    {depts.map(d=><option key={d.id} value={d.id}>{d.faculty_name ? `${d.name} (${d.faculty_name})` : d.name}</option>)}
                   </select>
                 </div>
                 <div>

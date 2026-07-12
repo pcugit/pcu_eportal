@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
+import { AlertTriangle, BookPlus, ChevronLeft, ChevronRight, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+
+const COURSES_PER_PAGE = 15;
 
 type Result = {
   id: number; matric_number: string; student_name: string; current_level: string;
@@ -14,21 +16,62 @@ type Result = {
   entered_by: string; entered_role: string;
 };
 
+type CourseAssignment = {
+  assignment_id: number; course_id: number; course_code: string;
+  course_title: string; credit_units: number; session: string; semester: string;
+};
+
+type DepartmentStaff = {
+  staff_record_id: number; user_id: number; name: string; email: string;
+  status: string; staff_id: string | null; title: string | null; role: string;
+  assignment_count: number; assignments: CourseAssignment[];
+};
+
+type DepartmentCourse = {
+  id: number; course_code: string; course_title: string;
+  credit_units: number; semester?: string; level?: string | number;
+  remark?: string | null; status?: string;
+};
+
+const EMPTY_COURSE_FORM = {
+  course_code: "",
+  course_title: "",
+  unit: "",
+  level: "100",
+  semester: "First semester",
+  status: "active",
+  remark: "compulsory",
+};
+
 export default function HODDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [stats, setStats]     = useState<any>(null);
-  const [courses, setCourses] = useState<any[]>([]);
-  const [selected, setSelected] = useState<any>(null);
-  const [students, setStudents] = useState<any[]>([]);
   const [msg, setMsg]         = useState("");
   const [tab, setTab]         = useState("dashboard");
+  const [departmentStaff, setDepartmentStaff] = useState<DepartmentStaff[]>([]);
+  const [departmentCourses, setDepartmentCourses] = useState<DepartmentCourse[]>([]);
+  const [coursePage, setCoursePage] = useState(1);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [showAddCourse, setShowAddCourse] = useState(false);
+  const [confirmCourse, setConfirmCourse] = useState(false);
+  const [addingCourse, setAddingCourse] = useState(false);
+  const [courseForm, setCourseForm] = useState(EMPTY_COURSE_FORM);
+  const [assignmentSession, setAssignmentSession] = useState("");
+  const [assignmentSemester, setAssignmentSemester] = useState("");
+  const [assignmentStaffId, setAssignmentStaffId] = useState("");
+  const [assignmentCourseId, setAssignmentCourseId] = useState("");
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
+  const [removingAssignmentId, setRemovingAssignmentId] = useState<number | null>(null);
+  const [courseModalStaffId, setCourseModalStaffId] = useState<number | null>(null);
   
   const uploadInputRef            = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview]     = useState<any>(null);
   const [history, setHistory]     = useState<any[]>([]);
   const [isLocked, setIsLocked]   = useState(false);
+  const requestedTab = searchParams.get("tab");
 
   useEffect(() => {
     if (authLoading) return;
@@ -37,10 +80,139 @@ export default function HODDashboard() {
       return;
     }
     loadDashboard();
-    loadCourses();
+    loadDepartmentCourses();
     if (user?.id) loadHistory(user.id);
     checkPortalLock();
   }, [isAuthenticated, user, authLoading, router]);
+
+  useEffect(() => {
+    if (["dashboard", "staff", "courses", "upload", "submissions"].includes(requestedTab ?? "")) {
+      setTab(requestedTab as string);
+      return;
+    }
+    setTab("dashboard");
+  }, [requestedTab]);
+
+  useEffect(() => {
+    if (!isAuthenticated || user?.role !== "hod") return;
+    loadDepartmentStaff();
+  }, [isAuthenticated, user?.role]);
+
+  async function loadDepartmentCourses() {
+    try {
+      const response = await ApiClient.fetch<any>(`/hod/courses?refresh=${Date.now()}`);
+      setDepartmentCourses(response.data?.courses ?? []);
+      setCoursePage(1);
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  }
+
+  function openAddCourseModal() {
+    setCourseForm(EMPTY_COURSE_FORM);
+    setConfirmCourse(false);
+    setShowAddCourse(true);
+  }
+
+  function closeAddCourseModal() {
+    if (addingCourse) return;
+    setShowAddCourse(false);
+    setConfirmCourse(false);
+  }
+
+  function reviewNewCourse(e: React.FormEvent) {
+    e.preventDefault();
+    setConfirmCourse(true);
+  }
+
+  async function addDepartmentCourse() {
+    setAddingCourse(true);
+    setMsg("");
+    try {
+      await ApiClient.fetch<any>("/hod/courses", {
+        method: "POST",
+        body: JSON.stringify({
+          ...courseForm,
+          unit: Number(courseForm.unit),
+          level: Number(courseForm.level),
+        }),
+      });
+      setMsg(`✅ ${courseForm.course_code.toUpperCase()} added successfully.`);
+      setShowAddCourse(false);
+      setConfirmCourse(false);
+      await loadDepartmentCourses();
+    } catch (e: any) {
+      setMsg("❌ " + e.message);
+      setConfirmCourse(false);
+    } finally {
+      setAddingCourse(false);
+    }
+  }
+
+  async function loadDepartmentStaff() {
+    try {
+      const response = await ApiClient.fetch<any>("/hod/staff");
+      setDepartmentStaff(response.data?.staff ?? []);
+      setAssignmentSession(response.data?.active_period?.session ?? "");
+      setAssignmentSemester(response.data?.active_period?.semester ?? "");
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  }
+
+  async function assignDepartmentCourse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!assignmentStaffId || !assignmentCourseId) return;
+    const staffMember = departmentStaff.find(
+      member => String(member.staff_record_id) === assignmentStaffId);
+    const course = departmentCourses.find(
+      departmentCourse => String(departmentCourse.id) === assignmentCourseId);
+    const confirmed = window.confirm(
+      `Are you sure you want to assign ${course?.course_code || "this course"} to ${staffMember?.name || "this staff member"}?`,
+    );
+    if (!confirmed) return;
+    setAssignmentBusy(true);
+    setMsg("");
+    try {
+      await ApiClient.fetch<any>("/hod/assign-course", {
+        method: "POST",
+        body: JSON.stringify({
+          staff_id: Number(assignmentStaffId),
+          course_id: Number(assignmentCourseId),
+        }),
+      });
+      setMsg("✅ Course assigned.");
+      setAssignmentCourseId("");
+      await loadDepartmentStaff();
+    } catch (e: any) {
+      setMsg("❌ " + e.message);
+    } finally {
+      setAssignmentBusy(false);
+    }
+  }
+
+  async function removeDepartmentCourse(assignmentId: number) {
+    const assignment = courseModalStaff?.assignments.find(
+      item => item.assignment_id === assignmentId);
+    const confirmed = window.confirm(
+      `Are you sure you want to remove ${assignment?.course_code || "this course"} from ${courseModalStaff?.name || "this staff member"}?`,
+    );
+    if (!confirmed) return;
+    setRemovingAssignmentId(assignmentId);
+    setMsg("");
+    try {
+      await ApiClient.fetch<any>("/hod/assign-course", {
+        method: "DELETE",
+        body: JSON.stringify({ assignment_id: assignmentId }),
+      });
+      setMsg("✅ Assignment removed.");
+      await loadDepartmentStaff();
+    } catch (e: any) {
+      setMsg("❌ " + e.message);
+    } finally {
+      setRemovingAssignmentId(null);
+    }
+  }
 
   async function checkPortalLock() {
     try {
@@ -61,23 +233,6 @@ export default function HODDashboard() {
       const r = await ApiClient.fetch<any>("/hod/dashboard");
       setStats(r.data);
     } catch {}
-  }
-
-  async function loadCourses() {
-    try {
-      const res = await ApiClient.fetch<any>("/staff/courses");
-      setCourses(res.data?.courses ?? []);
-    } catch {}
-  }
-
-  async function selectCourse(course: any) {
-    setSelected(course);
-    setTab("details");
-    try {
-      const res = await ApiClient.fetch<any>(
-        `/staff/courses/${course.course_id}/students?session=${course.session}&semester=${course.semester}`);
-      setStudents(res.data?.students ?? []);
-    } catch (e: any) { setMsg(e.message); }
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -173,6 +328,10 @@ export default function HODDashboard() {
 
   async function submitToICT() {
     if (!preview || !user) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to submit ${preview.fileName} with ${preview.students.length} student result(s) to ICT?`,
+    );
+    if (!confirmed) return;
     setUploading(true); setMsg("");
     try {
       const resultsFormatted = preview.students.map((s: any) => ({
@@ -223,46 +382,45 @@ export default function HODDashboard() {
   const statusColor = (s: string) =>
     s === "approved" ? "#86efac" : s === "submitted" ? "#fcd34d" : "rgba(255,255,255,0.4)";
 
+  const selectedAssignmentStaff = departmentStaff.find(
+    staffMember => String(staffMember.staff_record_id) === assignmentStaffId);
+  const courseModalStaff = departmentStaff.find(
+    staffMember => staffMember.staff_record_id === courseModalStaffId);
+  const assignedCourseIds = new Set(
+    selectedAssignmentStaff?.assignments.map(assignment => assignment.course_id) ?? []);
+  const availableDepartmentCourses = departmentCourses.filter(
+    course => course.status === "active" && !assignedCourseIds.has(course.id));
+  const normalizedCourseSearch = courseSearch.trim().toLowerCase();
+  const filteredDepartmentCourses = departmentCourses.filter(course =>
+    !normalizedCourseSearch ||
+    course.course_code.toLowerCase().includes(normalizedCourseSearch) ||
+    course.course_title.toLowerCase().includes(normalizedCourseSearch));
+  const totalCoursePages = Math.max(1, Math.ceil(filteredDepartmentCourses.length / COURSES_PER_PAGE));
+  const paginatedDepartmentCourses = filteredDepartmentCourses.slice(
+    (coursePage - 1) * COURSES_PER_PAGE,
+    coursePage * COURSES_PER_PAGE,
+  );
+  const courseFieldStyle = {
+    width: "100%",
+    background: "#172033",
+    border: "1px solid rgba(255,255,255,0.15)",
+    borderRadius: "0.4rem",
+    color: "#fff",
+    padding: "0.6rem 0.7rem",
+  };
+  const courseLabelStyle = {
+    display: "block" as const,
+    color: "rgba(255,255,255,0.6)",
+    fontSize: "0.76rem",
+    marginBottom: "0.35rem",
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
 
       <div style={{ display: "flex", minHeight: "calc(100vh - 66px)" }}>
-      <div className="flex flex-col">
-        {/* Horizontal Tabs List */}
-        <div className="bg-slate-900/50 border-b border-white/5 sticky top-0 z-30 px-8 py-2 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1 min-w-max">
-            {[
-              { id: "dashboard", label: "📊 Overview" },
-              { id: "courses", label: "📚 My Courses" },
-              { id: "upload", label: "📤 Result Upload", locked: isLocked },
-              { id: "submissions", label: "📜 History" },
-            ].map((item) => {
-              const isActive = tab === item.id || (item.id === "courses" && tab === "details");
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    if (item.locked) return;
-                    setTab(item.id as any);
-                  }}
-                  disabled={item.locked}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2",
-                    isActive
-                      ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
-                      : "text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent",
-                    item.locked && "opacity-50 cursor-not-allowed grayscale"
-                  )}
-                >
-                  {item.label}
-                  {item.locked && <span className="text-[10px]">🔒</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <main className="flex-1 p-8 overflow-y-auto">
+      <div className="flex w-full flex-col">
+        <main className="flex-1 p-4 md:p-8 overflow-y-auto">
           {msg && (
             <div style={{
               background: msg.startsWith("✅")?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)",
@@ -280,86 +438,205 @@ export default function HODDashboard() {
               <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:"1rem",marginBottom:"2rem" }}>
                 {statCard("Total Students", stats?.total_students, "#60a5fa")}
                 {statCard("Total Courses", stats?.total_courses, "#a78bfa")}
+                {statCard("Department Staff", stats?.total_staff, "#34d399")}
+              </div>
+            </div>
+          )}
+
+          {tab === "staff" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "1rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
+                <h2 style={{ color: "#fff", margin: 0 }}>Department Staff</h2>
+                <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 130 }}>
+                    <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>Academic Session</div>
+                    <div style={{ color: "#fff", fontWeight: 700, marginTop: "0.3rem" }}>{assignmentSession || "Not configured"}</div>
+                  </div>
+                  <div style={{ minWidth: 150 }}>
+                    <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>Semester</div>
+                    <div style={{ color: "#fff", fontWeight: 700, marginTop: "0.3rem" }}>{assignmentSemester || "Not configured"}</div>
+                  </div>
+                </div>
+              </div>
+
+              <form
+                onSubmit={assignDepartmentCourse}
+                className="grid grid-cols-1 lg:grid-cols-[minmax(190px,1fr)_minmax(240px,2fr)_auto]"
+                style={{ gap: "0.75rem", alignItems: "end", padding: "1rem 0", marginBottom: "1rem", borderTop: "1px solid rgba(255,255,255,0.08)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+              >
+                <label style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem" }}>
+                  Lecturer / HOD
+                  <select
+                    value={assignmentStaffId}
+                    onChange={e => { setAssignmentStaffId(e.target.value); setAssignmentCourseId(""); }}
+                    style={{ display: "block", marginTop: "0.3rem", width: "100%", background: "#172033", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", borderRadius: "0.4rem", padding: "0.55rem 0.65rem" }}
+                    required
+                  >
+                    <option value="">Select staff member</option>
+                    {departmentStaff
+                      .filter(staffMember =>
+                        staffMember.status === "active" &&
+                        (staffMember.role === "lecturer" ||
+                          (staffMember.role === "hod" && String(staffMember.user_id) === String(user?.id))))
+                      .map(staffMember => (
+                        <option key={staffMember.staff_record_id} value={staffMember.staff_record_id}>
+                          {staffMember.name} ({staffMember.assignment_count}/6)
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem" }}>
+                  Department Course
+                  <select
+                    value={assignmentCourseId}
+                    onChange={e => setAssignmentCourseId(e.target.value)}
+                    disabled={!assignmentStaffId || (selectedAssignmentStaff?.assignment_count ?? 0) >= 6}
+                    style={{ display: "block", marginTop: "0.3rem", width: "100%", background: "#172033", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", borderRadius: "0.4rem", padding: "0.55rem 0.65rem", opacity: !assignmentStaffId ? 0.55 : 1 }}
+                    required
+                  >
+                    <option value="">Select course</option>
+                    {availableDepartmentCourses.map(course => (
+                      <option key={course.id} value={course.id}>
+                        {course.course_code} - {course.course_title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  title="Assign course"
+                  disabled={assignmentBusy || !assignmentStaffId || !assignmentCourseId || (selectedAssignmentStaff?.assignment_count ?? 0) >= 6}
+                  style={{ height: 39, display: "inline-flex", alignItems: "center", gap: "0.45rem", background: "#2563eb", border: "none", color: "#fff", borderRadius: "0.45rem", padding: "0 1rem", cursor: assignmentBusy ? "not-allowed" : "pointer", fontWeight: 700, opacity: assignmentBusy ? 0.6 : 1 }}
+                >
+                  {assignmentBusy ? <Loader2 size={17} className="animate-spin" /> : <BookPlus size={17} />} {assignmentBusy ? "Assigning" : "Assign"}
+                </button>
+              </form>
+
+              <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "0.5rem" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760, fontSize: "0.86rem" }}>
+                  <thead>
+                    <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                      {["Staff Member", "Role", "Status", "Assigned Courses"].map(heading => (
+                        <th key={heading} style={{ color: "rgba(255,255,255,0.55)", textAlign: heading === "Assigned Courses" ? "center" : "left", padding: "0.75rem", fontWeight: 600 }}>{heading}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {departmentStaff.length === 0 ? (
+                      <tr><td colSpan={4} style={{ padding: "2.5rem", textAlign: "center", color: "rgba(255,255,255,0.4)" }}>No staff found in this department.</td></tr>
+                    ) : departmentStaff.map(staffMember => (
+                      <tr key={staffMember.staff_record_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <td style={{ padding: "0.85rem 0.75rem" }}>
+                          <div style={{ color: "#fff", fontWeight: 650 }}>{staffMember.title ? `${staffMember.title} ` : ""}{staffMember.name}</div>
+                          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.76rem", marginTop: "0.2rem" }}>{staffMember.email}</div>
+                        </td>
+                        <td style={{ padding: "0.85rem 0.75rem", color: "#93c5fd", textTransform: "capitalize" }}>{staffMember.role}</td>
+                        <td style={{ padding: "0.85rem 0.75rem" }}>
+                          <span style={{ color: staffMember.status === "active" ? "#86efac" : "#fca5a5", textTransform: "capitalize" }}>{staffMember.status}</span>
+                        </td>
+                        <td style={{ padding: "0.85rem 0.75rem", textAlign: "center" }}>
+                          {!['lecturer', 'hod'].includes(staffMember.role) ? (
+                            <span style={{ color: "rgba(255,255,255,0.3)" }}>-</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCourseModalStaffId(staffMember.staff_record_id)}
+                              style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "0.15rem", width: "100%", minWidth: 92, background: "transparent", border: 0, padding: 0, cursor: "pointer", color: "#93c5fd", textAlign: "center" }}
+                            >
+                              <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.42)" }}>click to view courses</span>
+                              <span style={{ fontSize: "1.35rem", lineHeight: 1.1, fontWeight: 800 }}>{staffMember.assignment_count}</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
           {tab === "courses" && (
             <div>
-              <h2 style={{ color: "#fff", marginTop: 0 }}>My Assigned Courses</h2>
-              {courses.length === 0
-                ? <p style={{ color: "rgba(255,255,255,0.4)" }}>No courses assigned to you specifically.</p>
-                : (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: "1rem" }}>
-                    {courses.map(c => (
-                      <div key={c.assignment_id} style={{
-                        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: "0.75rem", padding: "1.25rem"
-                      }}>
-                        <div style={{ color: "#60a5fa", fontSize: "0.8rem", fontWeight: 600 }}>{c.course_code}</div>
-                        <div style={{ color: "#fff", fontWeight: 700, margin: "0.25rem 0 0.5rem" }}>{c.course_title}</div>
-                        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.8rem" }}>
-                          {c.semester} · {c.session}<br />
-                          {c.credit_units} Units · {c.enrolled_count} Students
-                        </div>
-                        <button onClick={() => selectCourse(c)} style={{
-                          marginTop: "0.75rem", background: "rgba(255,255,255,0.08)",
-                          border: "1px solid rgba(255,255,255,0.15)", borderRadius: "0.5rem", color: "#fff",
-                          padding: "0.4rem 0.9rem", cursor: "pointer", fontSize: "0.82rem"
-                        }}>View Students →</button>
-                      </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+                <h2 style={{ color: "#fff", margin: 0 }}>Department Courses</h2>
+                <button
+                  type="button"
+                  onClick={openAddCourseModal}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", background: "#2563eb", border: 0, color: "#fff", borderRadius: "0.45rem", padding: "0.6rem 0.9rem", cursor: "pointer", fontWeight: 700 }}
+                >
+                  <Plus size={17} /> Add Course
+                </button>
+              </div>
+              <div style={{ position: "relative", maxWidth: 430, marginBottom: "1rem" }}>
+                <Search size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.4)" }} />
+                <input
+                  type="search"
+                  value={courseSearch}
+                  onChange={e => { setCourseSearch(e.target.value); setCoursePage(1); }}
+                  placeholder="Search by course code or course name"
+                  aria-label="Search courses"
+                  style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "0.45rem", color: "#fff", padding: "0.65rem 0.8rem 0.65rem 2.4rem", outline: "none" }}
+                />
+              </div>
+              <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "0.5rem" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760, fontSize: "0.86rem" }}>
+                  <thead>
+                    <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                      {["Course Code", "Course Title", "Level", "Semester", "Units", "Category", "Status"].map(heading => (
+                        <th key={heading} style={{ color: "rgba(255,255,255,0.55)", textAlign: "left", padding: "0.75rem", fontWeight: 600 }}>{heading}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDepartmentCourses.length === 0 ? (
+                      <tr><td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: "rgba(255,255,255,0.4)" }}>{courseSearch ? "No courses match your search." : "No courses found in this department."}</td></tr>
+                    ) : paginatedDepartmentCourses.map(course => (
+                      <tr key={course.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <td style={{ padding: "0.8rem 0.75rem", color: "#93c5fd", fontWeight: 700 }}>{course.course_code}</td>
+                        <td style={{ padding: "0.8rem 0.75rem", color: "#fff" }}>{course.course_title}</td>
+                        <td style={{ padding: "0.8rem 0.75rem", color: "rgba(255,255,255,0.6)" }}>{course.level ? `${course.level}L` : "-"}</td>
+                        <td style={{ padding: "0.8rem 0.75rem", color: "rgba(255,255,255,0.6)" }}>{course.semester || "-"}</td>
+                        <td style={{ padding: "0.8rem 0.75rem", color: "rgba(255,255,255,0.6)" }}>{course.credit_units ?? "-"}</td>
+                        <td style={{ padding: "0.8rem 0.75rem", color: "rgba(255,255,255,0.6)", textTransform: "capitalize" }}>{course.remark || "-"}</td>
+                        <td style={{ padding: "0.8rem 0.75rem" }}>
+                          <span style={{ color: course.status === "active" ? "#86efac" : "#fca5a5", textTransform: "capitalize" }}>{course.status || "-"}</span>
+                        </td>
+                      </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+              {filteredDepartmentCourses.length > COURSES_PER_PAGE && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginTop: "1rem", color: "rgba(255,255,255,0.55)", fontSize: "0.8rem" }}>
+                  <span>
+                    Showing {(coursePage - 1) * COURSES_PER_PAGE + 1}-{Math.min(coursePage * COURSES_PER_PAGE, filteredDepartmentCourses.length)} of {filteredDepartmentCourses.length}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+                    <button
+                      type="button"
+                      title="Previous page"
+                      aria-label="Previous page"
+                      disabled={coursePage === 1}
+                      onClick={() => setCoursePage(page => Math.max(1, page - 1))}
+                      style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "0.4rem", color: "#fff", cursor: coursePage === 1 ? "not-allowed" : "pointer", opacity: coursePage === 1 ? 0.4 : 1 }}
+                    >
+                      <ChevronLeft size={17} />
+                    </button>
+                    <span style={{ minWidth: 78, textAlign: "center" }}>Page {coursePage} of {totalCoursePages}</span>
+                    <button
+                      type="button"
+                      title="Next page"
+                      aria-label="Next page"
+                      disabled={coursePage === totalCoursePages}
+                      onClick={() => setCoursePage(page => Math.min(totalCoursePages, page + 1))}
+                      style={{ width: 36, height: 36, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "0.4rem", color: "#fff", cursor: coursePage === totalCoursePages ? "not-allowed" : "pointer", opacity: coursePage === totalCoursePages ? 0.4 : 1 }}
+                    >
+                      <ChevronRight size={17} />
+                    </button>
                   </div>
-                )
-              }
-            </div>
-          )}
-
-          {tab === "details" && (
-            <div>
-              {!selected
-                ? <p style={{ color: "rgba(255,255,255,0.4)" }}>← Select a course first.</p>
-                : (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
-                      <button onClick={() => setTab("courses")} style={{
-                        background: "transparent", border: "1px solid rgba(255,255,255,0.2)",
-                        color: "rgba(255,255,255,0.6)", borderRadius: "0.5rem",
-                        padding: "0.35rem 0.75rem", cursor: "pointer", fontSize: "0.82rem"
-                      }}>← Back</button>
-                      <div>
-                        <h2 style={{ color: "#fff", margin: 0 }}>{selected.course_code} — {selected.course_title}</h2>
-                        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.8rem" }}>{selected.semester} · {selected.session} · {selected.credit_units} Units</div>
-                      </div>
-                    </div>
-
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                            {["Matric No","Name","Current Level"].map(h => (
-                              <th key={h} style={{ color: "rgba(255,255,255,0.5)", textAlign: "left", padding: "0.6rem 0.75rem", fontWeight: 600 }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {students.length === 0 ? (
-                            <tr><td colSpan={3} style={{ padding: "2rem", textAlign: "center", color: "rgba(255,255,255,0.3)" }}>No students enrolled.</td></tr>
-                          ) : (
-                            students.map(s => (
-                              <tr key={s.student_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "#60a5fa" }}>{s.matric_number}</td>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "#fff" }}>{s.student_name}</td>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "rgba(255,255,255,0.5)" }}>{s.current_level || "100"}L</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )
-              }
+                </div>
+              )}
             </div>
           )}
           {tab === "upload" && (
@@ -414,11 +691,16 @@ export default function HODDashboard() {
                         border: "none",
                         color: isLocked ? "rgba(255,255,255,0.3)" : "#fff", 
                         borderRadius: "0.5rem", padding: "0.6rem 1.5rem",
-                        cursor: isLocked ? "not-allowed" : "pointer", 
+                        cursor: uploading || isLocked ? "not-allowed" : "pointer",
                         fontWeight: 700, 
-                        boxShadow: isLocked ? "none" : "0 4px 12px rgba(16,185,129,0.2)"
+                        boxShadow: isLocked ? "none" : "0 4px 12px rgba(16,185,129,0.2)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.45rem",
+                        opacity: uploading ? 0.7 : 1,
                       }}
                     >
+                      {uploading && <Loader2 size={17} className="animate-spin" />}
                       {uploading ? "Uploading..." : isLocked ? "Portal Locked" : "Submit to ICT →"}
                     </button>
                   </div>
@@ -503,6 +785,150 @@ export default function HODDashboard() {
          </main>
        </div>
      </div>
+
+     {courseModalStaff && (
+       <div style={{ position: "fixed", inset: 0, zIndex: 145, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(2,6,23,0.75)", backdropFilter: "blur(5px)", padding: "1rem" }}>
+         <div style={{ width: "100%", maxWidth: 720, maxHeight: "85vh", overflowY: "auto", background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "0.6rem", boxShadow: "0 24px 60px rgba(0,0,0,0.45)" }}>
+           <div style={{ minHeight: 64, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", padding: "0 1.25rem", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+             <div>
+               <h3 style={{ color: "#fff", margin: 0, fontSize: "1.05rem" }}>Approved Courses</h3>
+               <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.76rem", marginTop: "0.2rem" }}>{courseModalStaff.title ? `${courseModalStaff.title} ` : ""}{courseModalStaff.name} · {assignmentSession} · {assignmentSemester}</div>
+             </div>
+             <button type="button" title="Close" aria-label="Close" onClick={() => setCourseModalStaffId(null)} style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: 0, color: "rgba(255,255,255,0.55)", cursor: "pointer" }}>
+               <X size={18} />
+             </button>
+           </div>
+           <div style={{ padding: "1.25rem" }}>
+             {courseModalStaff.assignments.length === 0 ? (
+               <div style={{ padding: "2.5rem", textAlign: "center", color: "rgba(255,255,255,0.4)" }}>No approved courses.</div>
+             ) : (
+               <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "0.45rem" }}>
+                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560, fontSize: "0.84rem" }}>
+                   <thead>
+                     <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                       {["Course Code", "Course Title", "Units", "Action"].map(heading => (
+                         <th key={heading} style={{ color: "rgba(255,255,255,0.5)", textAlign: "left", padding: "0.7rem", fontWeight: 600 }}>{heading}</th>
+                       ))}
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {courseModalStaff.assignments.map(assignment => (
+                       <tr key={assignment.assignment_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                         <td style={{ padding: "0.75rem 0.7rem", color: "#93c5fd", fontWeight: 700 }}>{assignment.course_code}</td>
+                         <td style={{ padding: "0.75rem 0.7rem", color: "#fff" }}>{assignment.course_title}</td>
+                         <td style={{ padding: "0.75rem 0.7rem", color: "rgba(255,255,255,0.55)" }}>{assignment.credit_units ?? "-"}</td>
+                         <td style={{ padding: "0.75rem 0.7rem" }}>
+                           <button type="button" title={`Remove ${assignment.course_code}`} aria-label={`Remove ${assignment.course_code}`} disabled={removingAssignmentId === assignment.assignment_id} onClick={() => removeDepartmentCourse(assignment.assignment_id)} style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "0.35rem", color: "#fca5a5", cursor: removingAssignmentId === assignment.assignment_id ? "not-allowed" : "pointer", opacity: removingAssignmentId === assignment.assignment_id ? 0.65 : 1 }}>
+                             {removingAssignmentId === assignment.assignment_id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                           </button>
+                         </td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+             )}
+           </div>
+         </div>
+       </div>
+     )}
+
+     {showAddCourse && (
+       <div style={{ position: "fixed", inset: 0, zIndex: 150, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(2,6,23,0.75)", backdropFilter: "blur(5px)", padding: "1rem" }}>
+         <div style={{ width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto", background: "#111827", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "0.6rem", boxShadow: "0 24px 60px rgba(0,0,0,0.45)" }}>
+           <div style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", padding: "0 1.25rem", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+             <h3 style={{ color: "#fff", margin: 0, fontSize: "1.05rem" }}>{confirmCourse ? "Confirm New Course" : "Add Course"}</h3>
+             <button type="button" title="Close" aria-label="Close" onClick={closeAddCourseModal} disabled={addingCourse} style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: 0, color: "rgba(255,255,255,0.55)", cursor: addingCourse ? "not-allowed" : "pointer" }}>
+               <X size={18} />
+             </button>
+           </div>
+
+           {!confirmCourse ? (
+             <form onSubmit={reviewNewCourse} style={{ padding: "1.25rem" }}>
+               <div className="grid grid-cols-1 md:grid-cols-2" style={{ gap: "1rem" }}>
+                 <div className="md:col-span-2">
+                   <label style={courseLabelStyle}>Department</label>
+                   <input disabled value={stats?.department?.name || "Current department"} style={{ ...courseFieldStyle, opacity: 0.65, cursor: "not-allowed" }} />
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Course Code</label>
+                   <input required value={courseForm.course_code} onChange={e => setCourseForm(form => ({ ...form, course_code: e.target.value.toUpperCase() }))} placeholder="e.g. CSC 301" style={courseFieldStyle} />
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Course Name</label>
+                   <input required value={courseForm.course_title} onChange={e => setCourseForm(form => ({ ...form, course_title: e.target.value }))} placeholder="Course title" style={courseFieldStyle} />
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Units</label>
+                   <input required type="number" min="1" max="10" value={courseForm.unit} onChange={e => setCourseForm(form => ({ ...form, unit: e.target.value }))} style={courseFieldStyle} />
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Level</label>
+                   <select required value={courseForm.level} onChange={e => setCourseForm(form => ({ ...form, level: e.target.value }))} style={courseFieldStyle}>
+                     {[100,200,300,400,500,600,700,800].map(level => <option key={level} value={level}>{level} Level</option>)}
+                   </select>
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Semester</label>
+                   <select required value={courseForm.semester} onChange={e => setCourseForm(form => ({ ...form, semester: e.target.value }))} style={courseFieldStyle}>
+                     <option value="First semester">First semester</option>
+                     <option value="Second semester">Second semester</option>
+                   </select>
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Status</label>
+                   <select required value={courseForm.status} onChange={e => setCourseForm(form => ({ ...form, status: e.target.value }))} style={courseFieldStyle}>
+                     <option value="active">Active</option>
+                     <option value="inactive">Inactive</option>
+                   </select>
+                 </div>
+                 <div>
+                   <label style={courseLabelStyle}>Category</label>
+                   <select required value={courseForm.remark} onChange={e => setCourseForm(form => ({ ...form, remark: e.target.value }))} style={courseFieldStyle}>
+                     <option value="compulsory">Compulsory</option>
+                     <option value="core">Core</option>
+                     <option value="elective">Elective</option>
+                     <option value="required">Required</option>
+                   </select>
+                 </div>
+               </div>
+               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1.4rem" }}>
+                 <button type="button" disabled={addingCourse} onClick={closeAddCourseModal} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", borderRadius: "0.4rem", padding: "0.6rem 1rem", cursor: addingCourse ? "not-allowed" : "pointer", opacity: addingCourse ? 0.6 : 1 }}>Cancel</button>
+                 <button type="submit" style={{ background: "#2563eb", border: 0, color: "#fff", borderRadius: "0.4rem", padding: "0.6rem 1rem", cursor: "pointer", fontWeight: 700 }}>Review Course</button>
+               </div>
+             </form>
+           ) : (
+             <div style={{ padding: "1.25rem" }}>
+               <div style={{ display: "flex", alignItems: "flex-start", gap: "0.8rem", color: "#fcd34d", marginBottom: "1.2rem" }}>
+                 <AlertTriangle size={21} style={{ flexShrink: 0, marginTop: 1 }} />
+                 <div>
+                   <div style={{ color: "#fff", fontWeight: 750 }}>Are you sure you want to add {courseForm.course_code.toUpperCase()} - {courseForm.course_title}?</div>
+                 </div>
+               </div>
+               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: "0.75rem", padding: "1rem 0", borderTop: "1px solid rgba(255,255,255,0.08)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                 {[
+                   ["Department", stats?.department?.name || "Current department"],
+                   ["Units", courseForm.unit],
+                   ["Level", `${courseForm.level} Level`],
+                   ["Semester", courseForm.semester],
+                   ["Status", courseForm.status],
+                   ["Category", courseForm.remark],
+                 ].map(([label, value]) => (
+                   <div key={label}>
+                     <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", marginBottom: "0.2rem" }}>{label}</div>
+                     <div style={{ color: "#fff", fontSize: "0.86rem", textTransform: label === "Status" || label === "Category" ? "capitalize" : "none" }}>{value}</div>
+                   </div>
+                 ))}
+               </div>
+               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1.25rem" }}>
+                 <button type="button" disabled={addingCourse} onClick={() => setConfirmCourse(false)} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", borderRadius: "0.4rem", padding: "0.6rem 1rem", cursor: addingCourse ? "not-allowed" : "pointer" }}>Back</button>
+                 <button type="button" disabled={addingCourse} onClick={addDepartmentCourse} style={{ background: "#2563eb", border: 0, color: "#fff", borderRadius: "0.4rem", padding: "0.6rem 1rem", cursor: addingCourse ? "not-allowed" : "pointer", fontWeight: 700, opacity: addingCourse ? 0.65 : 1, display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>{addingCourse && <Loader2 size={16} className="animate-spin" />}{addingCourse ? "Adding..." : "Yes, Add Course"}</button>
+               </div>
+             </div>
+           )}
+         </div>
+       </div>
+     )}
     </div>
   );
 }

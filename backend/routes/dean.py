@@ -32,8 +32,9 @@ def dashboard(payload):
                WHERE LOWER(st.department) = (SELECT LOWER(name) FROM departments WHERE id = %s)''', (dept['id'],))
         pending = Database.execute_query(
             '''SELECT COUNT(*) AS cnt FROM student_scores ss
-               JOIN courses c ON ss.course_id = c.id
-               WHERE c.department_id = %s AND ss.status='submitted' ''', (dept['id'],))
+               JOIN course c ON ss.course_id = c.id
+               JOIN departments cd ON UPPER(TRIM(cd.name)) = UPPER(TRIM(c.department))
+               WHERE cd.id = %s AND ss.status='submitted' ''', (dept['id'],))
         stats.append({
             'department_id': dept['id'],
             'department': dept['name'],
@@ -75,8 +76,8 @@ def get_faculty_results(payload):
         JOIN students st ON ss.student_id = st."Id"
         JOIN users u ON st."UserId" = u.id
         LEFT JOIN level l ON st.current_level_id = l.id
-        JOIN courses c ON ss.course_id = c.id
-        JOIN departments d ON c.department_id = d.id
+        JOIN course c ON ss.course_id = c.id
+        JOIN departments d ON UPPER(TRIM(d.name)) = UPPER(TRIM(c.department))
         WHERE d.faculty_id = %s
     '''
     params = [faculty_id]
@@ -111,8 +112,8 @@ def gpa_summary(payload):
                ss.grade,
                COUNT(*) AS count
         FROM student_scores ss
-        JOIN courses c ON ss.course_id = c.id
-        JOIN departments d ON c.department_id = d.id
+        JOIN course c ON ss.course_id = c.id
+        JOIN departments d ON UPPER(TRIM(d.name)) = UPPER(TRIM(c.department))
         WHERE d.faculty_id = %s AND ss.status = 'approved'
     '''
     params = [faculty_id]

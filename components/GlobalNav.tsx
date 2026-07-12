@@ -153,6 +153,14 @@ const LECTURER_NAV_ITEMS = [
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
+const HOD_NAV_ITEMS = [
+  { label: "Dashboard", href: "/hod/dashboard", icon: LayoutDashboard },
+  { label: "Staff", href: "/hod/dashboard?tab=staff", icon: Users },
+  { label: "Courses", href: "/hod/dashboard?tab=courses", icon: BookOpen },
+  { label: "Result Upload", href: "/hod/dashboard?tab=upload", icon: Upload },
+  { label: "History", href: "/hod/dashboard?tab=submissions", icon: History },
+];
+
 const ICT_NAV_ITEMS = [
   { label: "Dashboard", href: "/ict/dashboard", icon: LayoutDashboard },
   { label: "Students", href: "/ict/students", icon: GraduationCap },
@@ -199,6 +207,7 @@ export function GlobalNav() {
   const isAdminPortal = isAuthenticated && user?.role === "admissionofficer";
   const isRegistrarPortal = isAuthenticated && user?.role === "registrar";
   const isLecturerPortal = isAuthenticated && user?.role === "lecturer";
+  const isHodPortal = isAuthenticated && user?.role === "hod";
   const isIctPortal = isAuthenticated && user?.role === "ictdirector";
   const isManagementPortal =
     isAuthenticated && ["hod", "dean"].includes(user?.role || "");
@@ -210,6 +219,7 @@ export function GlobalNav() {
   const isPtAdminSection = pathname?.startsWith("/ptadmin");
   const isRegistrarSection = pathname?.startsWith("/registrar");
   const isLecturerSection = pathname?.startsWith("/lecturer");
+  const isHodSection = pathname?.startsWith("/hod");
   const isIctSection = pathname?.startsWith("/ict");
   const isOfficialPortalSection =
     isAdmissionOfficerSection ||
@@ -296,7 +306,7 @@ export function GlobalNav() {
     if (typeof window !== "undefined" && window.innerWidth < 1024 && isOpen) {
       toggle();
     }
-  }, [pathname]);
+  }, [pathname, searchParams]);
 
   // Determine nav items based on role
   const getNavItems = () => {
@@ -306,6 +316,7 @@ export function GlobalNav() {
       if (isPtAdminSection) return PTADMIN_NAV_ITEMS;
       if (isRegistrarSection) return REGISTRAR_NAV_ITEMS;
       if (isLecturerSection) return LECTURER_NAV_ITEMS;
+      if (isHodSection) return HOD_NAV_ITEMS;
       if (isIctSection) return ICT_NAV_ITEMS;
       if (isStudentSection) return STUDENT_NAV_ITEMS;
       if (isApplicantSection) return APPLICANT_NAV_ITEMS;
@@ -328,6 +339,7 @@ export function GlobalNav() {
     if (isAdminPortal) return ADMIN_NAV_ITEMS;
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
     if (isLecturerPortal) return LECTURER_NAV_ITEMS;
+    if (isHodPortal) return HOD_NAV_ITEMS;
     if (isIctPortal) return ICT_NAV_ITEMS;
     if (user?.role === "pgadmin" || user?.role === "pgdean")
       return PGADMIN_NAV_ITEMS;
@@ -353,6 +365,8 @@ export function GlobalNav() {
         return "/registrar/dashboard";
       case "lecturer":
         return "/lecturer/dashboard";
+      case "hod":
+        return "/hod/dashboard";
       case "ictdirector":
         return "/ict/dashboard";
       case "pgadmin":
@@ -366,6 +380,7 @@ export function GlobalNav() {
         if (isPtAdminSection) return "/ptadmin/dashboard";
         if (isRegistrarSection) return "/registrar/dashboard";
         if (isLecturerSection) return "/lecturer/dashboard";
+        if (isHodSection) return "/hod/dashboard";
         if (isIctSection) return "/ict/dashboard";
         return "/";
     }
@@ -520,7 +535,10 @@ export function GlobalNav() {
                   ? Array.from(itemParams).every(
                       ([key, value]) => searchParams.get(key) === value,
                     )
-                  : !(pathname === "/lecturer/dashboard" && searchParams.get("tab")));
+                  : !(
+                      ["/lecturer/dashboard", "/hod/dashboard"].includes(pathname) &&
+                      searchParams.get("tab")
+                    ));
               return (
                 <Link
                   key={item.label}

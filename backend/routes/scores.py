@@ -198,12 +198,12 @@ def get_student_scores(payload, student_id):
             return jsonify({'message': 'Access denied'}), 403
 
     scores = Database.execute_query(
-        '''SELECT ss.id, c.course_code, c.course_title, c.credit_units,
+        '''SELECT ss.id, c.course_code, c.course_title, c.unit AS credit_units,
                   ss.ca_score, ss.exam_score, ss.total_score,
                   ss.grade, ss.grade_point, ss.status,
                   ss.session, ss.semester
            FROM student_scores ss
-           JOIN courses c ON ss.course_id = c.id
+           JOIN course c ON ss.course_id = c.id
            WHERE ss.student_id = %s
            ORDER BY ss.session, ss.semester, c.course_code''',
         (student_id,))

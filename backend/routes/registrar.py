@@ -106,11 +106,11 @@ def get_transcript(payload, student_id):
         return jsonify({'message': 'Student not found'}), 404
 
     scores = Database.execute_query(
-        '''SELECT c.course_code, c.course_title, c.credit_units,
+        '''SELECT c.course_code, c.course_title, c.unit AS credit_units,
                   ss.ca_score, ss.exam_score, ss.total_score,
                   ss.grade, ss.grade_point, ss.session, ss.semester
            FROM student_scores ss
-           JOIN courses c ON ss.course_id = c.id
+           JOIN course c ON ss.course_id = c.id
            WHERE ss.student_id = %s AND ss.status = 'approved'
            ORDER BY ss.session, ss.semester, c.course_code''',
         (student_id,))

@@ -109,22 +109,6 @@ def get_departments(payload):
     return jsonify({'departments': [dict(d) for d in (departments or [])]}), 200
 
 
-@staff_bp.route('/courses-list', methods=['GET'])
-@AuthHandler.token_required
-@AuthHandler.roles_required('ictdirector', 'hod')
-def get_courses_list(payload):
-    dept_id = request.args.get('department_id')
-    params = None
-    query = 'SELECT id, course_code, course_title FROM courses'
-    if dept_id:
-        query += ' WHERE department_id = %s'
-        params = (dept_id,)
-    query += ' ORDER BY course_code'
-
-    courses = Database.execute_query(query, params)
-    return jsonify({'courses': [dict(c) for c in (courses or [])]}), 200
-
-
 @staff_bp.route('/courses', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.roles_required(*LECTURER_ROLES)
@@ -140,15 +124,14 @@ def get_assigned_courses(payload):
 
     query = '''
         SELECT lc.id AS assignment_id, lc.session, lc.semester,
-               c.id AS course_id, c.course_code, c.course_title, c.credit_units,
-               d.name AS department,
+               c.id AS course_id, c.course_code, c.course_title, c.unit AS credit_units,
+               c.department,
                (SELECT COUNT(*) FROM registered_courses rc
                 JOIN course_registrations cr ON rc.registration_id = cr.id
                 WHERE rc.course_id = c.id
                   AND cr.semester = lc.semester) AS enrolled_count
         FROM lecturer_courses lc
-        JOIN courses c ON lc.course_id = c.id
-        LEFT JOIN departments d ON c.department_id = d.id
+        JOIN course c ON lc.course_id = c.id
         WHERE lc.lecturer_id = %s
     '''
     params = [staff['id']]
@@ -227,7 +210,13 @@ def list_staff(payload):
         db_role_name = ROLE_NAME_DB.get(role_filter)
         if db_role_name:
             query += ' AND r.name = %s'; params.append(db_role_name)
-    if dept_filter:
+    if payload.get('role') == 'hod':
+        hod_profile = _get_staff_profile(payload['user_id'])
+        if not hod_profile or not hod_profile.get('department_id'):
+            return jsonify({'message': 'HOD department not configured'}), 403
+        query += ' AND s.department_id = %s'
+        params.append(hod_profile['department_id'])
+    elif dept_filter:
         query += ' AND s.department_id = %s'; params.append(dept_filter)
     query += ' ORDER BY r.name, u.surname, u.firstname'
 
@@ -266,6 +255,22 @@ def create_staff(payload):
     if existing:
         return jsonify({'message': 'Email already registered'}), 409
 
+    department_id = data.get('department_id')
+    faculty_id = data.get('faculty_id')
+    if role_key in ('lecturer', 'deo', 'hod') and not department_id:
+        return jsonify({'message': 'A department is required for academic staff'}), 400
+
+    if department_id:
+        department = Database.execute_query(
+            'SELECT id, faculty_id FROM departments WHERE id = %s',
+            (department_id,))
+        if not department:
+            return jsonify({'message': 'Department not found'}), 404
+        department_faculty_id = department[0]['faculty_id']
+        if faculty_id and faculty_id != department_faculty_id:
+            return jsonify({'message': 'Department does not belong to the selected faculty'}), 400
+        faculty_id = department_faculty_id
+
     # Split name into firstname / surname (everything after first space = surname)
     full_name = data['name'].strip()
     parts = full_name.split(' ', 1)
@@ -279,28 +284,36 @@ def create_staff(payload):
     base_username = data['email'].split('@')[0][:40]
     username = f"{base_username}{random.randint(1000, 9999)}"
 
-    user_id = Database.execute_update(
-        '''INSERT INTO users
-             (firstname, surname, email, password_hash, phone_number,
-              user_type_id, username, status)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, 'active')
-           RETURNING id''',
-        (firstname, surname, data['email'], pw_hash,
-         data.get('phone_number', ''), user_type_id, username),
-        return_id=True)
+    staff_number = str(data.get('staff_id') or '').strip() or None
+    title = str(data.get('title') or '').strip() or None
 
-    if not user_id:
-        return jsonify({'message': 'Failed to create user'}), 500
-
-    # Create staff profile (department/faculty optional)
-    Database.execute_update(
-        '''INSERT INTO staff (user_id, staff_id, department_id, faculty_id, title)
-           VALUES (%s, %s, %s, %s, %s)''',
-        (user_id, data.get('staff_id'),
-         data.get('department_id'), data.get('faculty_id'),
-         data.get('title', '')))
-
-    return jsonify({'message': 'Staff account created', 'user_id': str(user_id)}), 201
+    conn = Database.get_connection()
+    if not conn:
+        return jsonify({'message': 'Database connection failed'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''INSERT INTO users
+                     (firstname, surname, email, password_hash, phone_number,
+                      user_type_id, username, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, 'active')
+                   RETURNING id''',
+                (firstname, surname, data['email'], pw_hash,
+                 data.get('phone_number', ''), user_type_id, username))
+            user_id = cur.fetchone()['id']
+            cur.execute(
+                '''INSERT INTO staff (user_id, staff_id, department_id, faculty_id, title)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (user_id, staff_number, department_id, faculty_id, title))
+        conn.commit()
+        return jsonify({'message': 'Staff account created', 'user_id': str(user_id)}), 201
+    except Exception as exc:
+        conn.rollback()
+        if getattr(exc, 'pgcode', None) == '23505':
+            return jsonify({'message': 'Email, username or staff ID already exists'}), 409
+        return jsonify({'message': 'Failed to create staff account and profile'}), 500
+    finally:
+        Database.release_connection(conn)
 
 
 # ── PUT /api/staff/<id> (ICT Director only) ───────────────────────────────────
@@ -308,82 +321,86 @@ def create_staff(payload):
 @AuthHandler.token_required
 @AuthHandler.roles_required('ictdirector')
 def update_staff(payload, user_id):
-    data = request.get_json()
-
+    data = request.get_json() or {}
+    new_user_type_id = None
+    new_role_key = None
     if 'role' in data:
-        new_role_key = data['role'].lower()
+        new_role_key = str(data['role']).lower()
         new_user_type_id = _lookup_user_type_id(new_role_key)
         if not new_user_type_id:
             return jsonify({'message': f'Unknown role: {data["role"]}'}), 400
-        Database.execute_update(
-            'UPDATE users SET user_type_id = %s WHERE id = %s',
-            (new_user_type_id, user_id))
 
-    if 'status' in data:
-        Database.execute_update(
-            'UPDATE users SET status = %s WHERE id = %s',
-            (data['status'], user_id))
+    department_id = data.get('department_id')
+    if department_id:
+        department = Database.execute_query(
+            'SELECT id, faculty_id FROM departments WHERE id = %s',
+            (department_id,))
+        if not department:
+            return jsonify({'message': 'Department not found'}), 404
+        data['faculty_id'] = department[0]['faculty_id']
 
-    if any(k in data for k in ['department_id', 'faculty_id', 'title', 'staff_id']):
-        # Upsert staff row — create if not exists, update if exists
-        existing = Database.execute_query(
-            'SELECT id FROM staff WHERE user_id = %s', (user_id,))
-        if existing:
-            Database.execute_update(
-                '''UPDATE staff SET
-                     department_id = COALESCE(%s, department_id),
-                     faculty_id    = COALESCE(%s, faculty_id),
-                     title         = COALESCE(%s, title),
-                     staff_id      = COALESCE(%s, staff_id)
-                   WHERE user_id = %s''',
-                (data.get('department_id'), data.get('faculty_id'),
-                 data.get('title'), data.get('staff_id'), user_id))
-        else:
-            Database.execute_update(
-                '''INSERT INTO staff (user_id, staff_id, department_id, faculty_id, title)
-                   VALUES (%s, %s, %s, %s, %s)''',
-                (user_id, data.get('staff_id'), data.get('department_id'),
-                 data.get('faculty_id'), data.get('title', '')))
+    if new_role_key in ('lecturer', 'deo', 'hod'):
+        effective_department = department_id
+        if 'department_id' not in data:
+            profile = _get_staff_profile(user_id)
+            effective_department = profile.get('department_id') if profile else None
+        if not effective_department:
+            return jsonify({'message': 'A department is required for academic staff'}), 400
 
-    return jsonify({'message': 'Staff updated'}), 200
+    conn = Database.get_connection()
+    if not conn:
+        return jsonify({'message': 'Database connection failed'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM users WHERE id = %s FOR UPDATE', (user_id,))
+            if not cur.fetchone():
+                conn.rollback()
+                return jsonify({'message': 'Staff user not found'}), 404
 
+            if new_user_type_id:
+                cur.execute(
+                    'UPDATE users SET user_type_id = %s WHERE id = %s',
+                    (new_user_type_id, user_id))
+            if 'status' in data:
+                cur.execute(
+                    'UPDATE users SET status = %s WHERE id = %s',
+                    (data['status'], user_id))
 
-# ── POST /api/staff/assign-course ─────────────────────────────────────────────
-@staff_bp.route('/assign-course', methods=['POST'])
-@AuthHandler.token_required
-@AuthHandler.roles_required('ictdirector', 'hod')
-def assign_course(payload):
-    """Assign a lecturer to a course for a session/semester."""
-    data      = request.get_json()
-    staff_id_ = data.get('staff_id')       # staff table id (integer)
-    course_id = data.get('course_id')
-    session   = data.get('session')
-    semester  = data.get('semester')
-
-    if not all([staff_id_, course_id, session, semester]):
-        return jsonify({'message': 'staff_id, course_id, session, semester required'}), 400
-
-    Database.execute_update(
-        '''INSERT INTO lecturer_courses (lecturer_id, course_id, session, semester)
-           VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
-        (staff_id_, course_id, session, semester))
-
-    return jsonify({'message': 'Course assigned'}), 201
-
-
-# ── DELETE /api/staff/assign-course ───────────────────────────────────────────
-@staff_bp.route('/assign-course', methods=['DELETE'])
-@AuthHandler.token_required
-@AuthHandler.roles_required('ictdirector', 'hod')
-def unassign_course(payload):
-    data      = request.get_json()
-    staff_id_ = data.get('staff_id')
-    course_id = data.get('course_id')
-    session   = data.get('session')
-    semester  = data.get('semester')
-
-    Database.execute_update(
-        '''DELETE FROM lecturer_courses
-           WHERE lecturer_id=%s AND course_id=%s AND session=%s AND semester=%s''',
-        (staff_id_, course_id, session, semester))
-    return jsonify({'message': 'Assignment removed'}), 200
+            staff_fields = ('department_id', 'faculty_id', 'title', 'staff_id')
+            if any(field in data for field in staff_fields):
+                cur.execute('SELECT id FROM staff WHERE user_id = %s LIMIT 1', (user_id,))
+                existing = cur.fetchone()
+                staff_number = str(data.get('staff_id') or '').strip() or None
+                title = str(data.get('title') or '').strip() or None
+                if existing:
+                    updates = []
+                    values = []
+                    for field, value in (
+                        ('department_id', data.get('department_id')),
+                        ('faculty_id', data.get('faculty_id')),
+                        ('title', title),
+                        ('staff_id', staff_number),
+                    ):
+                        if field in data:
+                            updates.append(f'{field} = %s')
+                            values.append(value)
+                    values.append(existing['id'])
+                    cur.execute(
+                        f'UPDATE staff SET {", ".join(updates)} WHERE id = %s',
+                        tuple(values))
+                else:
+                    cur.execute(
+                        '''INSERT INTO staff
+                             (user_id, staff_id, department_id, faculty_id, title)
+                           VALUES (%s, %s, %s, %s, %s)''',
+                        (user_id, staff_number, data.get('department_id'),
+                         data.get('faculty_id'), title))
+        conn.commit()
+        return jsonify({'message': 'Staff updated'}), 200
+    except Exception as exc:
+        conn.rollback()
+        if getattr(exc, 'pgcode', None) == '23505':
+            return jsonify({'message': 'That staff ID is already assigned to another staff member'}), 409
+        return jsonify({'message': 'Failed to update staff profile'}), 500
+    finally:
+        Database.release_connection(conn)

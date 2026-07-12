@@ -1932,9 +1932,10 @@ def get_student_registration(payload, student_id):
         return jsonify({'message': 'No registration found for this student/semester'}), 404
 
     courses = Database.execute_query(
-        '''SELECT c.course_code, c.course_title, c.credit_units, c.category
+        '''SELECT c.course_code, c.course_title, c.unit AS credit_units,
+                  c.remark AS category
            FROM registered_courses rc
-           JOIN courses c ON rc.course_id = c.id
+           JOIN course c ON rc.course_id = c.id
            WHERE rc.registration_id = %s''',
         (registration[0]['id'],)
     )
@@ -1947,12 +1948,15 @@ def get_student_registration(payload, student_id):
 @AuthHandler.admissions_officer_required
 def get_courses_list(payload):
     dept_id = request.args.get('department_id')
-    query   = 'SELECT id, course_code, course_title FROM courses'
+    query = '''SELECT c.id, c.course_code, c.course_title
+               FROM course c'''
     params  = None
     if dept_id:
-        query  += ' WHERE department_id = %s'
+        query += ''' JOIN departments d
+                       ON UPPER(TRIM(d.name)) = UPPER(TRIM(c.department))
+                     WHERE d.id = %s'''
         params  = (dept_id,)
-    query += ' ORDER BY course_code'
+    query += ' ORDER BY c.course_code'
     courses = Database.execute_query(query, params)
     return jsonify({'courses': courses or []}), 200
 

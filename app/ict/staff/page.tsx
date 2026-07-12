@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { ApiClient } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import Image from "next/image";
-import { LogOut, ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type StaffMember = {
@@ -14,7 +14,6 @@ type StaffMember = {
 };
 type Department = { id: number; name: string; faculty_id?: number; faculty_name?: string };
 type Faculty    = { id: number; name: string; code?: string };
-type Course     = { id: number; course_code: string; course_title: string };
 
 const ROLES = [
   "admissionofficer",
@@ -35,19 +34,18 @@ export default function ICTStaffPage() {
   const [staff, setStaff]     = useState<StaffMember[]>([]);
   const [depts, setDepts]     = useState<Department[]>([]);
   const [faculties, setFaculties] = useState<Faculty[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [showAssign, setShowAssign] = useState(false);
   const [msg, setMsg]         = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  const [loadingStaff, setLoadingStaff] = useState(false);
+  const [creatingStaff, setCreatingStaff] = useState(false);
+  const [updatingStaff, setUpdatingStaff] = useState(false);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
 
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [form, setForm] = useState({
     name:"", email:"", password:"", role:"lecturer", phone_number:"",
     staff_id:"", title:"", department_id:"", faculty_id:""
-  });
-  const [assign, setAssign] = useState({
-    staff_id:"", course_id:"", session:"2024/2025", semester:"First semester"
   });
 
   useEffect(() => {
@@ -60,22 +58,25 @@ export default function ICTStaffPage() {
   }, [isAuthenticated, user, router]);
 
   async function loadStaff() {
+    setLoadingStaff(true);
     try {
-      const p = roleFilter ? `?role=${roleFilter}` : "";
+      const p = roleFilter ? `?role=${roleFilter}&refresh=${Date.now()}` : `?refresh=${Date.now()}`;
       const r = await ApiClient.fetch<any>(`/staff/list${p}`);
       setStaff(r.data?.staff ?? []);
-    } catch {}
+    } catch (e: any) {
+      setMsg("❌ " + e.message);
+    } finally {
+      setLoadingStaff(false);
+    }
   }
   async function loadMeta() {
     try {
-      const [dr, fr, cr] = await Promise.all([
+      const [dr, fr] = await Promise.all([
         ApiClient.fetch<any>("/staff/departments"),
         ApiClient.fetch<any>("/staff/faculties"),
-        ApiClient.fetch<any>("/staff/courses-list"),
       ]);
       setDepts(dr.data?.departments ?? []);
       setFaculties(fr.data?.faculties ?? []);
-      setCourses(cr.data?.courses ?? []);
     } catch (e: any) {
       setMsg("Failed to load departments/faculties: " + e.message);
     }
@@ -92,6 +93,12 @@ export default function ICTStaffPage() {
 
   async function createStaff(e: React.FormEvent) {
     e.preventDefault();
+    const department = depts.find(d => String(d.id) === form.department_id);
+    const confirmed = window.confirm(
+      `Are you sure you want to create ${form.name} as ${form.role.replace(/_/g, " ")}${department ? ` in ${department.name}` : ""}?`,
+    );
+    if (!confirmed) return;
+    setCreatingStaff(true);
     try {
       await ApiClient.fetch<any>("/staff/create", {
         method:"POST", body:JSON.stringify({
@@ -103,39 +110,37 @@ export default function ICTStaffPage() {
       setMsg("✅ Staff account created.");
       setShowCreate(false);
       setForm({ name:"",email:"",password:"",role:"lecturer",phone_number:"",staff_id:"",title:"",department_id:"",faculty_id:"" });
-      loadStaff();
+      await loadStaff();
     } catch (e: any) { setMsg("❌ " + e.message); }
-  }
-
-  async function assignCourse(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await ApiClient.fetch<any>("/staff/assign-course", {
-        method:"POST", body:JSON.stringify({
-          staff_id:  Number(assign.staff_id),
-          course_id: Number(assign.course_id),
-          session:   assign.session,
-          semester:  assign.semester,
-        })
-      });
-      setMsg("✅ Course assigned to lecturer.");
-      setShowAssign(false);
-    } catch (e: any) { setMsg("❌ " + e.message); }
+    finally { setCreatingStaff(false); }
   }
 
   async function toggleStatus(userId: number, current: string) {
     const next = current === "active" ? "inactive" : "active";
+    const staffMember = staff.find(member => member.id === userId);
+    const confirmed = window.confirm(
+      `Are you sure you want to ${next === "active" ? "activate" : "deactivate"} ${staffMember?.name || "this staff account"}?`,
+    );
+    if (!confirmed) return;
+    setStatusUpdatingId(userId);
     try {
       await ApiClient.fetch<any>(`/staff/${userId}`, {
         method:"PUT", body:JSON.stringify({ status: next })
       });
       setStaff(prev => prev.map(s => s.id===userId ? { ...s, status:next } : s));
     } catch (e: any) { setMsg("❌ " + e.message); }
+    finally { setStatusUpdatingId(null); }
   }
 
   async function handleUpdateStaff(e: React.FormEvent) {
     e.preventDefault();
     if (!editingStaff) return;
+    const department = depts.find(d => String(d.id) === form.department_id);
+    const confirmed = window.confirm(
+      `Are you sure you want to update ${editingStaff.name}${department ? ` and assign ${department.name}` : ""}?`,
+    );
+    if (!confirmed) return;
+    setUpdatingStaff(true);
     try {
       await ApiClient.fetch<any>(`/staff/${editingStaff.id}`, {
         method:"PUT", body:JSON.stringify({
@@ -148,8 +153,9 @@ export default function ICTStaffPage() {
       });
       setMsg("✅ Staff profile updated.");
       setEditingStaff(null);
-      loadStaff();
+      await loadStaff();
     } catch (e: any) { setMsg("❌ " + e.message); }
+    finally { setUpdatingStaff(false); }
   }
 
   const startEdit = (s: StaffMember) => {
@@ -207,9 +213,6 @@ export default function ICTStaffPage() {
             <h1 style={{ color:"#1e293b", margin:0, fontSize:"1.8rem", fontWeight:800 }}>Staff Management</h1>
           </div>
           <div style={{ display:"flex", gap:"0.6rem", marginLeft:"auto" }}>
-            <button onClick={()=>setShowAssign(true)} style={{ background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.5rem 1rem",cursor:"pointer",fontWeight:600,fontSize:"0.88rem", boxShadow:"0 1px 2px rgba(0,0,0,0.05)" }}>
-              📌 Assign Course
-            </button>
             <button onClick={()=>setShowCreate(true)} style={{ background:"#1e293b",border:"none",color:"#fff",borderRadius:"0.6rem",padding:"0.5rem 1rem",cursor:"pointer",fontWeight:600,fontSize:"0.88rem", boxShadow:"0 4px 6px -1px rgba(0,0,0,0.1)" }}>
               + New Staff
             </button>
@@ -233,7 +236,7 @@ export default function ICTStaffPage() {
             <option value="">All Roles</option>
             {ROLES.map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
           </select>
-          <button onClick={loadStaff} style={{ background:"#fff",border:"1px solid #e2e8f0",color:"#1e293b",borderRadius:"0.5rem",padding:"0.45rem 1rem",cursor:"pointer",fontSize:"0.85rem", fontWeight:500 }}>Filter</button>
+          <button onClick={loadStaff} disabled={loadingStaff} style={{ background:"#fff",border:"1px solid #e2e8f0",color:"#1e293b",borderRadius:"0.5rem",padding:"0.45rem 1rem",cursor:loadingStaff?"not-allowed":"pointer",fontSize:"0.85rem", fontWeight:500, display:"inline-flex",alignItems:"center",gap:"0.4rem",opacity:loadingStaff?0.65:1 }}>{loadingStaff&&<Loader2 className="h-4 w-4 animate-spin" />}{loadingStaff?"Loading":"Filter"}</button>
         </div>
 
         {/* Staff Table */}
@@ -272,10 +275,10 @@ export default function ICTStaffPage() {
                         background:"#fff",border:"1px solid #e2e8f0",
                         color:"#3b82f6",borderRadius:"0.35rem",padding:"0.25rem 0.6rem",cursor:"pointer",fontSize:"0.78rem", fontWeight:600
                       }}>Edit</button>
-                      <button onClick={()=>toggleStatus(s.id,s.status)} style={{
+                      <button onClick={()=>toggleStatus(s.id,s.status)} disabled={statusUpdatingId===s.id} style={{
                         background:"#fff",border:"1px solid #e2e8f0",
-                        color:"#475569",borderRadius:"0.35rem",padding:"0.25rem 0.6rem",cursor:"pointer",fontSize:"0.78rem", fontWeight:500
-                      }}>{s.status==="active"?"Deactivate":"Activate"}</button>
+                        color:"#475569",borderRadius:"0.35rem",padding:"0.25rem 0.6rem",cursor:statusUpdatingId===s.id?"not-allowed":"pointer",fontSize:"0.78rem", fontWeight:500,display:"inline-flex",alignItems:"center",gap:"0.3rem",opacity:statusUpdatingId===s.id?0.65:1
+                      }}>{statusUpdatingId===s.id&&<Loader2 className="h-3.5 w-3.5 animate-spin" />}{statusUpdatingId===s.id?"Updating":s.status==="active"?"Deactivate":"Activate"}</button>
                     </td>
                   </tr>
                 ))
@@ -313,8 +316,8 @@ export default function ICTStaffPage() {
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem" }}>
                 <div>
-                  <label style={labelStyle}>Department</label>
-                  <select value={form.department_id} onChange={e=>handleDepartmentChange(e.target.value)} style={fieldStyle}>
+                  <label style={labelStyle}>Department{["lecturer","deo","hod"].includes(form.role) && <span style={{color:"#ef4444"}}> *</span>}</label>
+                  <select value={form.department_id} onChange={e=>handleDepartmentChange(e.target.value)} style={fieldStyle} required={["lecturer","deo","hod"].includes(form.role)}>
                     <option value="">— Choose —</option>
                     {depts.map(d=><option key={d.id} value={d.id}>{d.faculty_name ? `${d.name} (${d.faculty_name})` : d.name}</option>)}
                   </select>
@@ -328,58 +331,10 @@ export default function ICTStaffPage() {
                 </div>
               </div>
               <div style={{ display:"flex",gap:"0.75rem",marginTop:"1rem" }}>
-                <button type="submit" style={{ flex:1,background:"#1e293b",border:"none",color:"#fff",borderRadius:"0.6rem",padding:"0.75rem",cursor:"pointer",fontWeight:700 }}>
-                  Initialize Account
+                <button type="submit" disabled={creatingStaff} style={{ flex:1,background:"#1e293b",border:"none",color:"#fff",borderRadius:"0.6rem",padding:"0.75rem",cursor:creatingStaff?"not-allowed":"pointer",fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"0.45rem",opacity:creatingStaff?0.7:1 }}>
+                  {creatingStaff&&<Loader2 className="h-4 w-4 animate-spin" />}{creatingStaff?"Creating Account":"Initialize Account"}
                 </button>
-                <button type="button" onClick={()=>setShowCreate(false)} style={{ flex:1,background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.75rem",cursor:"pointer", fontWeight:600 }}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Course Modal */}
-      {showAssign && (
-        <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,0.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:"1rem" }}>
-          <div style={{ background:"#fff",border:"1px solid #e2e8f0",borderRadius:"1rem",padding:"2rem",width:"100%",maxWidth:420, boxShadow:"0 20px 25px -5px rgba(0,0,0,0.1)" }}>
-            <h2 style={{ color:"#1e293b",marginTop:0, fontWeight:800 }}>Course Affiliation</h2>
-            <form onSubmit={assignCourse} style={{ display:"flex",flexDirection:"column",gap:"0.85rem" }}>
-              <div>
-                <label style={labelStyle}>Select Lecturer</label>
-                <select value={assign.staff_id} onChange={e=>setAssign(p=>({...p,staff_id:e.target.value}))} style={fieldStyle} required>
-                  <option value="">— Select —</option>
-                  {staff.filter(s=>["lecturer","deo"].includes(s.role)).map(s=>(
-                    <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Target Course</label>
-                <select value={assign.course_id} onChange={e=>setAssign(p=>({...p,course_id:e.target.value}))} style={fieldStyle} required>
-                  <option value="">— Select —</option>
-                  {courses.map(c=><option key={c.id} value={c.id}>{c.course_code} — {c.course_title}</option>)}
-                </select>
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem" }}>
-                <div>
-                  <label style={labelStyle}>Academic Session</label>
-                  <input value={assign.session} onChange={e=>setAssign(p=>({...p,session:e.target.value}))} style={fieldStyle} placeholder="2024/2025" required />
-                </div>
-                <div>
-                  <label style={labelStyle}>Semester</label>
-                  <select value={assign.semester} onChange={e=>setAssign(p=>({...p,semester:e.target.value}))} style={fieldStyle}>
-                    <option value="First semester">First</option>
-                    <option value="Second semester">Second</option>
-                  </select>
-                </div>
-              </div>
-              <div style={{ display:"flex",gap:"0.75rem",marginTop:"1rem" }}>
-                <button type="submit" style={{ flex:1,background:"#1e293b",border:"none",color:"#fff",borderRadius:"0.6rem",padding:"0.75rem",cursor:"pointer",fontWeight:700 }}>
-                  Assign Course
-                </button>
-                <button type="button" onClick={()=>setShowAssign(false)} style={{ flex:1,background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.75rem",cursor:"pointer", fontWeight:600 }}>
+                <button type="button" disabled={creatingStaff} onClick={()=>setShowCreate(false)} style={{ flex:1,background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.75rem",cursor:creatingStaff?"not-allowed":"pointer", fontWeight:600,opacity:creatingStaff?0.6:1 }}>
                   Cancel
                 </button>
               </div>
@@ -426,10 +381,10 @@ export default function ICTStaffPage() {
                 </div>
               </div>
               <div style={{ display:"flex",gap:"0.75rem",marginTop:"1rem" }}>
-                <button type="submit" style={{ flex:1,background:"#1e293b",border:"none",color:"#fff",borderRadius:"0.6rem",padding:"0.75rem",cursor:"pointer",fontWeight:700 }}>
-                  Update Profile
+                <button type="submit" disabled={updatingStaff} style={{ flex:1,background:"#1e293b",border:"none",color:"#fff",borderRadius:"0.6rem",padding:"0.75rem",cursor:updatingStaff?"not-allowed":"pointer",fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"0.45rem",opacity:updatingStaff?0.7:1 }}>
+                  {updatingStaff&&<Loader2 className="h-4 w-4 animate-spin" />}{updatingStaff?"Updating Profile":"Update Profile"}
                 </button>
-                <button type="button" onClick={()=>setEditingStaff(null)} style={{ flex:1,background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.75rem",cursor:"pointer", fontWeight:600 }}>
+                <button type="button" disabled={updatingStaff} onClick={()=>setEditingStaff(null)} style={{ flex:1,background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.75rem",cursor:updatingStaff?"not-allowed":"pointer", fontWeight:600,opacity:updatingStaff?0.6:1 }}>
                   Cancel
                 </button>
               </div>

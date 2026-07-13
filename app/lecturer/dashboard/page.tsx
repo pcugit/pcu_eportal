@@ -1,6 +1,5 @@
 "use client";
-export const dynamic = "force-dynamic";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
@@ -19,7 +18,7 @@ type Student = {
   total_score?: number; grade?: string; score_status?: string;
 };
 
-export default function LecturerDashboard() {
+function LecturerDashboardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading, logout: authLogout } = useAuth();
@@ -618,5 +617,13 @@ export default function LecturerDashboard() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function LecturerDashboard() {
+  return (
+    <Suspense fallback={null}>
+      <LecturerDashboardInner />
+    </Suspense>
   );
 }

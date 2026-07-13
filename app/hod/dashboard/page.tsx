@@ -1,7 +1,6 @@
 "use client";
-export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
@@ -45,7 +44,7 @@ const EMPTY_COURSE_FORM = {
   remark: "compulsory",
 };
 
-export default function HODDashboard() {
+function HODDashboardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -932,5 +931,13 @@ export default function HODDashboard() {
        </div>
      )}
     </div>
+  );
+}
+
+export default function HODDashboard() {
+  return (
+    <Suspense fallback={null}>
+      <HODDashboardInner />
+    </Suspense>
   );
 }

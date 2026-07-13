@@ -1,8 +1,6 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -110,7 +108,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export default function PtApplicationDetailPage() {
+function PtApplicationDetailPageInner() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -968,5 +966,13 @@ export default function PtApplicationDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function PtApplicationDetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <PtApplicationDetailPageInner />
+    </Suspense>
   );
 }

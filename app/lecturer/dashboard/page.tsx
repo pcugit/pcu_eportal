@@ -622,8 +622,37 @@ function LecturerDashboardInner() {
 
 export default function LecturerDashboard() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<LecturerDashboardSkeleton />}>
       <LecturerDashboardInner />
     </Suspense>
+  );
+}
+
+function LecturerDashboardSkeleton() {
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: "#0f0f0f" }}>
+      {/* Sidebar placeholder */}
+      <div style={{ width: 80, background: "#151515", borderRight: "1px solid #222", flexShrink: 0 }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ height: 64, background: "#1a1a1a", borderBottom: "1px solid #222", display: "flex", alignItems: "center", padding: "0 1.5rem", gap: "1rem" }}>
+          <div style={{ width: 140, height: 20, borderRadius: 6, background: "#2a2a2a" }} className="animate-pulse" />
+          <div style={{ flex: 1 }} />
+          <div style={{ width: 90, height: 32, borderRadius: 8, background: "#2a2a2a" }} className="animate-pulse" />
+        </div>
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: "0.5rem", padding: "1rem 1.5rem 0", background: "#0f0f0f" }}>
+          {[110, 100, 120, 130].map((w, i) => (
+            <div key={i} style={{ width: w, height: 36, borderRadius: 8, background: "#1e1e1e" }} className="animate-pulse" />
+          ))}
+        </div>
+        {/* Course card grid */}
+        <div style={{ padding: "1.5rem", display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: "1rem" }}>
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} style={{ height: 120, borderRadius: 12, background: "#1a1a1a", border: "1px solid #252525" }} className="animate-pulse" />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

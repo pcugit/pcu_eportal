@@ -936,8 +936,47 @@ function HODDashboardInner() {
 
 export default function HODDashboard() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<HODDashboardSkeleton />}>
       <HODDashboardInner />
     </Suspense>
+  );
+}
+
+function HODDashboardSkeleton() {
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: "#0f172a" }}>
+      {/* Sidebar placeholder */}
+      <div style={{ width: 80, background: "#0d1526", borderRight: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* Header bar */}
+        <div style={{ height: 64, background: "#172033", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", padding: "0 1.5rem", gap: "1rem" }}>
+          <div style={{ width: 120, height: 20, borderRadius: 6, background: "rgba(255,255,255,0.08)" }} className="animate-pulse" />
+          <div style={{ flex: 1 }} />
+          <div style={{ width: 80, height: 32, borderRadius: 8, background: "rgba(255,255,255,0.08)" }} className="animate-pulse" />
+        </div>
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: "0.5rem", padding: "1rem 1.5rem 0", background: "#0f172a" }}>
+          {[100, 80, 90, 70].map((w, i) => (
+            <div key={i} style={{ width: w, height: 36, borderRadius: 8, background: "rgba(255,255,255,0.05)" }} className="animate-pulse" />
+          ))}
+        </div>
+        {/* Content cards */}
+        <div style={{ padding: "1.5rem", display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: "1rem" }}>
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} style={{ height: 100, borderRadius: 12, background: "#172033", border: "1px solid rgba(255,255,255,0.08)" }} className="animate-pulse" />
+          ))}
+        </div>
+        {/* Table skeleton */}
+        <div style={{ margin: "0 1.5rem", borderRadius: 12, background: "#172033", border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" }}>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} style={{ display: "flex", gap: "1rem", padding: "0.85rem 1rem", borderBottom: "1px solid #222" }}>
+              <div style={{ width: "30%", height: 14, borderRadius: 4, background: "rgba(255,255,255,0.07)" }} className="animate-pulse" />
+              <div style={{ width: "20%", height: 14, borderRadius: 4, background: "rgba(255,255,255,0.07)" }} className="animate-pulse" />
+              <div style={{ width: "15%", height: 14, borderRadius: 4, background: "rgba(255,255,255,0.07)" }} className="animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

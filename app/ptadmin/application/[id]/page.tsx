@@ -971,8 +971,54 @@ function PtApplicationDetailPageInner() {
 
 export default function PtApplicationDetailPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<PtApplicationDetailSkeleton />}>
       <PtApplicationDetailPageInner />
     </Suspense>
+  );
+}
+
+function PtApplicationDetailSkeleton() {
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
+      {/* Top bar */}
+      <div style={{ height: 56, background: "#fff", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", padding: "0 1.5rem", gap: "0.75rem" }}>
+        <div style={{ width: 28, height: 28, borderRadius: 6, background: "#e2e8f0" }} className="animate-pulse" />
+        <div style={{ width: 180, height: 18, borderRadius: 5, background: "#e2e8f0" }} className="animate-pulse" />
+        <div style={{ flex: 1 }} />
+        <div style={{ width: 100, height: 32, borderRadius: 8, background: "#e2e8f0" }} className="animate-pulse" />
+        <div style={{ width: 120, height: 32, borderRadius: 8, background: "#e2e8f0" }} className="animate-pulse" />
+      </div>
+      {/* Body */}
+      <div style={{ maxWidth: 900, margin: "2rem auto", padding: "0 1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        {/* Section heading */}
+        <div style={{ width: 200, height: 22, borderRadius: 6, background: "#e2e8f0" }} className="animate-pulse" />
+        {/* Two-column detail card */}
+        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "1.25rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ width: "40%", height: 11, borderRadius: 4, background: "#e2e8f0" }} className="animate-pulse" />
+              <div style={{ width: "70%", height: 15, borderRadius: 4, background: "#f1f5f9" }} className="animate-pulse" />
+            </div>
+          ))}
+        </div>
+        {/* Document section */}
+        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div style={{ width: 140, height: 16, borderRadius: 4, background: "#e2e8f0" }} className="animate-pulse" />
+          {[1, 2, 3].map((i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0", borderBottom: "1px solid #f1f5f9" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 6, background: "#e2e8f0", flexShrink: 0 }} className="animate-pulse" />
+              <div style={{ flex: 1, height: 14, borderRadius: 4, background: "#f1f5f9" }} className="animate-pulse" />
+              <div style={{ width: 72, height: 28, borderRadius: 6, background: "#e2e8f0" }} className="animate-pulse" />
+            </div>
+          ))}
+        </div>
+        {/* Action panel */}
+        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+          {[130, 150, 110].map((w, i) => (
+            <div key={i} style={{ width: w, height: 40, borderRadius: 8, background: "#e2e8f0" }} className="animate-pulse" />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

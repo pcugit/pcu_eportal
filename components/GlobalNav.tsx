@@ -1,5 +1,7 @@
 "use client";
 
+import { Suspense } from "react";
+
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -185,7 +187,7 @@ function countPendingDegreeTypes(classifications: LetterClassificationMap = {}) 
   ).length;
 }
 
-export function GlobalNav() {
+function GlobalNavInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isAuthenticated, user, logout, isLoading, isLoggingOut } = useAuth();
@@ -664,5 +666,13 @@ export function GlobalNav() {
         </div>
       </aside>
     </>
+  );
+}
+
+export function GlobalNav() {
+  return (
+    <Suspense fallback={null}>
+      <GlobalNavInner />
+    </Suspense>
   );
 }

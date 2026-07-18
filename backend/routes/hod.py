@@ -23,6 +23,22 @@ def _active_period():
     return dict(rows[0]) if rows else None
 
 
+def _ensure_course_source_columns():
+    Database.execute_update(
+        "ALTER TABLE lecturer_courses ADD COLUMN IF NOT EXISTS course_source VARCHAR(10) NOT NULL DEFAULT 'ug'"
+    )
+    Database.execute_update(
+        "ALTER TABLE registered_courses ADD COLUMN IF NOT EXISTS course_source VARCHAR(10) NOT NULL DEFAULT 'ug'"
+    )
+    Database.execute_update(
+        "ALTER TABLE lecturer_courses DROP CONSTRAINT IF EXISTS lecturer_courses_lecturer_id_course_id_session_semester_key"
+    )
+    Database.execute_update(
+        '''CREATE UNIQUE INDEX IF NOT EXISTS lecturer_courses_unique_by_source
+           ON lecturer_courses (lecturer_id, course_source, course_id, session, semester)'''
+    )
+
+
 # ── GET /api/hod/dashboard ────────────────────────────────────────────────────
 @hod_bp.route('/dashboard', methods=['GET'])
 @AuthHandler.token_required
@@ -123,18 +139,28 @@ def get_dept_results(payload):
 @AuthHandler.roles_required('hod', 'admin')
 def get_dept_courses(payload):
     """All courses offered in the HOD's department."""
+    _ensure_course_source_columns()
     dept_id = _hod_dept(payload['user_id'])
     if not dept_id:
         return jsonify({'message': 'HOD department not configured'}), 403
 
     courses = Database.execute_query(
         '''SELECT c.id, c.course_code, c.course_title, c.unit AS credit_units,
-                  c.remark, c.semester, c.level, LOWER(TRIM(c.status::text)) AS status
+                  c.remark, c.semester, c.level, LOWER(TRIM(c.status::text)) AS status,
+                  'ug' AS course_source, 'Undergraduate' AS programme_level
            FROM course c
            JOIN departments d ON UPPER(TRIM(d.name)) = UPPER(TRIM(c.department))
            WHERE d.id = %s
-           ORDER BY c.course_code''',
-        (dept_id,))
+           UNION ALL
+           SELECT pc.id, pc.course_code, pc.course_title, pc.unit AS credit_units,
+                  pc.remark, pc.semester, NULL::varchar AS level,
+                  LOWER(TRIM(pc.status)) AS status,
+                  'pg' AS course_source, 'Postgraduate' AS programme_level
+           FROM pg_courses pc
+           JOIN program_setup ps ON ps.id = pc.program_setup_id
+           WHERE ps.department_id = %s
+           ORDER BY course_source, course_code''',
+        (dept_id, dept_id))
 
     if courses is None:
         return jsonify({'message': 'Failed to load department courses'}), 500
@@ -228,6 +254,7 @@ def create_department_course(payload):
 @AuthHandler.roles_required('hod')
 def get_department_staff(payload):
     """Return departmental staff and their course assignments for one period."""
+    _ensure_course_source_columns()
     dept_id = _hod_dept(payload['user_id'])
     if not dept_id:
         return jsonify({'message': 'HOD department not configured'}), 403
@@ -254,7 +281,8 @@ def get_department_staff(payload):
     assignments = Database.execute_query(
         '''SELECT lc.id AS assignment_id, lc.lecturer_id AS staff_record_id,
                   c.id AS course_id, c.course_code, c.course_title,
-                  c.unit AS credit_units, lc.session, lc.semester
+                  c.unit AS credit_units, lc.session, lc.semester,
+                  'ug' AS course_source, 'Undergraduate' AS programme_level
            FROM lecturer_courses lc
            JOIN staff s ON s.id = lc.lecturer_id
            JOIN course c ON c.id = lc.course_id
@@ -263,8 +291,23 @@ def get_department_staff(payload):
              AND cd.id = %s
              AND lc.session = %s
              AND lc.semester = %s
-           ORDER BY c.course_code''',
-        (dept_id, dept_id, session, semester)) or []
+             AND COALESCE(lc.course_source, 'ug') = 'ug'
+           UNION ALL
+           SELECT lc.id AS assignment_id, lc.lecturer_id AS staff_record_id,
+                  pc.id AS course_id, pc.course_code, pc.course_title,
+                  pc.unit AS credit_units, lc.session, lc.semester,
+                  'pg' AS course_source, 'Postgraduate' AS programme_level
+           FROM lecturer_courses lc
+           JOIN staff s ON s.id = lc.lecturer_id
+           JOIN pg_courses pc ON pc.id = lc.course_id
+           JOIN program_setup ps ON ps.id = pc.program_setup_id
+           WHERE s.department_id = %s
+             AND ps.department_id = %s
+             AND lc.session = %s
+             AND lc.semester = %s
+             AND lc.course_source = 'pg'
+           ORDER BY course_source, course_code''',
+        (dept_id, dept_id, session, semester, dept_id, dept_id, session, semester)) or []
 
     by_staff = {}
     for assignment in assignments:
@@ -286,6 +329,7 @@ def get_department_staff(payload):
 @AuthHandler.roles_required('hod')
 def assign_course(payload):
     """Assign a departmental course to a lecturer, up to six per period."""
+    _ensure_course_source_columns()
     dept_id = _hod_dept(payload['user_id'])
     if not dept_id:
         return jsonify({'message': 'HOD department not configured'}), 403
@@ -293,6 +337,9 @@ def assign_course(payload):
     data = request.get_json() or {}
     staff_id = data.get('staff_id')
     course_id = data.get('course_id')
+    course_source = data.get('course_source', 'ug')
+    if course_source not in ('ug', 'pg'):
+        return jsonify({'message': 'course_source must be ug or pg'}), 400
     if not all([staff_id, course_id]):
         return jsonify({'message': 'staff_id and course_id are required'}), 400
 
@@ -331,13 +378,21 @@ def assign_course(payload):
                 conn.rollback()
                 return jsonify({'message': 'An HOD can only assign courses to themselves'}), 403
 
-            cur.execute(
-                '''SELECT c.id, d.id AS department_id
-                   FROM course c
-                   LEFT JOIN departments d
-                     ON UPPER(TRIM(d.name)) = UPPER(TRIM(c.department))
-                   WHERE c.id = %s AND c.status = 'active' ''',
-                (course_id,))
+            if course_source == 'pg':
+                cur.execute(
+                    '''SELECT c.id, ps.department_id
+                       FROM pg_courses c
+                       JOIN program_setup ps ON ps.id = c.program_setup_id
+                       WHERE c.id = %s AND LOWER(TRIM(c.status)) = 'active' ''',
+                    (course_id,))
+            else:
+                cur.execute(
+                    '''SELECT c.id, d.id AS department_id
+                       FROM course c
+                       LEFT JOIN departments d
+                         ON UPPER(TRIM(d.name)) = UPPER(TRIM(c.department))
+                       WHERE c.id = %s AND c.status = 'active' ''',
+                    (course_id,))
             course = cur.fetchone()
             if not course:
                 conn.rollback()
@@ -349,8 +404,9 @@ def assign_course(payload):
             cur.execute(
                 '''SELECT id FROM lecturer_courses
                    WHERE lecturer_id = %s AND course_id = %s
-                     AND session = %s AND semester = %s''',
-                (staff_id, course_id, session, semester))
+                     AND session = %s AND semester = %s
+                     AND course_source = %s''',
+                (staff_id, course_id, session, semester, course_source))
             if cur.fetchone():
                 conn.rollback()
                 return jsonify({'message': 'This course is already assigned to the lecturer'}), 409
@@ -365,9 +421,9 @@ def assign_course(payload):
                 return jsonify({'message': 'A lecturer cannot be assigned more than 6 courses per semester'}), 400
 
             cur.execute(
-                '''INSERT INTO lecturer_courses (lecturer_id, course_id, session, semester)
-                   VALUES (%s, %s, %s, %s)''',
-                (staff_id, course_id, session, semester))
+                '''INSERT INTO lecturer_courses (lecturer_id, course_id, session, semester, course_source)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (staff_id, course_id, session, semester, course_source))
         conn.commit()
         return jsonify({
             'message': 'Course assigned',

@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import * as XLSX from "xlsx";
-import { AlertTriangle, BookPlus, ChevronLeft, ChevronRight, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, BookPlus, ChevronLeft, ChevronRight, Download, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+import { MasterListDownload } from "@/components/master-list-download";
 
 const COURSES_PER_PAGE = 15;
 
@@ -20,6 +21,7 @@ type Result = {
 type CourseAssignment = {
   assignment_id: number; course_id: number; course_code: string;
   course_title: string; credit_units: number; session: string; semester: string;
+  course_source?: "ug" | "pg"; programme_level?: string;
 };
 
 type DepartmentStaff = {
@@ -32,6 +34,7 @@ type DepartmentCourse = {
   id: number; course_code: string; course_title: string;
   credit_units: number; semester?: string; level?: string | number;
   remark?: string | null; status?: string;
+  course_source?: "ug" | "pg"; programme_level?: string;
 };
 
 const EMPTY_COURSE_FORM = {
@@ -72,6 +75,7 @@ function HODDashboardInner() {
   const [preview, setPreview]     = useState<any>(null);
   const [history, setHistory]     = useState<any[]>([]);
   const [isLocked, setIsLocked]   = useState(false);
+  const [sysSettings, setSysSettings] = useState<any>(null);
   const requestedTab = searchParams.get("tab");
 
   useEffect(() => {
@@ -84,15 +88,26 @@ function HODDashboardInner() {
     loadDepartmentCourses();
     if (user?.id) loadHistory(user.id);
     checkPortalLock();
+    loadSystemSettings();
   }, [isAuthenticated, user, authLoading, router]);
 
   useEffect(() => {
-    if (["dashboard", "staff", "courses", "upload", "submissions"].includes(requestedTab ?? "")) {
+    if (["dashboard", "staff", "courses", "upload", "submissions", "master-list"].includes(requestedTab ?? "")) {
       setTab(requestedTab as string);
       return;
     }
     setTab("dashboard");
   }, [requestedTab]);
+
+  useEffect(() => {
+    setMsg("");
+  }, [tab]);
+
+  useEffect(() => {
+    if (!msg) return;
+    const timer = window.setTimeout(() => setMsg(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [msg]);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "hod") return;
@@ -164,10 +179,13 @@ function HODDashboardInner() {
   async function assignDepartmentCourse(e: React.FormEvent) {
     e.preventDefault();
     if (!assignmentStaffId || !assignmentCourseId) return;
+    const [selectedSource, selectedId] = assignmentCourseId.includes(":")
+      ? assignmentCourseId.split(":")
+      : ["ug", assignmentCourseId];
     const staffMember = departmentStaff.find(
       member => String(member.staff_record_id) === assignmentStaffId);
     const course = departmentCourses.find(
-      departmentCourse => String(departmentCourse.id) === assignmentCourseId);
+      departmentCourse => String(departmentCourse.id) === selectedId && (departmentCourse.course_source || "ug") === selectedSource);
     const confirmed = window.confirm(
       `Are you sure you want to assign ${course?.course_code || "this course"} to ${staffMember?.name || "this staff member"}?`,
     );
@@ -179,7 +197,8 @@ function HODDashboardInner() {
         method: "POST",
         body: JSON.stringify({
           staff_id: Number(assignmentStaffId),
-          course_id: Number(assignmentCourseId),
+          course_id: Number(selectedId),
+          course_source: selectedSource,
         }),
       });
       setMsg("✅ Course assigned.");
@@ -224,8 +243,11 @@ function HODDashboardInner() {
 
   async function loadHistory(staffId: number) {
     try {
-      const { data } = await ApiClient.fetch(`/results/pending?staffId=${staffId}`);
-      setHistory(data);
+      const [{ data: ug }, { data: pg }] = await Promise.all([
+        ApiClient.fetch(`/results/pending?staffId=${staffId}`),
+        ApiClient.fetch(`/pg-results/pending?staffId=${staffId}`),
+      ]);
+      setHistory([...(ug || []), ...(pg || []).map((item: any) => ({ ...item, programme_level: "Postgraduate" }))]);
     } catch {}
   }
 
@@ -234,6 +256,37 @@ function HODDashboardInner() {
       const r = await ApiClient.fetch<any>("/hod/dashboard");
       setStats(r.data);
     } catch {}
+  }
+
+  async function loadSystemSettings() {
+    try {
+      setSysSettings(await ApiClient.getGlobalSettings());
+    } catch {}
+  }
+
+  function downloadResultTemplate() {
+    const department = String(stats?.department?.name || "").trim();
+    if (!department) {
+      setMsg("Unable to download template: HOD department was not found.");
+      return;
+    }
+    const rows: (string | number)[][] = [
+      ["", `DEPARTMENT OF ${department.toUpperCase()}`, "", "", ""],
+      ["", "LEVEL:", "", "", ""],
+      ["", "COURSE CODE:", "", "", ""],
+      ["", "", "", "", ""],
+      ["S/N", "MATRIC NUMBER", "EXAM SCORE 70%", "C.A. SCORE 30%", "TOTAL"],
+      ...Array.from({ length: 50 }, (_, index) => [index + 1, "", "", "", `=C${index + 6}+D${index + 6}`]),
+    ];
+    const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${department.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_result_upload_template.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -268,6 +321,60 @@ function HODDashboardInner() {
 
   function parseExcelForUpload(sheet: XLSX.WorkSheet) {
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+    const normalize = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const departmentHeader = data.findIndex(row => {
+      const headers = (row || []).map(normalize);
+      return headers.some(value => value.includes("matricnumber"))
+        && headers.some(value => value.includes("examscore70"))
+        && headers.some(value => value.includes("cascore30"));
+    });
+    if (departmentHeader !== -1) {
+      const metadata: any = {
+        academicSession: sysSettings?.current_academic_session || "",
+        semester: sysSettings?.current_semester || "",
+      };
+      let courseCode = "";
+      for (let index = 0; index < departmentHeader; index++) {
+        const rowText = (data[index] || []).join(" ").toUpperCase();
+        const courseMatch = rowText.match(/([A-Z]{3,4}\s*\d{3})/);
+        if (courseMatch) courseCode = courseMatch[1];
+        const levelMatch = rowText.match(/LEVEL\s*:\s*(.+)/);
+        if (levelMatch) metadata.level = levelMatch[1].trim();
+        const departmentMatch = rowText.match(/DEPARTMENT OF\s+(.+)/);
+        if (departmentMatch) metadata.department = departmentMatch[1].trim();
+      }
+      const missing = [
+        !metadata.level && "Level",
+        !courseCode && "Course Code",
+        !metadata.academicSession && "Active Academic Session (system setting)",
+        !metadata.semester && "Active Semester (system setting)",
+      ].filter(Boolean);
+      if (missing.length) throw new Error(`Complete the following template fields: ${missing.join(", ")}`);
+      const header = data[departmentHeader].map(normalize);
+      const matricIndex = header.findIndex(value => value.includes("matricnumber"));
+      const examIndex = header.findIndex(value => value.includes("examscore70"));
+      const caIndex = header.findIndex(value => value.includes("cascore30"));
+      const students: any[] = [];
+      for (let index = departmentHeader + 1; index < data.length; index++) {
+        const row = data[index] || [];
+        const matricNumber = String(row[matricIndex] || "").trim();
+        if (!matricNumber) continue;
+        const examRaw = String(row[examIndex] ?? "").trim();
+        const caRaw = String(row[caIndex] ?? "").trim();
+        if (!examRaw || !caRaw) throw new Error(`Row ${index + 1}: both Exam Score and C.A. Score are required`);
+        const exam = Number(examRaw);
+        const ca = Number(caRaw);
+        if (!Number.isFinite(ca) || ca < 0 || ca > 30 || !Number.isFinite(exam) || exam < 0 || exam > 70) {
+          throw new Error(`Row ${index + 1}: C.A. Score must be 0-30 and Exam Score must be 0-70`);
+        }
+        students.push({
+          matricNumber, name: "", level: metadata.level,
+          courses: [{ code: courseCode, ca, exam, score: ca + exam }],
+        });
+      }
+      if (!students.length) throw new Error("No completed student result rows found in template");
+      return { metadata, students, courses: [courseCode] };
+    }
     const metadata: any = {};
     const students: any[] = [];
     
@@ -327,10 +434,20 @@ function HODDashboardInner() {
     return { metadata, students, courses };
   }
 
-  async function submitToICT() {
+  function resolveSubmissionTarget() {
+    const previewCodes = new Set((preview?.courses || []).map((code: string) => code.replace(/\s+/g, "").toUpperCase()));
+    const matched = departmentCourses.filter(course => previewCodes.has(course.course_code.replace(/\s+/g, "").toUpperCase()));
+    const sources = new Set(matched.map(course => course.course_source || "ug"));
+    if (sources.size > 1) throw new Error("This file contains both UG and PG courses. Submit them separately.");
+    if (sources.has("pg")) return { endpoint: "/pg-results/pending", label: "PG Admin" };
+    return { endpoint: "/results/pending", label: "ICT" };
+  }
+
+  async function submitToProcessor() {
     if (!preview || !user) return;
+    const target = resolveSubmissionTarget();
     const confirmed = window.confirm(
-      `Are you sure you want to submit ${preview.fileName} with ${preview.students.length} student result(s) to ICT?`,
+      `Are you sure you want to submit ${preview.fileName} with ${preview.students.length} student result(s) to ${target.label}?`,
     );
     if (!confirmed) return;
     setUploading(true); setMsg("");
@@ -339,16 +456,16 @@ function HODDashboardInner() {
         studentInfo: {
           name: s.name,
           matricNumber: s.matricNumber,
-          level: "100",
+          level: s.level || preview.metadata.level || "",
           faculty: preview.metadata.faculty || "Unknown",
           department: preview.metadata.department || "Unknown",
-          academicSession: preview.metadata.academicSession || "2024/2025",
-          semester: preview.metadata.semester || "First Semester"
+          academicSession: preview.metadata.academicSession || sysSettings?.current_academic_session || "",
+          semester: preview.metadata.semester || sysSettings?.current_semester || ""
         },
         courses: s.courses
       }));
 
-      const { data } = await ApiClient.fetch("/results/pending", {
+      const { data } = await ApiClient.fetch(target.endpoint, {
         method: "POST",
         body: JSON.stringify({
           staffId: user.id,
@@ -360,7 +477,7 @@ function HODDashboardInner() {
         })
       });
       
-      setMsg("✅ Successfully submitted to ICT for processing.");
+      setMsg(`✅ Successfully submitted to ${target.label} for processing.`);
       setPreview(null);
       if (user) loadHistory(user.id);
     } catch (err: any) {
@@ -388,9 +505,9 @@ function HODDashboardInner() {
   const courseModalStaff = departmentStaff.find(
     staffMember => staffMember.staff_record_id === courseModalStaffId);
   const assignedCourseIds = new Set(
-    selectedAssignmentStaff?.assignments.map(assignment => assignment.course_id) ?? []);
+    selectedAssignmentStaff?.assignments.map(assignment => `${assignment.course_source || "ug"}:${assignment.course_id}`) ?? []);
   const availableDepartmentCourses = departmentCourses.filter(
-    course => course.status === "active" && !assignedCourseIds.has(course.id));
+    course => course.status === "active" && !assignedCourseIds.has(`${course.course_source || "ug"}:${course.id}`));
   const normalizedCourseSearch = courseSearch.trim().toLowerCase();
   const filteredDepartmentCourses = departmentCourses.filter(course =>
     !normalizedCourseSearch ||
@@ -415,6 +532,7 @@ function HODDashboardInner() {
     fontSize: "0.76rem",
     marginBottom: "0.35rem",
   };
+  const isSuccessMessage = msg.startsWith("✅") || msg.startsWith("âœ…");
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
@@ -424,9 +542,9 @@ function HODDashboardInner() {
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">
           {msg && (
             <div style={{
-              background: msg.startsWith("✅")?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)",
-              border:`1px solid ${msg.startsWith("✅")?"rgba(34,197,94,0.3)":"rgba(239,68,68,0.3)"}`,
-              borderRadius:"0.5rem",color:msg.startsWith("✅")?"#86efac":"#fca5a5",
+              background: isSuccessMessage?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)",
+              border:`1px solid ${isSuccessMessage?"rgba(34,197,94,0.3)":"rgba(239,68,68,0.3)"}`,
+              borderRadius:"0.5rem",color:isSuccessMessage?"#86efac":"#fca5a5",
               padding:"0.6rem 1rem",marginBottom:"1rem",fontSize:"0.88rem",display:"flex",justifyContent:"space-between"
             }}>
               {msg} <span style={{ cursor:"pointer" }} onClick={() => setMsg("")}>✕</span>
@@ -442,6 +560,18 @@ function HODDashboardInner() {
                 {statCard("Department Staff", stats?.total_staff, "#34d399")}
               </div>
             </div>
+          )}
+
+          {tab === "master-list" && (
+            <MasterListDownload
+              dark
+              sources={[
+                { label: "Undergraduate", programme: "UG", apiBase: "/results" },
+                { label: "Postgraduate", programme: "PG", apiBase: "/pg-results" },
+              ]}
+              title="Department Master List"
+              description="Download your department's processed master list for a selected academic session and semester."
+            />
           )}
 
           {tab === "staff" && (
@@ -497,8 +627,8 @@ function HODDashboardInner() {
                   >
                     <option value="">Select course</option>
                     {availableDepartmentCourses.map(course => (
-                      <option key={course.id} value={course.id}>
-                        {course.course_code} - {course.course_title}
+                      <option key={`${course.course_source || "ug"}:${course.id}`} value={`${course.course_source || "ug"}:${course.id}`}>
+                        [{course.course_source === "pg" ? "PG" : "UG"}] {course.course_code} - {course.course_title}
                       </option>
                     ))}
                   </select>
@@ -584,16 +714,17 @@ function HODDashboardInner() {
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760, fontSize: "0.86rem" }}>
                   <thead>
                     <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                      {["Course Code", "Course Title", "Level", "Semester", "Units", "Category", "Status"].map(heading => (
+                      {["Type", "Course Code", "Course Title", "Level", "Semester", "Units", "Category", "Status"].map(heading => (
                         <th key={heading} style={{ color: "rgba(255,255,255,0.55)", textAlign: "left", padding: "0.75rem", fontWeight: 600 }}>{heading}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {filteredDepartmentCourses.length === 0 ? (
-                      <tr><td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: "rgba(255,255,255,0.4)" }}>{courseSearch ? "No courses match your search." : "No courses found in this department."}</td></tr>
+                      <tr><td colSpan={8} style={{ padding: "2.5rem", textAlign: "center", color: "rgba(255,255,255,0.4)" }}>{courseSearch ? "No courses match your search." : "No courses found in this department."}</td></tr>
                     ) : paginatedDepartmentCourses.map(course => (
-                      <tr key={course.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      <tr key={`${course.course_source || "ug"}:${course.id}`} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <td style={{ padding: "0.8rem 0.75rem", color: course.course_source === "pg" ? "#fbbf24" : "#93c5fd", fontWeight: 700 }}>{course.course_source === "pg" ? "PG" : "UG"}</td>
                         <td style={{ padding: "0.8rem 0.75rem", color: "#93c5fd", fontWeight: 700 }}>{course.course_code}</td>
                         <td style={{ padding: "0.8rem 0.75rem", color: "#fff" }}>{course.course_title}</td>
                         <td style={{ padding: "0.8rem 0.75rem", color: "rgba(255,255,255,0.6)" }}>{course.level ? `${course.level}L` : "-"}</td>
@@ -642,9 +773,17 @@ function HODDashboardInner() {
           )}
           {tab === "upload" && (
             <div style={{ maxWidth: 800 }}>
-              <h2 style={{ color: "#fff", marginTop: 0 }}>Result Upload</h2>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                <div>
+                  <h2 style={{ color: "#fff", margin: 0 }}>Result Upload</h2>
+                  <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", margin: "0.4rem 0 0" }}>Download and complete the CSV template before uploading results.</p>
+                </div>
+                <button type="button" onClick={downloadResultTemplate} style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", border: "1px solid rgba(96,165,250,0.4)", borderRadius: "0.5rem", background: "rgba(37,99,235,0.12)", color: "#93c5fd", padding: "0.65rem 1rem", fontWeight: 700, cursor: "pointer" }}>
+                  <Download size={17} /> Download CSV Template
+                </button>
+              </div>
               <p style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.9rem", maxWidth: 600 }}>
-                Upload an Excel file containing results. The ICT Director will review and process these results into the official records.
+                Upload completed result files for processing by ICT or PG Admin.
               </p>
 
               <div style={{
@@ -654,10 +793,10 @@ function HODDashboardInner() {
                 opacity: isLocked ? 0.6 : 1
               }} onClick={() => !isLocked && uploadInputRef.current?.click()}>
                 <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>📄</div>
-                <div style={{ color: "#fff", fontWeight: 700 }}>Click to select Excel file</div>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: "0.5rem" }}>Supports .xlsx, .xls</div>
+                <div style={{ color: "#fff", fontWeight: 700 }}>Click to select result file</div>
+                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: "0.5rem" }}>Supports .csv, .xlsx, .xls</div>
                 <input 
-                   type="file" ref={uploadInputRef} hidden accept=".xlsx,.xls"
+                   type="file" ref={uploadInputRef} hidden accept=".csv,.xlsx,.xls"
                    onChange={e => handleFileChange(e)}
                    disabled={isLocked}
                 />
@@ -685,7 +824,7 @@ function HODDashboardInner() {
                   }}>
                     <h3 style={{ color: "#fff", margin: 0 }}>File Preview: {preview.fileName}</h3>
                     <button 
-                      onClick={submitToICT}
+                      onClick={submitToProcessor}
                       disabled={uploading || isLocked}
                       style={{
                         background: isLocked ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg,#10b981,#34d399)", 
@@ -702,7 +841,7 @@ function HODDashboardInner() {
                       }}
                     >
                       {uploading && <Loader2 size={17} className="animate-spin" />}
-                      {uploading ? "Uploading..." : isLocked ? "Portal Locked" : "Submit to ICT →"}
+                      {uploading ? "Uploading..." : isLocked ? "Portal Locked" : "Submit for Processing →"}
                     </button>
                   </div>
 
@@ -726,16 +865,6 @@ function HODDashboardInner() {
                     </div>
                   </div>
                 </div>
-              )}
-              
-              {msg && (
-                <div style={{
-                  marginTop: "1.5rem",
-                  background: msg.startsWith("✅") ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-                  border: `1px solid ${msg.startsWith("✅") ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
-                  borderRadius: "0.5rem", color: msg.startsWith("✅") ? "#86efac" : "#fca5a5",
-                  padding: "0.6rem 1rem", fontSize: "0.88rem"
-                }}>{msg}</div>
               )}
             </div>
           )}

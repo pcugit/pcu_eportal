@@ -23,13 +23,16 @@ import { ResultDisplay } from "@/components/result-display"
 import { TranscriptDisplay } from "@/components/transcript-display"
 import JSZip from "jszip"
 import { saveAs } from "file-saver"
+import { ApiClient } from "@/lib/api"
 
 interface SavedResultsViewProps {
   onBack: () => void
+  resultApiBase?: string
+  readOnly?: boolean
+  title?: string
 }
 
-const LEVELS = ["100", "200", "300", "400"] as const
-type Level = typeof LEVELS[number]
+type Level = string
 
 // Mode at sessions level: browse by individual semester OR full session transcript
 type SessionMode = "semester" | "session"
@@ -47,7 +50,12 @@ interface DrillState {
   sessionMode?: SessionMode
 }
 
-export function SavedResultsView({ onBack }: SavedResultsViewProps) {
+export function SavedResultsView({
+  onBack,
+  resultApiBase,
+  readOnly = false,
+  title = "Academic Records",
+}: SavedResultsViewProps) {
   const [departments, setDepartments]       = useState<DepartmentGroup[]>([])
   const [sessionTranscripts, setSessionTranscripts] = useState<StudentSessionTranscript[]>([])
   const [loading, setLoading]               = useState(true)
@@ -69,7 +77,12 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
     try {
       setLoading(true)
       setError(null)
-      setDepartments(await getSavedResults())
+      if (resultApiBase) {
+        const { data } = await ApiClient.fetch<DepartmentGroup[]>(resultApiBase)
+        setDepartments(data)
+      } else {
+        setDepartments(await getSavedResults())
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -134,9 +147,13 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
   function studentsPerLevel(semester: { students: SavedResult[] }, lvl: Level) {
     return semester.students.filter((r) => String(r.studentInfo.level) === lvl).length
   }
+  function levelsInSemester(semester: { students: SavedResult[] }) {
+    return [...new Set(semester.students.map((r) => String(r.studentInfo.level).trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }
   const availableLevels = useMemo(() => {
     if (!currentSemester) return []
-    return LEVELS.filter((lvl) => studentsPerLevel(currentSemester, lvl) > 0)
+    return levelsInSemester(currentSemester)
   }, [currentSemester])
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -188,11 +205,19 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
     "second semester": "bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 text-purple-800 dark:text-purple-200",
     "third semester":  "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200",
   }
-  const LEVEL_COLORS: Record<Level, { card: string; badge: string; icon: string }> = {
+  const LEVEL_COLORS: Record<string, { card: string; badge: string; icon: string }> = {
     "100": { card: "hover:border-sky-400",    badge: "bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800",          icon: "bg-sky-100 text-sky-600" },
     "200": { card: "hover:border-violet-400", badge: "bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800", icon: "bg-violet-100 text-violet-600" },
     "300": { card: "hover:border-amber-400",  badge: "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",    icon: "bg-amber-100 text-amber-600" },
     "400": { card: "hover:border-rose-400",   badge: "bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800",       icon: "bg-rose-100 text-rose-600" },
+  }
+  const DEFAULT_LEVEL_COLORS = {
+    card: "hover:border-emerald-400",
+    badge: "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
+    icon: "bg-emerald-100 text-emerald-600",
+  }
+  function levelLabel(level: string) {
+    return /(?:l|level)$/i.test(level) ? level : `${level} Level`
   }
   function semColor(name: string) {
     return SEMESTER_COLORS[name.toLowerCase()] ?? "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
@@ -365,7 +390,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
             <div className="bg-blue-600 p-1.5 rounded-lg">
               <Database className="h-5 w-5 text-white" />
             </div>
-            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">Academic Records</h2>
+            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
           </div>
           <Breadcrumb />
         </div>
@@ -462,7 +487,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
               </CardContent></Card>
             ) : (
               <div className="space-y-4">
-                <div className="flex justify-end gap-2">
+                {!readOnly && <div className="flex justify-end gap-2">
                   {isEditingDepartments ? (
                     <>
                       <Button onClick={() => { setIsEditingDepartments(false); setSelectedDepartmentIds(new Set()); }} variant="outline" className="border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950">
@@ -477,7 +502,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                       Edit Departments
                     </Button>
                   )}
-                </div>
+                </div>}
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {departments.map((dept) => (
                     <div key={dept.id} className="relative">
@@ -571,7 +596,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                           <BookOpen className="h-4 w-4" />
                           Semester Results
                         </Button>
-                        <Button
+                        {!readOnly && <Button
                           size="sm"
                           className="bg-indigo-600 hover:bg-indigo-700 gap-1.5"
                           onClick={async () => {
@@ -588,7 +613,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                         >
                           <ScrollText className="h-4 w-4" />
                           Session Transcripts
-                        </Button>
+                        </Button>}
                       </div>
                     </div>
                   </CardContent>
@@ -613,9 +638,9 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                             <span className="text-sm font-medium">{sem.students.length} student{sem.students.length !== 1 ? "s" : ""}</span>
                           </div>
                           <div className="flex flex-wrap gap-1 mt-2">
-                            {LEVELS.filter((lvl) => studentsPerLevel(sem, lvl) > 0).map((lvl) => (
-                              <span key={lvl} className={`text-xs px-2 py-0.5 rounded-full border font-medium ${LEVEL_COLORS[lvl].badge}`}>
-                                L{lvl}: {studentsPerLevel(sem, lvl)}
+                            {levelsInSemester(sem).map((lvl) => (
+                              <span key={lvl} className={`text-xs px-2 py-0.5 rounded-full border font-medium ${(LEVEL_COLORS[lvl] ?? DEFAULT_LEVEL_COLORS).badge}`}>
+                                {levelLabel(lvl)}: {studentsPerLevel(sem, lvl)}
                               </span>
                             ))}
                           </div>
@@ -638,7 +663,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                   <p className="text-slate-500 dark:text-slate-400 dark:text-slate-500">No students in this semester</p>
                 </CardContent></Card>
               ) : availableLevels.map((lvl) => {
-                const colors = LEVEL_COLORS[lvl]
+                const colors = LEVEL_COLORS[lvl] ?? DEFAULT_LEVEL_COLORS
                 const count  = studentsPerLevel(currentSemester, lvl)
                 return (
                   <button key={lvl} onClick={() => setDrill({ ...drill, level: "students", selectedLevel: lvl })} className="text-left">
@@ -647,7 +672,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                         <div className="flex items-start gap-3">
                           <div className={`p-2 rounded-lg shrink-0 ${colors.icon}`}><GraduationCap className="h-6 w-6" /></div>
                           <div className="flex-1">
-                            <p className="font-bold text-slate-900 dark:text-slate-100 text-lg">{lvl} Level</p>
+                            <p className="font-bold text-slate-900 dark:text-slate-100 text-lg">{levelLabel(lvl)}</p>
                             <div className="flex items-center gap-1 mt-2">
                               <Users className="h-4 w-4 text-slate-500 dark:text-slate-400 dark:text-slate-500" />
                               <span className="text-sm text-slate-600 dark:text-slate-400 dark:text-slate-500 font-medium">{count} student{count !== 1 ? "s" : ""}</span>
@@ -677,9 +702,9 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                       <Button onClick={() => handleBatchDownload(filteredStudents.filter((r) => selectedIds.has(r.id)))} disabled={selectedIds.size === 0 || isZipping} variant="outline" className="border-green-300 hover:bg-green-50 bg-transparent text-sm">
                         <Download className="h-4 w-4 mr-1" />{isZipping ? `Zipping... ${zipProgress}%` : `Export (${selectedIds.size})`}
                       </Button>
-                      <Button onClick={handleBulkDelete} disabled={selectedIds.size === 0 || isZipping} variant="outline" className="border-red-300 dark:border-red-700 hover:bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 bg-transparent text-sm">
+                      {!readOnly && <Button onClick={handleBulkDelete} disabled={selectedIds.size === 0 || isZipping} variant="outline" className="border-red-300 dark:border-red-700 hover:bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 bg-transparent text-sm">
                         <Trash2 className="h-4 w-4 mr-1" />Delete ({selectedIds.size})
-                      </Button>
+                      </Button>}
                     </div>
                   </div>
                   {filteredStudents.length > 0 && (
@@ -717,7 +742,7 @@ export function SavedResultsView({ onBack }: SavedResultsViewProps) {
                       <div className="flex gap-2 shrink-0">
                         <Button size="sm" onClick={() => setPreviewResult(result)} className="bg-blue-600 hover:bg-blue-700 text-xs"><Eye className="h-3.5 w-3.5 mr-1" />Preview</Button>
                         <Button size="sm" onClick={() => handleDownload(result)} className="bg-green-600 hover:bg-green-700 text-xs"><Download className="h-3.5 w-3.5 mr-1" />PDF</Button>
-                        <Button size="sm" variant="outline" onClick={() => handleDelete(result.id)} className="border-red-300 dark:border-red-700 hover:bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 bg-transparent"><Trash2 className="h-3.5 w-3.5" /></Button>
+                        {!readOnly && <Button size="sm" variant="outline" onClick={() => handleDelete(result.id)} className="border-red-300 dark:border-red-700 hover:bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 bg-transparent"><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </div>
                   </CardContent>

@@ -29,6 +29,22 @@ def _get_active_semester():
     return res[0] if res else None
 
 
+def _ensure_course_source_columns():
+    Database.execute_update(
+        "ALTER TABLE registered_courses ADD COLUMN IF NOT EXISTS course_source VARCHAR(10) NOT NULL DEFAULT 'ug'"
+    )
+    Database.execute_update(
+        '''UPDATE registered_courses rc
+           SET course_source = 'pg'
+           FROM course_registrations cr
+           JOIN students s ON s."Id" = cr.student_id
+           JOIN pg_application pg ON pg.user_id = s."UserId"
+           WHERE rc.registration_id = cr.id
+             AND pg.applicant_stage IN ('accepted', 'enrolled')
+             AND rc.course_source <> 'pg' '''
+    )
+
+
 def _verify_tuition_paid(user_id, session_id, semester_id):
     """
     Return True if the student has a confirmed successful tuition payment
@@ -425,6 +441,7 @@ def get_profile(payload):
 @AuthHandler.token_required
 @AuthHandler.require_password_change
 def get_courses(payload):
+    _ensure_course_source_columns()
     user_id  = payload['user_id']
     semester = request.args.get('semester')  # optional filter; None = all semesters
 
@@ -554,7 +571,8 @@ def get_courses(payload):
                     '''SELECT rc.course_id, cr.semester, cr.id AS reg_id, cr.status
                        FROM course_registrations cr
                        JOIN registered_courses rc ON rc.registration_id = cr.id
-                       WHERE cr.student_id = %s AND cr.session = %s AND cr.semester = %s''',
+                       WHERE cr.student_id = %s AND cr.session = %s AND cr.semester = %s
+                         AND rc.course_source = 'pg' ''',
                     (student_id, db_session, active_sem['name'])
                 )
             else:
@@ -562,7 +580,8 @@ def get_courses(payload):
                     '''SELECT rc.course_id, cr.semester, cr.id AS reg_id, cr.status
                        FROM course_registrations cr
                        JOIN registered_courses rc ON rc.registration_id = cr.id
-                       WHERE cr.student_id = %s AND cr.session = %s''',
+                       WHERE cr.student_id = %s AND cr.session = %s
+                         AND COALESCE(rc.course_source, 'ug') = 'ug' ''',
                     (student_id, db_session)
                 )
             reg_rows = cur.fetchall()
@@ -636,6 +655,7 @@ def get_courses(payload):
 @AuthHandler.token_required
 def register_courses(payload):
     """Submit course registration"""
+    _ensure_course_source_columns()
     # Check global lock
     if check_registration_status():
          return jsonify({'message': 'Registration is currently locked.'}), 403
@@ -812,8 +832,8 @@ def register_courses(payload):
         # Insert selected courses
         for cid in selected_valid:
              Database.execute_update(
-                 'INSERT INTO registered_courses (registration_id, course_id) VALUES (%s, %s)',
-                 (reg_id, cid)
+                 'INSERT INTO registered_courses (registration_id, course_id, course_source) VALUES (%s, %s, %s)',
+                 (reg_id, cid, 'pg' if is_pg_student else 'ug')
              )
              
         return jsonify({'message': 'Courses registered successfully', 'total_credits': total_credits}), 200
@@ -831,6 +851,7 @@ def get_registration_history(payload):
     user_id = payload['user_id']
 
     try:
+        _ensure_course_source_columns()
         student_res = Database.execute_query(
             '''SELECT s."Id" AS id,
                       EXISTS (
@@ -850,6 +871,7 @@ def get_registration_history(payload):
         student_id = student_res[0]['id']
         is_pg_student = bool(student_res[0].get('is_pg_student'))
         course_table = 'pg_courses' if is_pg_student else 'course'
+        course_source = 'pg' if is_pg_student else 'ug'
         rows = Database.execute_query(
             f'''SELECT cr.id AS registration_id,
                       cr.session,
@@ -866,9 +888,10 @@ def get_registration_history(payload):
                LEFT JOIN registered_courses rc ON rc.registration_id = cr.id
                LEFT JOIN {course_table} c ON c.id = rc.course_id
                WHERE cr.student_id = %s
+                 AND rc.course_source = %s
                ORDER BY cr.session DESC, cr.semester DESC, cr.submitted_at DESC NULLS LAST, cr.id DESC,
                         c.course_code ASC''',
-            (student_id,)
+            (student_id, course_source)
         ) or []
 
         history_by_id = {}

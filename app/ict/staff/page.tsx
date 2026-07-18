@@ -57,6 +57,12 @@ export default function ICTStaffPage() {
     loadMeta();
   }, [isAuthenticated, user, router]);
 
+  useEffect(() => {
+    if (!msg) return;
+    const timer = window.setTimeout(() => setMsg(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [msg]);
+
   async function loadStaff() {
     setLoadingStaff(true);
     try {
@@ -89,6 +95,12 @@ export default function ICTStaffPage() {
       department_id: departmentId,
       faculty_id: department?.faculty_id ? String(department.faculty_id) : p.faculty_id,
     }));
+  }
+
+  function selectedFacultyName() {
+    const department = depts.find(d => String(d.id) === form.department_id);
+    if (department?.faculty_name) return department.faculty_name;
+    return faculties.find(f => String(f.id) === form.faculty_id)?.name || "";
   }
 
   async function createStaff(e: React.FormEvent) {
@@ -319,15 +331,12 @@ export default function ICTStaffPage() {
                   <label style={labelStyle}>Department{["lecturer","deo","hod"].includes(form.role) && <span style={{color:"#ef4444"}}> *</span>}</label>
                   <select value={form.department_id} onChange={e=>handleDepartmentChange(e.target.value)} style={fieldStyle} required={["lecturer","deo","hod"].includes(form.role)}>
                     <option value="">— Choose —</option>
-                    {depts.map(d=><option key={d.id} value={d.id}>{d.faculty_name ? `${d.name} (${d.faculty_name})` : d.name}</option>)}
+                    {depts.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={labelStyle}>Faculty</label>
-                  <select value={form.faculty_id} onChange={e=>setForm(p=>({...p,faculty_id:e.target.value}))} style={fieldStyle}>
-                    <option value="">— Choose —</option>
-                    {faculties.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                  <input value={selectedFacultyName() || "Select a department first"} readOnly style={{ ...fieldStyle, background:"#f8fafc", color:selectedFacultyName() ? "#1e293b" : "#94a3b8", cursor:"not-allowed" }} />
                 </div>
               </div>
               <div style={{ display:"flex",gap:"0.75rem",marginTop:"1rem" }}>
@@ -369,15 +378,12 @@ export default function ICTStaffPage() {
                   <label style={labelStyle}>Department</label>
                   <select value={form.department_id} onChange={e=>handleDepartmentChange(e.target.value)} style={fieldStyle}>
                     <option value="">— Choose —</option>
-                    {depts.map(d=><option key={d.id} value={d.id}>{d.faculty_name ? `${d.name} (${d.faculty_name})` : d.name}</option>)}
+                    {depts.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={labelStyle}>Faculty</label>
-                  <select value={form.faculty_id} onChange={e=>setForm(p=>({...p,faculty_id:e.target.value}))} style={fieldStyle}>
-                    <option value="">— Choose —</option>
-                    {faculties.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                  <input value={selectedFacultyName() || "Select a department first"} readOnly style={{ ...fieldStyle, background:"#f8fafc", color:selectedFacultyName() ? "#1e293b" : "#94a3b8", cursor:"not-allowed" }} />
                 </div>
               </div>
               <div style={{ display:"flex",gap:"0.75rem",marginTop:"1rem" }}>

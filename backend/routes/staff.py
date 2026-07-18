@@ -57,7 +57,61 @@ def _get_staff_profile(user_id):
     return rows[0] if rows else None
 
 
+def _ensure_course_source_columns():
+    Database.execute_update(
+        "ALTER TABLE lecturer_courses ADD COLUMN IF NOT EXISTS course_source VARCHAR(10) NOT NULL DEFAULT 'ug'"
+    )
+    Database.execute_update(
+        "ALTER TABLE registered_courses ADD COLUMN IF NOT EXISTS course_source VARCHAR(10) NOT NULL DEFAULT 'ug'"
+    )
+    Database.execute_update(
+        "ALTER TABLE lecturer_courses DROP CONSTRAINT IF EXISTS lecturer_courses_lecturer_id_course_id_session_semester_key"
+    )
+    Database.execute_update(
+        '''CREATE UNIQUE INDEX IF NOT EXISTS lecturer_courses_unique_by_source
+           ON lecturer_courses (lecturer_id, course_source, course_id, session, semester)'''
+    )
+    Database.execute_update(
+        '''UPDATE registered_courses rc
+           SET course_source = 'pg'
+           FROM course_registrations cr
+           JOIN students s ON s."Id" = cr.student_id
+           JOIN pg_application pg ON pg.user_id = s."UserId"
+           WHERE rc.registration_id = cr.id
+             AND pg.applicant_stage IN ('accepted', 'enrolled')
+             AND rc.course_source <> 'pg' '''
+    )
+
+
 # ── GET /api/staff/profile ─────────────────────────────────────────────────────
+def _ensure_pg_score_table():
+    Database.execute_update('''
+        CREATE TABLE IF NOT EXISTS pg_student_scores (
+            id SERIAL PRIMARY KEY,
+            student_id INTEGER NOT NULL,
+            course_id INTEGER NOT NULL,
+            session VARCHAR(50) NOT NULL,
+            semester VARCHAR(50) NOT NULL,
+            ca_score NUMERIC,
+            exam_score NUMERIC,
+            total_score NUMERIC,
+            grade VARCHAR(10),
+            grade_point NUMERIC,
+            status VARCHAR(50) DEFAULT 'draft',
+            entered_by UUID,
+            submitted_at TIMESTAMP,
+            approved_by UUID,
+            approved_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    Database.execute_update('''
+        CREATE UNIQUE INDEX IF NOT EXISTS pg_student_scores_unique
+        ON pg_student_scores (student_id, course_id, session, semester)
+    ''')
+
+
 @staff_bp.route('/profile', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.roles_required('lecturer', 'deo', 'hod', 'dean', 'registrar', 'ictdirector')
@@ -114,6 +168,7 @@ def get_departments(payload):
 @AuthHandler.roles_required(*LECTURER_ROLES)
 def get_assigned_courses(payload):
     """Return courses assigned to this lecturer for current session/semester."""
+    _ensure_course_source_columns()
     user_id  = payload['user_id']
     session  = request.args.get('session')
     semester = request.args.get('semester')
@@ -122,24 +177,44 @@ def get_assigned_courses(payload):
     if not staff and payload.get('role') != 'ictdirector':
         return jsonify({'message': 'Staff profile not found'}), 403
 
-    query = '''
+    base_query = '''
         SELECT lc.id AS assignment_id, lc.session, lc.semester,
                c.id AS course_id, c.course_code, c.course_title, c.unit AS credit_units,
-               c.department,
+               c.department, 'ug' AS course_source, 'Undergraduate' AS programme_level,
                (SELECT COUNT(*) FROM registered_courses rc
                 JOIN course_registrations cr ON rc.registration_id = cr.id
                 WHERE rc.course_id = c.id
+                  AND COALESCE(rc.course_source, 'ug') = 'ug'
+                  AND cr.session = lc.session
                   AND cr.semester = lc.semester) AS enrolled_count
         FROM lecturer_courses lc
         JOIN course c ON lc.course_id = c.id
         WHERE lc.lecturer_id = %s
+          AND COALESCE(lc.course_source, 'ug') = 'ug'
+        UNION ALL
+        SELECT lc.id AS assignment_id, lc.session, lc.semester,
+               c.id AS course_id, c.course_code, c.course_title, c.unit AS credit_units,
+               ps.name AS department, 'pg' AS course_source, 'Postgraduate' AS programme_level,
+               (SELECT COUNT(*) FROM registered_courses rc
+                JOIN course_registrations cr ON rc.registration_id = cr.id
+                WHERE rc.course_id = c.id
+                  AND rc.course_source = 'pg'
+                  AND cr.session = lc.session
+                  AND cr.semester = lc.semester) AS enrolled_count
+        FROM lecturer_courses lc
+        JOIN pg_courses c ON lc.course_id = c.id
+        LEFT JOIN program_setup ps ON ps.id = c.program_setup_id
+        WHERE lc.lecturer_id = %s
+          AND lc.course_source = 'pg'
     '''
-    params = [staff['id']]
+    params = [staff['id'], staff['id']]
+    query = f'SELECT * FROM ({base_query}) q WHERE 1=1'
     if session:
-        query += ' AND lc.session = %s'; params.append(session)
+        query += ' AND q.session = %s'
+        params.append(session)
     if semester:
-        query += ' AND lc.semester = %s'; params.append(semester)
-    query += ' ORDER BY lc.session DESC, c.course_code'
+        query += ' AND q.semester = %s'; params.append(semester)
+    query += ' ORDER BY session DESC, course_code'
 
     courses = Database.execute_query(query, tuple(params))
     return jsonify({'courses': [dict(c) for c in (courses or [])]}), 200
@@ -151,30 +226,59 @@ def get_assigned_courses(payload):
 @AuthHandler.roles_required(*LECTURER_ROLES)
 def get_course_students(payload, course_id):
     """Return all students enrolled in a course, with existing scores if any."""
+    _ensure_course_source_columns()
     session  = request.args.get('session', '')
     semester = request.args.get('semester', '')
+    course_source = request.args.get('course_source', 'ug')
 
-    students = Database.execute_query(
-        '''SELECT st."Id" AS student_id, st."MatricNo" as matric_number,
-                  u.firstname || ' ' || u.surname AS student_name,
-                  ps.name AS program_name, l.name as current_level,
-                  ss.id AS score_id, ss.ca_score, ss.exam_score,
-                  ss.total_score, ss.grade, ss.status AS score_status
-           FROM registered_courses rc
-           JOIN course_registrations cr ON rc.registration_id = cr.id
-           JOIN students st ON cr.student_id = st."Id"
-           JOIN users u ON st."UserId" = u.id
-           LEFT JOIN applications a ON a.user_id = u.id
-           LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
-           LEFT JOIN level l ON st.current_level_id = l.id
-           LEFT JOIN student_scores ss
-             ON ss.student_id = st."Id" AND ss.course_id = %s
-            AND ss.session = cr.session AND ss.semester = cr.semester
-           WHERE rc.course_id = %s
-             AND (%s = '' OR cr.session = %s)
-             AND (%s = '' OR cr.semester = %s)
-           ORDER BY st."MatricNo"''',
-        (course_id, course_id, session, session, semester, semester))
+    if course_source == 'pg':
+        _ensure_pg_score_table()
+        students = Database.execute_query(
+            '''SELECT st."Id" AS student_id, st."MatricNo" as matric_number,
+                      COALESCE(u.firstname || ' ' || u.surname, st."FirstName" || ' ' || st."LastName") AS student_name,
+                      pgps.name AS program_name, COALESCE(l.name, '700') as current_level,
+                      pss.id AS score_id, pss.ca_score, pss.exam_score,
+                      pss.total_score, pss.grade, pss.status AS score_status
+               FROM registered_courses rc
+               JOIN course_registrations cr ON rc.registration_id = cr.id
+               JOIN students st ON cr.student_id = st."Id"
+               LEFT JOIN users u ON st."UserId" = u.id
+               JOIN pg_application pg ON pg.user_id = st."UserId"
+               LEFT JOIN pg_program_setup pgps ON pgps.id = pg.proposed_course
+               LEFT JOIN level l ON st.current_level_id = l.id
+               LEFT JOIN pg_student_scores pss
+                 ON pss.student_id = st."Id" AND pss.course_id = %s
+                AND pss.session = cr.session AND pss.semester = cr.semester
+               WHERE rc.course_id = %s
+                 AND rc.course_source = 'pg'
+                 AND pg.applicant_stage IN ('accepted', 'enrolled')
+                 AND (%s = '' OR cr.session = %s)
+                 AND (%s = '' OR cr.semester = %s)
+               ORDER BY st."MatricNo"''',
+            (course_id, course_id, session, session, semester, semester))
+    else:
+        students = Database.execute_query(
+            '''SELECT st."Id" AS student_id, st."MatricNo" as matric_number,
+                      u.firstname || ' ' || u.surname AS student_name,
+                      ps.name AS program_name, l.name as current_level,
+                      ss.id AS score_id, ss.ca_score, ss.exam_score,
+                      ss.total_score, ss.grade, ss.status AS score_status
+               FROM registered_courses rc
+               JOIN course_registrations cr ON rc.registration_id = cr.id
+               JOIN students st ON cr.student_id = st."Id"
+               JOIN users u ON st."UserId" = u.id
+               LEFT JOIN applications a ON a.user_id = u.id
+               LEFT JOIN program_setup ps ON COALESCE(a.program_setup_id, 0) = ps.id OR (a.program_setup_id IS NULL AND a.degree_id = ps.degree_id)
+               LEFT JOIN level l ON st.current_level_id = l.id
+               LEFT JOIN student_scores ss
+                 ON ss.student_id = st."Id" AND ss.course_id = %s
+                AND ss.session = cr.session AND ss.semester = cr.semester
+               WHERE rc.course_id = %s
+                 AND COALESCE(rc.course_source, 'ug') = 'ug'
+                 AND (%s = '' OR cr.session = %s)
+                 AND (%s = '' OR cr.semester = %s)
+               ORDER BY st."MatricNo"''',
+            (course_id, course_id, session, session, semester, semester))
 
     return jsonify({'students': [dict(s) for s in (students or [])]}), 200
 

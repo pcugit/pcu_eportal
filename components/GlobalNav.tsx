@@ -31,6 +31,7 @@ import {
   Wallet,
   Mail,
   School,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -116,6 +117,11 @@ const PGADMIN_NAV_ITEMS = [
     href: "/pgadmin/send-letters",
     icon: Mail,
   },
+  {
+    label: "Process Results",
+    href: "/pgadmin/result-processor",
+    icon: FileText,
+  },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
@@ -161,6 +167,13 @@ const HOD_NAV_ITEMS = [
   { label: "Courses", href: "/hod/dashboard?tab=courses", icon: BookOpen },
   { label: "Result Upload", href: "/hod/dashboard?tab=upload", icon: Upload },
   { label: "History", href: "/hod/dashboard?tab=submissions", icon: History },
+  { label: "Master List", href: "/hod/dashboard?tab=master-list", icon: FileSpreadsheet },
+];
+
+const DEO_NAV_ITEMS = [
+  ...LECTURER_NAV_ITEMS.slice(0, -1),
+  { label: "Master List", href: "/lecturer/dashboard?tab=master-list", icon: FileSpreadsheet },
+  LECTURER_NAV_ITEMS[LECTURER_NAV_ITEMS.length - 1],
 ];
 
 const ICT_NAV_ITEMS = [
@@ -194,6 +207,8 @@ function GlobalNavInner() {
   const { isOpen, toggle } = useSidebar();
   const [pendingCount, setPendingCount] = React.useState(0);
   const [pendingLetterGroupCount, setPendingLetterGroupCount] = React.useState(0);
+  const [canScrollNavDown, setCanScrollNavDown] = React.useState(false);
+  const navRef = React.useRef<HTMLElement>(null);
 
   const handleLogout = async () => {
     await logout();
@@ -340,7 +355,7 @@ function GlobalNavInner() {
     if (isStudentPortal) return STUDENT_NAV_ITEMS;
     if (isAdminPortal) return ADMIN_NAV_ITEMS;
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
-    if (isLecturerPortal) return LECTURER_NAV_ITEMS;
+    if (isLecturerPortal) return user?.role === "deo" ? DEO_NAV_ITEMS : LECTURER_NAV_ITEMS;
     if (isHodPortal) return HOD_NAV_ITEMS;
     if (isIctPortal) return ICT_NAV_ITEMS;
     if (user?.role === "pgadmin" || user?.role === "pgdean")
@@ -398,6 +413,33 @@ function GlobalNavInner() {
       ? { ...item, href: getChangePasswordHref() }
       : item,
   );
+
+  const updateNavScrollCue = React.useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    setCanScrollNavDown(nav.scrollTop + nav.clientHeight < nav.scrollHeight - 2);
+  }, []);
+
+  React.useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+
+    updateNavScrollCue();
+    const resizeObserver = new ResizeObserver(updateNavScrollCue);
+    resizeObserver.observe(nav);
+    window.addEventListener("resize", updateNavScrollCue);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateNavScrollCue);
+    };
+  }, [isOpen, navItems.length, pathname, updateNavScrollCue]);
+
+  const scrollNavDown = () => {
+    const nav = navRef.current;
+    if (!nav) return;
+    nav.scrollBy({ top: Math.max(nav.clientHeight * 0.6, 120), behavior: "smooth" });
+  };
 
   return (
     <>
@@ -469,7 +511,7 @@ function GlobalNavInner() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full border-r z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col justify-between",
+          "fixed left-0 top-0 h-dvh overflow-hidden border-r z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col",
           isOfficialPortalSection
             ? "bg-[#151515] border-[#26211a]"
             : "bg-slate-100 border-slate-200",
@@ -478,11 +520,11 @@ function GlobalNavInner() {
           isOpen ? "lg:w-[280px]" : "lg:w-[80px]",
         )}
       >
-        <div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
           {/* Logo Area */}
           <div
             className={cn(
-              "flex items-center h-16 border-b relative",
+              "flex h-16 shrink-0 items-center border-b relative",
               isOpen ? "px-4 pr-16" : "px-3",
               isOfficialPortalSection
                 ? "bg-[#151515] border-white/10"
@@ -526,7 +568,11 @@ function GlobalNavInner() {
           </div>
 
           {/* Navigation Items */}
-          <nav className="px-3 space-y-3 py-6">
+          <nav
+            ref={navRef}
+            onScroll={updateNavScrollCue}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-14 pt-6 space-y-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {navItems.map((item) => {
               const [itemPath, itemQuery = ""] = item.href.split("?");
               const itemParams = new URLSearchParams(itemQuery);
@@ -616,10 +662,28 @@ function GlobalNavInner() {
               );
             })}
           </nav>
+          {canScrollNavDown && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+              <button
+                type="button"
+                onClick={scrollNavDown}
+                aria-label="Scroll to more menu items"
+                title="More menu items below"
+                className={cn(
+                  "pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border shadow-lg transition-colors",
+                  isOfficialPortalSection
+                    ? "border-[#d5b875] bg-[#f8f3ea] text-[#15110a] hover:bg-[#ead6aa]"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                )}
+              >
+                <ChevronDown className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Bottom Actions (Logout for Admissions) */}
-        <div className="px-3 pb-8 space-y-3">
+        <div className="shrink-0 px-3 pb-8 pt-3 space-y-3">
           {isAuthenticated && (
             <button
               onClick={handleLogout}

@@ -260,7 +260,7 @@ function HODDashboardInner() {
 
   async function loadSystemSettings() {
     try {
-      setSysSettings(await ApiClient.getGlobalSettings());
+      setSysSettings(await ApiClient.getCurrentAcademicSettings());
     } catch {}
   }
 
@@ -862,6 +862,55 @@ function HODDashboardInner() {
                          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", textTransform: "uppercase" }}>Found</div>
                          <div style={{ color: "#fff", fontWeight: 600 }}>{preview.students.length} Students</div>
                        </div>
+                    </div>
+
+                    <div style={{ padding: "1.5rem", maxHeight: "500px", overflowY: "auto" }}>
+                      <div style={{ marginBottom: "1.25rem", color: "rgba(255,255,255,0.6)", fontSize: "0.85rem", fontStyle: "italic" }}>
+                        Previewing converted results. Please verify CA and exam scores before submitting.
+                      </div>
+                      {preview.courses.map((courseCode: string) => (
+                        <div key={courseCode} style={{ marginBottom: "2.5rem" }}>
+                          <div style={{
+                            color: "#60a5fa", fontWeight: 800, fontSize: "1.1rem",
+                            borderBottom: "1px solid rgba(96,165,250,0.2)", paddingBottom: "0.5rem",
+                            marginBottom: "0.75rem"
+                          }}>
+                            {courseCode}
+                          </div>
+                          <div style={{
+                            display: "grid", gridTemplateColumns: "160px minmax(180px,1fr) 70px 70px 70px", gap: "1rem",
+                            color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", fontWeight: 700,
+                            textTransform: "uppercase", padding: "0 0.5rem 0.5rem", borderBottom: "1px solid rgba(255,255,255,0.05)",
+                            minWidth: 620
+                          }}>
+                            <span>Matric Number</span>
+                            <span>Student Name</span>
+                            <span style={{ textAlign: "center" }}>CA</span>
+                            <span style={{ textAlign: "center" }}>Exam</span>
+                            <span style={{ textAlign: "center" }}>Total</span>
+                          </div>
+                          <div style={{ fontFamily: "monospace", fontSize: "0.95rem", overflowX: "auto" }}>
+                            {preview.students
+                              .filter((student: any) => student.courses.some((course: any) => course.code === courseCode))
+                              .map((student: any) => {
+                                const courseData = student.courses.find((course: any) => course.code === courseCode);
+                                return (
+                                  <div key={`${student.matricNumber}-${courseCode}`} style={{
+                                    display: "grid", gridTemplateColumns: "160px minmax(180px,1fr) 70px 70px 70px", gap: "1rem",
+                                    color: "rgba(255,255,255,0.85)", padding: "0.45rem 0.5rem",
+                                    borderBottom: "1px solid rgba(255,255,255,0.03)", minWidth: 620
+                                  }}>
+                                    <span style={{ color: "rgba(255,255,255,0.95)" }}>{student.matricNumber}</span>
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{student.name || "-"}</span>
+                                    <span style={{ color: "#fbbf24", textAlign: "center", fontWeight: 600 }}>{courseData?.ca ?? 0}</span>
+                                    <span style={{ color: "#10b981", textAlign: "center", fontWeight: 600 }}>{courseData?.exam ?? 0}</span>
+                                    <span style={{ color: "#93c5fd", textAlign: "center", fontWeight: 700 }}>{courseData?.score ?? 0}</span>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>

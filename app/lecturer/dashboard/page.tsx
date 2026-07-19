@@ -88,7 +88,7 @@ function LecturerDashboardInner() {
 
   async function loadSysSettings() {
     try {
-      const settings = await ApiClient.getGlobalSettings();
+      const settings = await ApiClient.getCurrentAcademicSettings();
       setSysSettings(settings);
     } catch {}
   }

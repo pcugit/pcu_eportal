@@ -1908,6 +1908,29 @@ export class ApiClient {
     }, {});
   }
 
+  static async getCurrentAcademicSettings(): Promise<{
+    current_academic_session: string;
+    current_semester: string;
+  }> {
+    try {
+      const settings = await this.getGlobalSettings();
+      return {
+        current_academic_session: settings.current_academic_session || "",
+        current_semester: settings.current_semester || "",
+      };
+    } catch {
+      const [sessionResponse, semesterResponse] = await Promise.all([
+        this.fetch<{ value: string }>("/settings/current_academic_session"),
+        this.fetch<{ value: string }>("/settings/current_semester"),
+      ]);
+
+      return {
+        current_academic_session: sessionResponse.data?.value || "",
+        current_semester: semesterResponse.data?.value || "",
+      };
+    }
+  }
+
   static async updateGlobalSettings(
     settings: Record<string, string>,
   ): Promise<{ message: string }> {

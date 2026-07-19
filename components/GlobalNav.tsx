@@ -32,6 +32,7 @@ import {
   Mail,
   School,
   FileSpreadsheet,
+  Hourglass,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -120,7 +121,7 @@ const PGADMIN_NAV_ITEMS = [
   {
     label: "Process Results",
     href: "/pgadmin/result-processor",
-    icon: FileText,
+    icon: Hourglass,
   },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
@@ -511,7 +512,7 @@ function GlobalNavInner() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-dvh overflow-hidden border-r z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col",
+          "fixed left-0 top-0 h-dvh overflow-visible border-r z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col",
           isOfficialPortalSection
             ? "bg-[#151515] border-[#26211a]"
             : "bg-slate-100 border-slate-200",
@@ -578,7 +579,8 @@ function GlobalNavInner() {
               const itemParams = new URLSearchParams(itemQuery);
               const hasItemQuery = Array.from(itemParams).length > 0;
               const isActive =
-                pathname === itemPath &&
+                (pathname === itemPath ||
+                  (itemPath === "/pgadmin/result-processor" && pathname.startsWith(`${itemPath}/`))) &&
                 (hasItemQuery
                   ? Array.from(itemParams).every(
                       ([key, value]) => searchParams.get(key) === value,

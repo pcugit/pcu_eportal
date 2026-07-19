@@ -33,11 +33,22 @@ interface PgApplication {
   phone_number: string;
   program_id: number;
   program_name: string;
+  degree_code?: string;
   application_status: string;
   submitted_at: string;
   form_no?: string;
   session?: string;
   has_evaluation?: boolean;
+}
+
+function formatDegreeProgramme(programme?: string, degreeCode?: string) {
+  const cleanProgramme = (programme || "").trim();
+  const cleanDegree = (degreeCode || "").trim();
+  if (!cleanProgramme) return "N/A";
+  if (!cleanDegree) return cleanProgramme;
+  const alreadyPrefixed = cleanProgramme.toLowerCase() === cleanDegree.toLowerCase()
+    || cleanProgramme.toLowerCase().startsWith(`${cleanDegree.toLowerCase()} `);
+  return alreadyPrefixed ? cleanProgramme : `${cleanDegree} ${cleanProgramme}`;
 }
 
 const statusColors: Record<string, string> = {
@@ -73,27 +84,40 @@ function PgApplicationsPageInner() {
 
   const [applications, setApplications] = useState<PgApplication[]>([]);
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<string>(
-    searchParams?.get("status") || "submitted"
-  );
-  // Ensure 'all' is accepted as a valid status from URL
-  const validStatuses = ["all", "submitted", "screening", "recommended", "admitted", "rejected", "started"];
-  const [currentStatus, setCurrentStatus] = useState<string>(
-    validStatuses.includes(searchParams?.get("status") || "") ? (searchParams?.get("status") as string) : "submitted"
-  );
+  const [status, setStatus] = useState<string>(() => {
+    const urlStatus = searchParams.get("status") || "submitted";
+    const validStatuses = ["all", "submitted", "screening", "recommended", "admitted", "rejected", "started"];
+    return validStatuses.includes(urlStatus) ? urlStatus : "submitted";
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(() => {
+    const urlPage = Number.parseInt(searchParams.get("page") || "1", 10);
+    return Number.isNaN(urlPage) || urlPage < 1 ? 1 : urlPage;
+  });
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [downloading, setDownloading] = useState<string | null>(null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
+  const handleStatusChange = (nextStatus: string) => {
+    setStatus(nextStatus);
+    setCurrentPage(1);
+    router.replace(`/pgadmin/applications?status=${nextStatus}&page=1`, {
+      scroll: false,
+    });
+  };
 
-  useEffect(() => { setCurrentPage(1); }, [status, debouncedSearch]);
+  useEffect(() => {
+    if (searchQuery === debouncedSearch) return;
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+      router.replace(`/pgadmin/applications?status=${status}&page=1`, {
+        scroll: false,
+      });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchQuery, debouncedSearch, router, status]);
 
   useEffect(() => {
     if (!isAuthenticated || (user?.role !== "pgadmin" && user?.role !== "pgdean")) {
@@ -159,6 +183,14 @@ function PgApplicationsPageInner() {
     return pages;
   };
 
+  const handlePageChange = (nextPage: number) => {
+    const boundedPage = Math.max(1, Math.min(totalPages, nextPage));
+    setCurrentPage(boundedPage);
+    router.replace(`/pgadmin/applications?status=${status}&page=${boundedPage}`, {
+      scroll: false,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="sticky top-0 z-50 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
@@ -181,7 +213,7 @@ function PgApplicationsPageInner() {
             <p className="text-slate-500 text-sm mt-0.5">Review applications, complete evaluations and finalize admissions</p>
           </div>
 
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={handleStatusChange}>
             <SelectTrigger className="w-56 h-10 bg-white border-gray-200 text-slate-700 font-medium rounded-lg">
               <SelectValue />
             </SelectTrigger>
@@ -199,7 +231,14 @@ function PgApplicationsPageInner() {
 
         {/* Search */}
         <form
-          onSubmit={(e) => { e.preventDefault(); setDebouncedSearch(searchQuery); }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setDebouncedSearch(searchQuery);
+            setCurrentPage(1);
+            router.replace(`/pgadmin/applications?status=${status}&page=1`, {
+              scroll: false,
+            });
+          }}
           className="mb-5 flex flex-col sm:flex-row sm:items-center gap-2"
         >
           <div className="relative flex-1 max-w-md">
@@ -286,7 +325,7 @@ function PgApplicationsPageInner() {
                             </div>
                             <div className="col-span-2 md:col-span-1">
                               <span className="text-slate-400 block">Programme</span>
-                              <p className="font-semibold text-slate-700 truncate max-w-[200px]">{app.program_name}</p>
+                              <p className="font-semibold text-slate-700 truncate max-w-[200px]">{formatDegreeProgramme(app.program_name, app.degree_code)}</p>
                             </div>
                             <div>
                               <span className="text-slate-400 block">Session</span>
@@ -328,7 +367,7 @@ function PgApplicationsPageInner() {
               return (
                 <Link
                   key={app.id}
-                  href={`/pgadmin/application/${app.id}`}
+                  href={`/pgadmin/application/${app.id}?status=${status}&page=${currentPage}`}
                   className="block"
                 >
                   {cardContent}
@@ -344,7 +383,7 @@ function PgApplicationsPageInner() {
                 </p>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    onClick={() => handlePageChange(currentPage - 1)}
                     disabled={currentPage === 1}
                     className="p-2 rounded-lg border border-gray-200 bg-white text-slate-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
@@ -353,7 +392,7 @@ function PgApplicationsPageInner() {
                   {getPageNumbers().map((p) => (
                     <button
                        key={p}
-                       onClick={() => setCurrentPage(p)}
+                       onClick={() => handlePageChange(p)}
                        className={`min-w-[36px] h-9 rounded-lg text-sm font-semibold transition-all ${p === currentPage
                          ? "bg-slate-800 text-white"
                          : "bg-white text-slate-500 border border-gray-200 hover:bg-gray-50"
@@ -363,7 +402,7 @@ function PgApplicationsPageInner() {
                      </button>
                   ))}
                   <button
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => handlePageChange(currentPage + 1)}
                     disabled={currentPage === totalPages}
                     className="p-2 rounded-lg border border-gray-200 bg-white text-slate-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >

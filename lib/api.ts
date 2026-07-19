@@ -59,12 +59,18 @@ export interface CourseData {
   remark: string | null;
   lecturer: string | null;
   semester?: string | null;
+  is_carryover?: boolean;
+  available_for_registration?: boolean;
+  failed_session?: string | null;
+  failed_semester?: string | null;
+  failed_score?: number | null;
 }
 
 export interface CourseRegistrationResponse {
   courses: CourseData[];
   all_courses?: CourseData[];
   available_courses?: CourseData[];
+  outstanding_courses?: CourseData[];
   semesters?: Record<string, { compulsory: CourseData[]; core: CourseData[] }>;
   registration_status: string | null;
   registered_course_ids: number[];

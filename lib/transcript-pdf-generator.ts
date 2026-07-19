@@ -53,7 +53,7 @@ export async function generateTranscriptPDF(
 
   // ── Header ───────────────────────────────────────────────────────────────
   try {
-    const logoBase64 = await loadImageAsBase64('/logo.png')
+    const logoBase64 = await loadImageAsBase64('/e-portal/images/logo new.png')
     doc.addImage(logoBase64, 'PNG', marginL, y, 22, 22)
   } catch { /* logo optional */ }
 

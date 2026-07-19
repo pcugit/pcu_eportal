@@ -116,6 +116,8 @@ function PtApplicationDetailPageInner() {
 
   const id = params?.id as string;
   const backStatus = searchParams.get("status") || "submitted";
+  const backPage = searchParams.get("page") || "1";
+  const applicationsHref = `/ptadmin/applications?status=${encodeURIComponent(backStatus)}&page=${encodeURIComponent(backPage)}`;
 
   const [application, setApplication] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -305,7 +307,7 @@ function PtApplicationDetailPageInner() {
           <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-3" />
           <p className="text-slate-700 font-bold text-base mb-1">Failed to load application</p>
           <p className="text-slate-500 text-sm">{error}</p>
-          <Link href="/ptadmin/applications" className="mt-4 inline-block text-slate-600 font-semibold text-sm hover:text-slate-800">
+          <Link href={applicationsHref} className="mt-4 inline-block text-slate-600 font-semibold text-sm hover:text-slate-800">
             ← Back to Applications
           </Link>
         </div>
@@ -352,7 +354,7 @@ function PtApplicationDetailPageInner() {
       <div className="sticky top-0 z-50 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <Link
-            href={`/ptadmin/applications?status=${backStatus}`}
+            href={applicationsHref}
             className="text-slate-500 hover:text-slate-700 text-sm transition-colors"
           >
             ← Back to Applications

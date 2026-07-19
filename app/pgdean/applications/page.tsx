@@ -33,11 +33,22 @@ interface PgApplication {
   phone_number: string;
   program_id: number;
   program_name: string;
+  degree_code?: string;
   application_status: string;
   submitted_at: string;
   form_no?: string;
   session?: string;
   has_evaluation?: boolean;
+}
+
+function formatDegreeProgramme(programme?: string, degreeCode?: string) {
+  const cleanProgramme = (programme || "").trim();
+  const cleanDegree = (degreeCode || "").trim();
+  if (!cleanProgramme) return "N/A";
+  if (!cleanDegree) return cleanProgramme;
+  const alreadyPrefixed = cleanProgramme.toLowerCase() === cleanDegree.toLowerCase()
+    || cleanProgramme.toLowerCase().startsWith(`${cleanDegree.toLowerCase()} `);
+  return alreadyPrefixed ? cleanProgramme : `${cleanDegree} ${cleanProgramme}`;
 }
 
 const statusColors: Record<string, string> = {
@@ -275,7 +286,7 @@ function PgApplicationsPageInner() {
                           </div>
                           <div className="col-span-2 md:col-span-1">
                             <span className="text-slate-400 block">Programme</span>
-                            <p className="font-semibold text-slate-700 truncate max-w-[200px]">{app.program_name}</p>
+                            <p className="font-semibold text-slate-700 truncate max-w-[200px]">{formatDegreeProgramme(app.program_name, app.degree_code)}</p>
                           </div>
                           <div>
                             <span className="text-slate-400 block">Session</span>

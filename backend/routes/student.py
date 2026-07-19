@@ -1,6 +1,11 @@
 from flask import Blueprint, request, jsonify
 from database import Database
 from utils.auth import AuthHandler
+from utils.outstanding_courses import (
+    ensure_outstanding_course_schema,
+    outstanding_courses_for_student,
+    semester_matches,
+)
 import datetime
 import psycopg2
 
@@ -442,6 +447,7 @@ def get_profile(payload):
 @AuthHandler.require_password_change
 def get_courses(payload):
     _ensure_course_source_columns()
+    ensure_outstanding_course_schema()
     user_id  = payload['user_id']
     semester = request.args.get('semester')  # optional filter; None = all semesters
 
@@ -563,6 +569,23 @@ def get_courses(payload):
                     semester,
                 )
 
+            course_source = 'pg' if is_pg_student else 'ug'
+            outstanding_courses = outstanding_courses_for_student(
+                cur, student_id, course_source
+            )
+            registration_semester = active_sem['name'] if is_pg_student and active_sem else None
+            known_course_ids = {int(course['id']) for course in (all_courses or [])}
+            all_courses = [dict(course) for course in (all_courses or [])]
+            for course in outstanding_courses:
+                course['is_carryover'] = True
+                course['available_for_registration'] = bool(course['course_active']) and (
+                    not registration_semester
+                    or semester_matches(course.get('semester'), registration_semester)
+                )
+                if course['available_for_registration'] and int(course['id']) not in known_course_ids:
+                    all_courses.append(course)
+                    known_course_ids.add(int(course['id']))
+
             # 3) Registered course ids for this student + session.
             # PG registration is active-semester based, but the PG course catalog
             # itself is not filtered by course semester.
@@ -634,6 +657,7 @@ def get_courses(payload):
             'semesters':             semesters_data,
             'all_courses':           [dict(c) for c in all_courses],
             'available_courses':     available,
+            'outstanding_courses':   outstanding_courses,
             'registered_course_ids': registered_ids,
             'reg_status_by_semester': reg_status_by_sem,
             'active_semester':       dict(active_sem) if active_sem else None,
@@ -656,6 +680,7 @@ def get_courses(payload):
 def register_courses(payload):
     """Submit course registration"""
     _ensure_course_source_columns()
+    ensure_outstanding_course_schema()
     # Check global lock
     if check_registration_status():
          return jsonify({'message': 'Registration is currently locked.'}), 403
@@ -785,6 +810,30 @@ def register_courses(payload):
             db_semester,
         )
     valid_map = {c['id']: c for c in (valid_courses or [])}
+
+    course_source = 'pg' if is_pg_student else 'ug'
+    with Database.get_cursor() as carryover_cursor:
+        outstanding_courses = outstanding_courses_for_student(
+            carryover_cursor, student_id, course_source
+        )
+    offered_carryovers = [
+        course for course in outstanding_courses
+        if semester_matches(course.get('semester'), registration_semester)
+    ]
+    inactive_carryovers = [course for course in offered_carryovers if not course.get('course_active')]
+    if status == 'submitted' and inactive_carryovers:
+        codes = ', '.join(course['course_code'] for course in inactive_carryovers)
+        return jsonify({
+            'message': f'Outstanding course(s) {codes} are not active. Contact the department before submitting registration.'
+        }), 409
+    for course in offered_carryovers:
+        if course.get('course_active'):
+            valid_map[int(course['id'])] = {
+                'id': int(course['id']),
+                'credit_units': int(course.get('credit_units') or 0),
+                'course_code': course['course_code'],
+                'category': 'carryover',
+            }
     
     # Calculate totals
     total_credits = 0
@@ -806,6 +855,21 @@ def register_courses(payload):
              if ext_course:
                   selected_valid.append(cid)
                   total_credits += ext_course[0]['credit_units']
+
+    if status == 'submitted':
+        required_carryover_ids = {
+            int(course['id']) for course in offered_carryovers
+            if course.get('course_active')
+        }
+        missing_carryovers = required_carryover_ids.difference(selected_valid)
+        if missing_carryovers:
+            missing_codes = ', '.join(
+                course['course_code'] for course in offered_carryovers
+                if int(course['id']) in missing_carryovers
+            )
+            return jsonify({
+                'message': f'Outstanding course(s) must be included before submission: {missing_codes}'
+            }), 400
              
     # Compulsory courses are pre-selected in the UI but students can remove them if needed
     # so we no longer enforce that all compulsory courses must be selected.
@@ -841,6 +905,53 @@ def register_courses(payload):
     except Exception as e:
         print(f'Error in register_courses: {e}')
         return jsonify({'message': 'An unexpected error occurred while saving your registration. Please try again later.'}), 500
+
+
+@student_bp.route('/academic-standing', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.require_password_change
+def get_academic_standing(payload):
+    """Return processed attempts and unresolved failed courses for the student."""
+    ensure_outstanding_course_schema()
+    students = Database.execute_query(
+        '''SELECT "Id" AS student_id, "MatricNo" AS matric_no, "IsGraduate" AS is_graduate
+           FROM students
+           WHERE "UserId" = %s OR "CurrentUserId" = %s
+           LIMIT 1''',
+        (payload['user_id'], payload['user_id']),
+    )
+    if not students:
+        return jsonify({'message': 'Student record not found'}), 404
+
+    student = students[0]
+    outstanding = Database.execute_query(
+        '''SELECT id, course_source, course_id, course_code, course_title,
+                  course_unit, failed_session, failed_semester, failed_score,
+                  first_failed_at
+           FROM outstanding_courses
+           WHERE student_id = %s AND status = 'outstanding'
+           ORDER BY failed_session, failed_semester, course_code''',
+        (student['student_id'],),
+    )
+    attempts = Database.execute_query(
+        '''SELECT 'ug' AS course_source, id, course_code, course_title,
+                  course_unit, session, semester, total, grade, grade_point, status
+           FROM master_results
+           WHERE UPPER(TRIM(matric_no)) = UPPER(TRIM(%s))
+           UNION ALL
+           SELECT 'pg' AS course_source, id, course_code, course_title,
+                  course_unit, session, semester, total, grade, grade_point, status
+           FROM pg_master_results
+           WHERE UPPER(TRIM(matric_no)) = UPPER(TRIM(%s))
+           ORDER BY session, semester, course_code''',
+        (student['matric_no'], student['matric_no']),
+    )
+    return jsonify({
+        'graduation_eligible': not bool(outstanding),
+        'is_graduate': bool(student.get('is_graduate')),
+        'outstanding_courses': [dict(row) for row in (outstanding or [])],
+        'attempts': [dict(row) for row in (attempts or [])],
+    }), 200
 
 
 @student_bp.route('/registration-history', methods=['GET'])

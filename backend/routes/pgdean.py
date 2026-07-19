@@ -185,6 +185,7 @@ def get_applications(payload):
                              {USER_NAME_EXPR} AS name,
                              u.email, u.phone_number,
                              2 AS program_id,
+                             COALESCE(NULLIF(TRIM(dg.code), ''), '') AS degree_code,
                              COALESCE(dg.code || ' ', '') ||
                              COALESCE(pgps.name, '') AS program_name,
                              pg.applicant_stage AS application_status,

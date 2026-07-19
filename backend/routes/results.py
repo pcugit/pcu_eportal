@@ -6,6 +6,11 @@ PG results use pg_pending_results/pg_master_results and are processed by PG Admi
 from flask import Blueprint, request, jsonify
 from database import Database
 from utils.auth import AuthHandler
+from utils.outstanding_courses import (
+    backfill_outstanding_courses,
+    ensure_outstanding_course_schema,
+    sync_outstanding_course,
+)
 
 results_bp = Blueprint('results', __name__)
 pg_results_bp = Blueprint('pg_results', __name__)
@@ -79,6 +84,9 @@ def _ensure_result_schema(is_pg=False):
         Database.execute_update("ALTER TABLE master_results ADD COLUMN IF NOT EXISTS course_title VARCHAR(255)")
     Database.execute_update(f'ALTER TABLE {t["master"]} ADD COLUMN IF NOT EXISTS ca NUMERIC')
     Database.execute_update(f'ALTER TABLE {t["master"]} ADD COLUMN IF NOT EXISTS exam NUMERIC')
+    Database.execute_update(f'ALTER TABLE {t["master"]} ADD COLUMN IF NOT EXISTS course_id INTEGER')
+    ensure_outstanding_course_schema()
+    backfill_outstanding_courses(is_pg)
 
 
 def _staff_record_id(user_id, raw_staff_id=None):
@@ -269,18 +277,21 @@ def _save_results_handler(is_pg=False):
                     ca = course.get('ca')
                     exam = course.get('exam')
                     gp, grade = _grade_point(score)
-                    meta = _course_meta(code, info.get('department'), is_pg) or {}
+                    meta = _course_meta(code, info.get('department'), is_pg)
+                    if not meta:
+                        raise ValueError(f'Course not found in the {"PG" if is_pg else "UG"} course table: {code}')
                     unit = course.get('unit') or meta.get('units')
                     if not unit:
                         raise ValueError(f'Unit count missing for course: {code}')
                     title = course.get('title') or meta.get('course_title') or code
                     cur.execute(
                         f'''INSERT INTO {t["master"]}
-                              (matric_no, course_code, course_title, course_unit, session, semester,
+                              (matric_no, course_id, course_code, course_title, course_unit, session, semester,
                                level, ca, exam, total, grade, grade_point, status, lecturer_id)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                            ON CONFLICT (matric_no, course_code, session, semester)
-                           DO UPDATE SET course_title = EXCLUDED.course_title,
+                           DO UPDATE SET course_id = EXCLUDED.course_id,
+                                         course_title = EXCLUDED.course_title,
                                          course_unit = EXCLUDED.course_unit,
                                          level = EXCLUDED.level,
                                          ca = EXCLUDED.ca,
@@ -289,10 +300,23 @@ def _save_results_handler(is_pg=False):
                                          grade = EXCLUDED.grade,
                                          grade_point = EXCLUDED.grade_point,
                                          status = EXCLUDED.status,
-                                         lecturer_id = EXCLUDED.lecturer_id''',
-                        (matric, code, title, int(unit), session, semester, str(info.get('level') or ''),
+                                         lecturer_id = EXCLUDED.lecturer_id
+                           RETURNING id''',
+                        (matric, meta['id'], code, title, int(unit), session, semester, str(info.get('level') or ''),
                          ca, exam, score, grade, gp, 'P' if score >= 40 else 'F',
                          _staff_record_id(getattr(request, 'user_id', None))))
+                    result_id = cur.fetchone()['id']
+                    sync_outstanding_course(
+                        cur,
+                        'pg' if is_pg else 'ug',
+                        result_id,
+                        matric,
+                        meta['id'],
+                        meta['course_code'],
+                        title,
+                        int(unit),
+                        getattr(request, 'user_id', None),
+                    )
                     saved += 1
 
             pending_id = body.get('pendingId')
@@ -307,12 +331,25 @@ def _save_results_handler(is_pg=False):
         Database.release_connection(conn)
 
 
-def _result_rows(is_pg=False, session=None, semester=None, department_id=None):
+def _result_rows(is_pg=False, session=None, semester=None, department_id=None, degree_id=None):
     _ensure_result_schema(is_pg)
     t = _tables(is_pg)
+    degree_columns = (
+        'dg.id AS degree_id, dg.code AS degree_code,'
+        if is_pg else
+        'NULL::INTEGER AS degree_id, NULL::VARCHAR AS degree_code,'
+    )
+    degree_joins = '''
+           LEFT JOIN pg_courses result_pgc ON result_pgc.id = mr.course_id
+           LEFT JOIN pg_program_setup result_pgps ON result_pgps.id = result_pgc.program_setup_id
+           LEFT JOIN degrees dg
+             ON dg.id = COALESCE(pg.degree_id, s."DegreeId", result_pgc.degree_id, result_pgps.degree_id)'''
+    if not is_pg:
+        degree_joins = ''
     query = f'''SELECT mr.id, mr.matric_no, mr.level, mr.session, mr.semester,
                   mr.course_code, mr.course_title, mr.course_unit, mr.total,
                   mr.grade_point, mr.grade, mr.created_at,
+                  {degree_columns}
                   COALESCE(u.firstname || ' ' || u.surname,
                            s."FirstName" || ' ' || s."LastName",
                            mr.matric_no) AS student_name,
@@ -330,7 +367,8 @@ def _result_rows(is_pg=False, session=None, semester=None, department_id=None):
            LEFT JOIN faculties pgf ON pgf.id = pgd.faculty_id
            LEFT JOIN program_setup ps
              ON UPPER(TRIM(ps.name)) = UPPER(TRIM(pgps.name))
-            AND ps.department_id = pgps.department_id'''
+            AND ps.department_id = pgps.department_id
+           {degree_joins}'''
     params = []
     clauses = []
     if session:
@@ -342,6 +380,9 @@ def _result_rows(is_pg=False, session=None, semester=None, department_id=None):
     if department_id:
         clauses.append('COALESCE(d.id, pgd.id) = %s')
         params.append(department_id)
+    if is_pg and degree_id:
+        clauses.append('dg.id = %s')
+        params.append(degree_id)
     if clauses:
         query += ' WHERE ' + ' AND '.join(clauses)
     query += ' ORDER BY department_name, mr.session, mr.semester, student_name, mr.course_code'
@@ -411,7 +452,70 @@ def _group_result_rows(rows, is_pg=False):
 
 
 def _list_results_handler(is_pg=False):
-    return jsonify(_group_result_rows(_result_rows(is_pg), is_pg)), 200
+    if not is_pg:
+        return jsonify(_group_result_rows(_result_rows(False), False)), 200
+
+    try:
+        department_id = int(request.args.get('departmentId')) if request.args.get('departmentId') else None
+        degree_id = int(request.args.get('degreeId')) if request.args.get('degreeId') else None
+    except (TypeError, ValueError):
+        return jsonify({'message': 'departmentId and degreeId must be valid numbers'}), 400
+
+    session = str(request.args.get('session') or '').strip()
+    semester = str(request.args.get('semester') or '').strip()
+
+    if session and semester:
+        rows = _result_rows(True, session=session, semester=semester,
+                            department_id=department_id, degree_id=degree_id)
+    else:
+        rows = _result_rows(True, department_id=department_id, degree_id=degree_id)
+        if session:
+            selected_key = _session_sort_key(session)
+            rows = [
+                row for row in (rows or [])
+                if _session_sort_key(row.get('session')) <= selected_key
+            ]
+
+    return jsonify(_group_result_rows(rows, True)), 200
+
+
+def _session_sort_key(value):
+    text = str(value or '').strip()
+    first_year = text.replace('-', '/').split('/', 1)[0]
+    try:
+        return int(first_year), text
+    except ValueError:
+        return -1, text
+
+
+def _pg_result_filter_options():
+    rows = _result_rows(True)
+    combinations = {}
+    for row in rows or []:
+        department_id = row.get('department_id')
+        degree_id = row.get('degree_id')
+        session = str(row.get('session') or '').strip()
+        semester = str(row.get('semester') or '').strip()
+        if not department_id or not degree_id or not session or not semester:
+            continue
+        key = (department_id, degree_id, session, semester)
+        combinations[key] = {
+            'departmentId': department_id,
+            'departmentName': row.get('department_name') or 'Unknown',
+            'degreeId': degree_id,
+            'degreeCode': row.get('degree_code') or 'Unknown',
+            'session': session,
+            'semester': semester,
+        }
+    return sorted(
+        combinations.values(),
+        key=lambda item: (
+            str(item['departmentName']).lower(),
+            str(item['degreeCode']).lower(),
+            _session_sort_key(item['session']),
+            str(item['semester']).lower(),
+        ),
+    )
 
 
 def _master_list_handler(payload, is_pg=False, options=False):
@@ -498,6 +602,7 @@ def ug_results(payload):
     if request.method == 'DELETE':
         _ensure_result_schema(False)
         Database.execute_update('DELETE FROM master_results')
+        Database.execute_update("DELETE FROM outstanding_courses WHERE course_source = 'ug'")
         return jsonify({'message': 'All UG results cleared'}), 200
     return _save_results_handler(False)
 
@@ -544,6 +649,7 @@ def pg_results(payload):
     if request.method == 'DELETE':
         _ensure_result_schema(True)
         Database.execute_update('DELETE FROM pg_master_results')
+        Database.execute_update("DELETE FROM outstanding_courses WHERE course_source = 'pg'")
         return jsonify({'message': 'All PG results cleared'}), 200
     return _save_results_handler(True)
 
@@ -555,6 +661,13 @@ def pg_course_lookup(payload):
     if not meta:
         return jsonify({'message': 'Course not found'}), 404
     return jsonify(meta), 200
+
+
+@pg_results_bp.route('/filter-options', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.roles_required('pgadmin', 'pgdean')
+def pg_result_filter_options(payload):
+    return jsonify({'options': _pg_result_filter_options()}), 200
 
 
 @pg_results_bp.route('/master-list', methods=['GET'])

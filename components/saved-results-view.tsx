@@ -6,8 +6,22 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Trash2, Download, Search, X, FileText, Eye,
-  ChevronRight, Loader2, ArrowLeft, Home, Database,
+  ChevronRight, ChevronLeft, Loader2, ArrowLeft, Home, Database,
   Building2, CalendarDays, BookOpen, Users, GraduationCap, ScrollText, RefreshCw, Layers
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
@@ -30,6 +44,34 @@ interface SavedResultsViewProps {
   resultApiBase?: string
   readOnly?: boolean
   title?: string
+  compactHeader?: boolean
+}
+
+interface PgResultFilterOption {
+  departmentId: number
+  departmentName: string
+  degreeId: number
+  degreeCode: string
+  session: string
+  semester: string
+}
+
+interface ActiveSemester {
+  name: string
+  session_name: string
+}
+
+function sessionStartYear(value: string) {
+  const firstYear = Number.parseInt(value.replace("-", "/").split("/", 1)[0] || "", 10)
+  return Number.isNaN(firstYear) ? -1 : firstYear
+}
+
+function semesterOrder(value: string) {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === "first" || normalized === "first semester") return 1
+  if (normalized === "second" || normalized === "second semester") return 2
+  if (normalized === "third" || normalized === "third semester") return 3
+  return 99
 }
 
 type Level = string
@@ -55,6 +97,7 @@ export function SavedResultsView({
   resultApiBase,
   readOnly = false,
   title = "Academic Records",
+  compactHeader = false,
 }: SavedResultsViewProps) {
   const [departments, setDepartments]       = useState<DepartmentGroup[]>([])
   const [sessionTranscripts, setSessionTranscripts] = useState<StudentSessionTranscript[]>([])
@@ -70,15 +113,70 @@ export function SavedResultsView({
   const [previewTranscript, setPreviewTranscript] = useState<StudentSessionTranscript | null>(null)
   const [isZipping, setIsZipping]           = useState(false)
   const [zipProgress, setZipProgress]       = useState(0)
+  const [pgPage, setPgPage] = useState(1)
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null)
+  const [previewPdfLoading, setPreviewPdfLoading] = useState(false)
+  const isPgRecords = resultApiBase === "/pg-results"
+  const [pgFilterOptions, setPgFilterOptions] = useState<PgResultFilterOption[]>([])
+  const [filterDepartment, setFilterDepartment] = useState("")
+  const [filterDegree, setFilterDegree] = useState("")
+  const [filterSession, setFilterSession] = useState("")
+  const [filterSemester, setFilterSemester] = useState("all")
+  const [activeSemester, setActiveSemester] = useState<ActiveSemester | null>(null)
+  const filterReady = Boolean(filterDepartment && filterDegree && filterSession)
 
-  useEffect(() => { loadResults() }, [])
+  useEffect(() => {
+    if (isPgRecords) {
+      void loadPgFilterOptions()
+      void loadActiveSemester()
+    } else {
+      void loadResults()
+    }
+  }, [isPgRecords])
+
+  useEffect(() => {
+    if (!isPgRecords) return
+    setDrill({ level: "departments" })
+    setPreviewResult(null)
+    setPreviewTranscript(null)
+    setSearchQuery("")
+    setSelectedIds(new Set())
+    if (!filterReady) {
+      setDepartments([])
+      setLoading(false)
+      return
+    }
+    void loadResults()
+  }, [filterDepartment, filterDegree, filterSession, filterSemester, filterReady, isPgRecords])
+
+  async function loadPgFilterOptions() {
+    try {
+      setLoading(true)
+      setError(null)
+      const { data } = await ApiClient.fetch<{ options: PgResultFilterOption[] }>("/pg-results/filter-options")
+      setPgFilterOptions(data?.options || [])
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function loadResults() {
     try {
       setLoading(true)
       setError(null)
       if (resultApiBase) {
-        const { data } = await ApiClient.fetch<DepartmentGroup[]>(resultApiBase)
+        const query = new URLSearchParams()
+        if (isPgRecords && filterReady) {
+          query.set("departmentId", filterDepartment)
+          query.set("degreeId", filterDegree)
+          query.set("session", filterSession)
+          if (filterSemester !== "all") query.set("semester", filterSemester)
+        }
+        const queryString = query.toString()
+        const endpoint = queryString ? `${resultApiBase}?${queryString}` : resultApiBase
+        const { data } = await ApiClient.fetch<DepartmentGroup[]>(endpoint)
         setDepartments(data)
       } else {
         setDepartments(await getSavedResults())
@@ -147,6 +245,154 @@ export function SavedResultsView({
   function studentsPerLevel(semester: { students: SavedResult[] }, lvl: Level) {
     return semester.students.filter((r) => String(r.studentInfo.level) === lvl).length
   }
+
+  const filterDepartments = useMemo(() => {
+    const values = new Map<number, string>()
+    pgFilterOptions.forEach(option => values.set(option.departmentId, option.departmentName))
+    return [...values].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [pgFilterOptions])
+
+  const filterDegrees = useMemo(() => {
+    const values = new Map<number, string>()
+    pgFilterOptions
+      .filter(option => String(option.departmentId) === filterDepartment)
+      .forEach(option => values.set(option.degreeId, option.degreeCode))
+    return [...values].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [pgFilterOptions, filterDepartment])
+
+  const filterSessions = useMemo(() => {
+    const values = new Set(
+      pgFilterOptions
+        .filter(option => String(option.departmentId) === filterDepartment && String(option.degreeId) === filterDegree)
+        .map(option => option.session),
+    )
+    return [...values].sort((a, b) => sessionStartYear(b) - sessionStartYear(a) || b.localeCompare(a))
+  }, [pgFilterOptions, filterDepartment, filterDegree])
+
+  const filterSemesters = useMemo(() => {
+    const values = new Set(
+      pgFilterOptions
+        .filter(option =>
+          String(option.departmentId) === filterDepartment &&
+          String(option.degreeId) === filterDegree &&
+          option.session === filterSession,
+        )
+        .map(option => option.semester),
+    )
+    return [...values].sort((a, b) => semesterOrder(a) - semesterOrder(b) || a.localeCompare(b))
+  }, [pgFilterOptions, filterDepartment, filterDegree, filterSession])
+
+  const latestSemesterLabel = useMemo(() => {
+    if (activeSemester?.session_name === filterSession) return activeSemester.name
+    return filterSemesters.reduce<string | null>((latest, semester) => {
+      if (!latest || semesterOrder(semester) > semesterOrder(latest)) return semester
+      return latest
+    }, null)
+  }, [activeSemester, filterSemesters, filterSession])
+
+  const resultSemesterLabel = filterSemester === "all"
+    ? latestSemesterLabel || "Latest semester"
+    : filterSemester
+
+  const downloadableResults = useMemo(
+    () => departments.flatMap(department =>
+      department.sessions.flatMap(session =>
+        session.semesters.flatMap(semester => semester.students),
+      ),
+    ),
+    [departments],
+  )
+
+  const pgStudentResults = useMemo(() => {
+    const students = new Map<string, SavedResult>()
+    downloadableResults.forEach(result => {
+      const matric = result.studentInfo.matricNumber.trim().toUpperCase()
+      const existing = students.get(matric)
+      if (!existing) {
+        students.set(matric, {
+          ...result,
+          id: matric,
+          studentInfo: {
+            ...result.studentInfo,
+            academicSession: filterSession,
+            semester: resultSemesterLabel,
+          },
+          courses: [...result.courses],
+          calculations: { ...result.calculations },
+        })
+        return
+      }
+
+      existing.timestamp = Math.max(existing.timestamp, result.timestamp)
+      existing.studentInfo.level = result.studentInfo.level || existing.studentInfo.level
+      existing.courses.push(...result.courses)
+      existing.calculations.totalUnits += result.calculations.totalUnits
+      existing.calculations.totalUnitsPassed += result.calculations.totalUnitsPassed
+      existing.calculations.totalWGP += result.calculations.totalWGP
+      existing.calculations.cgpa = existing.calculations.totalUnits
+        ? (existing.calculations.totalWGP / existing.calculations.totalUnits).toFixed(2)
+        : "0.00"
+    })
+    return [...students.values()].sort((a, b) =>
+      a.studentInfo.name.localeCompare(b.studentInfo.name),
+    )
+  }, [downloadableResults, filterSession, resultSemesterLabel])
+
+  const filteredPgStudents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return pgStudentResults
+    return pgStudentResults.filter(result =>
+      result.studentInfo.name.toLowerCase().includes(query) ||
+      result.studentInfo.matricNumber.toLowerCase().includes(query),
+    )
+  }, [pgStudentResults, searchQuery])
+
+  const pgTotalPages = Math.max(1, Math.ceil(filteredPgStudents.length / 10))
+  const paginatedPgStudents = useMemo(
+    () => filteredPgStudents.slice((pgPage - 1) * 10, pgPage * 10),
+    [filteredPgStudents, pgPage],
+  )
+
+  useEffect(() => {
+    if (!isPgRecords) return
+    setSelectedIds(new Set(pgStudentResults.map(result => result.id)))
+    setPgPage(1)
+  }, [isPgRecords, pgStudentResults])
+
+  useEffect(() => {
+    if (!isPgRecords) return
+    setPgPage(1)
+  }, [isPgRecords, searchQuery])
+
+  useEffect(() => {
+    if (!isPgRecords || !previewResult) {
+      setPreviewPdfUrl(null)
+      return
+    }
+
+    let active = true
+    let objectUrl: string | null = null
+    setPreviewPdfLoading(true)
+    void generatePDF({
+      studentInfo: previewResult.studentInfo,
+      courses: previewResult.courses,
+      totalUnits: previewResult.calculations.totalUnits,
+      totalUnitsPassed: previewResult.calculations.totalUnitsPassed,
+      totalWGP: previewResult.calculations.totalWGP,
+      cgpa: previewResult.calculations.cgpa,
+    }, { returnBlob: true, programmeLabel: "POSTGRADUATE PROGRAMME" }).then(blob => {
+      if (!active || !(blob instanceof Blob)) return
+      objectUrl = URL.createObjectURL(blob)
+      setPreviewPdfUrl(objectUrl)
+    }).finally(() => {
+      if (active) setPreviewPdfLoading(false)
+    })
+
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [isPgRecords, previewResult])
   function levelsInSemester(semester: { students: SavedResult[] }) {
     return [...new Set(semester.students.map((r) => String(r.studentInfo.level).trim()).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -232,7 +478,7 @@ export function SavedResultsView({
       totalUnitsPassed: result.calculations.totalUnitsPassed,
       totalWGP: result.calculations.totalWGP,
       cgpa: result.calculations.cgpa,
-    })
+    }, { programmeLabel: isPgRecords ? "POSTGRADUATE PROGRAMME" : "UNDERGRADUATE PROGRAMME" })
   }
 
   async function handleBatchDownload(results: SavedResult[]) {
@@ -252,9 +498,12 @@ export function SavedResultsView({
         totalUnitsPassed: result.calculations.totalUnitsPassed,
         totalWGP: result.calculations.totalWGP,
         cgpa: result.calculations.cgpa,
-      }, { returnBlob: true }) as Blob
+      }, {
+        returnBlob: true,
+        programmeLabel: isPgRecords ? "POSTGRADUATE PROGRAMME" : "UNDERGRADUATE PROGRAMME",
+      }) as Blob
 
-      const safeName = `${result.studentInfo.name}_${result.studentInfo.matricNumber}`
+      const safeName = `${result.studentInfo.name}_${result.studentInfo.matricNumber}_${result.studentInfo.academicSession}_${result.studentInfo.semester}`
         .replace(/\s+/g, "_")
         .replace(/[^a-zA-Z0-9_]/g, "")
       folder?.file(`${safeName}.pdf`, pdfBlob)
@@ -334,7 +583,24 @@ export function SavedResultsView({
     setSelectedIds((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
   function toggleSelectAll(ids: string[]) {
-    setSelectedIds(selectedIds.size === ids.length ? new Set() : new Set(ids))
+    setSelectedIds(previous => {
+      const next = new Set(previous)
+      if (ids.every(id => previous.has(id))) {
+        ids.forEach(id => next.delete(id))
+      } else {
+        ids.forEach(id => next.add(id))
+      }
+      return next
+    })
+  }
+
+  async function loadActiveSemester() {
+    try {
+      const { data } = await ApiClient.fetch<{ active_semester: ActiveSemester | null }>("/settings/active-semester")
+      setActiveSemester(data?.active_semester || null)
+    } catch {
+      setActiveSemester(null)
+    }
   }
 
   const formatDate = (ts: number) =>
@@ -383,27 +649,151 @@ export function SavedResultsView({
       className="space-y-8"
     >
 
-      {/* Modern Header */}
+      <Dialog
+        open={isPgRecords && Boolean(previewResult)}
+        onOpenChange={open => {
+          if (!open) setPreviewResult(null)
+        }}
+      >
+        <DialogContent className="flex h-[90vh] max-w-5xl flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-slate-200 px-6 py-4 pr-14">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <DialogTitle className="truncate text-lg">Result Preview</DialogTitle>
+                <DialogDescription className="truncate">
+                  {previewResult ? `${previewResult.studentInfo.name} - ${previewResult.studentInfo.matricNumber}` : "Student result"}
+                </DialogDescription>
+              </div>
+              {previewResult && (
+                <Button size="sm" onClick={() => handleDownload(previewResult)} className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700">
+                  <Download className="mr-2 h-4 w-4" /> Download PDF
+                </Button>
+              )}
+            </div>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 bg-slate-200 p-3 sm:p-5">
+            {previewPdfLoading ? (
+              <div className="grid h-full place-items-center bg-white">
+                <div className="text-center text-slate-500">
+                  <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" />
+                  Preparing result preview...
+                </div>
+              </div>
+            ) : previewPdfUrl ? (
+              <iframe
+                src={`${previewPdfUrl}#toolbar=0&navpanes=0`}
+                title="Student result PDF preview"
+                className="h-full w-full border-0 bg-white"
+              />
+            ) : (
+              <div className="grid h-full place-items-center bg-white text-sm text-slate-500">
+                Preview could not be generated.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {isPgRecords && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Department</label>
+              <Select
+                value={filterDepartment || undefined}
+                onValueChange={value => {
+                  setFilterDepartment(value)
+                  setFilterDegree("")
+                  setFilterSession("")
+                  setFilterSemester("all")
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectContent>
+                  {filterDepartments.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Degree</label>
+              <Select
+                value={filterDegree || undefined}
+                disabled={!filterDepartment}
+                onValueChange={value => {
+                  setFilterDegree(value)
+                  setFilterSession("")
+                  setFilterSemester("all")
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select degree" /></SelectTrigger>
+                <SelectContent>
+                  {filterDegrees.map(([id, code]) => <SelectItem key={id} value={String(id)}>{code}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Session</label>
+              <Select
+                value={filterSession || undefined}
+                disabled={!filterDegree}
+                onValueChange={value => {
+                  setFilterSession(value)
+                  setFilterSemester("all")
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select session" /></SelectTrigger>
+                <SelectContent>
+                  {filterSessions.map(session => <SelectItem key={session} value={session}>{session}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Semester</label>
+              <Select value={filterSemester} disabled={!filterSession} onValueChange={setFilterSemester}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Cumulative</SelectItem>
+                  {filterSemesters.map(semester => <SelectItem key={semester} value={semester}>{semester}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+          </div>
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            Entire session includes all processed results from previous sessions through the selected session. Selecting a semester limits records to that semester only.
+          </p>
+        </section>
+      )}
+
+      {/* Records navigation */}
+      {!compactHeader && (
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-700">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-1.5 rounded-lg">
-              <Database className="h-5 w-5 text-white" />
+          {!compactHeader && (
+            <div className="flex items-center gap-2">
+              <div className="bg-blue-600 p-1.5 rounded-lg">
+                <Database className="h-5 w-5 text-white" />
+              </div>
+              <h2 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
             </div>
-            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h2>
-          </div>
+          )}
           <Breadcrumb />
         </div>
         
         <div className="flex items-center gap-3">
-          <Button 
-            onClick={onBack} 
-            variant="ghost" 
-            className="text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-800 font-medium"
-          >
-            <Home className="h-4 w-4 mr-2" />
-            Dashboard
-          </Button>
+          {!compactHeader && (
+            <Button
+              onClick={onBack}
+              variant="ghost"
+              className="text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-800 font-medium"
+            >
+              <Home className="h-4 w-4 mr-2" />
+              Dashboard
+            </Button>
+          )}
           
           <Button 
             onClick={() => {
@@ -440,6 +830,7 @@ export function SavedResultsView({
           )}
         </div>
       </div>
+      )}
 
       {/* Loading */}
       {(loading || sessionLoading) && (
@@ -459,7 +850,7 @@ export function SavedResultsView({
 
       {!loading && !sessionLoading && !error && (
         <>
-          {previewResult && (
+          {!isPgRecords && previewResult && (
             <ResultDisplay
               studentInfo={previewResult.studentInfo}
               courses={previewResult.courses}
@@ -472,18 +863,148 @@ export function SavedResultsView({
             />
           )}
 
-          {previewTranscript && (
+          {isPgRecords && !previewResult && (
+            !filterReady ? (
+              <Card><CardContent className="py-12 text-center">
+                <FileText className="mx-auto mb-4 h-10 w-10 text-slate-300" />
+                <p className="text-base text-slate-600 dark:text-slate-400">
+                  Select a department, degree and session to view students.
+                </p>
+              </CardContent></Card>
+            ) : (
+              <div className="space-y-4">
+                <Card className="border-slate-200 dark:border-slate-700">
+                  <CardContent className="p-4">
+                    <div className="flex flex-col gap-3 md:flex-row">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          placeholder="Search by name or matric number..."
+                          value={searchQuery}
+                          onChange={event => setSearchQuery(event.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleBatchDownload(pgStudentResults.filter(result => selectedIds.has(result.id)))}
+                        disabled={selectedIds.size === 0 || isZipping}
+                        className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        {isZipping ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                        {isZipping ? `Preparing ${zipProgress}%` : `Export (${selectedIds.size})`}
+                      </Button>
+                    </div>
+                    {filteredPgStudents.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectAll(filteredPgStudents.map(result => result.id))}
+                        className="mt-3 text-sm font-medium text-blue-600 hover:underline"
+                      >
+                        {filteredPgStudents.every(result => selectedIds.has(result.id))
+                          ? "Deselect all"
+                          : `Select all ${filteredPgStudents.length}`}
+                      </button>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {filteredPgStudents.length === 0 ? (
+                  <Card><CardContent className="py-12 text-center">
+                    <FileText className="mx-auto mb-4 h-10 w-10 text-slate-300" />
+                    <p className="text-slate-500">
+                      {searchQuery ? "No students match your search" : "No processed results match these filters"}
+                    </p>
+                  </CardContent></Card>
+                ) : paginatedPgStudents.map(result => (
+                  <Card key={result.id} className={`border transition-colors ${selectedIds.has(result.id) ? "border-blue-400 bg-blue-50/50" : "border-slate-200 hover:border-blue-300"}`}>
+                    <CardContent className="p-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(result.id)}
+                          onChange={() => toggleSelect(result.id)}
+                          className="mt-1.5 h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-blue-600"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-900 dark:text-slate-100">{result.studentInfo.name}</span>
+                            <Badge variant="outline" className="border-blue-200 bg-blue-50 text-xs text-blue-700">{result.studentInfo.matricNumber}</Badge>
+                            <Badge variant="outline" className="text-xs">Level {result.studentInfo.level}</Badge>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-5">
+                            <div><p className="text-xs text-slate-500">Units</p><p className="font-bold text-slate-800">{result.calculations.totalUnits}</p></div>
+                            <div><p className="text-xs text-slate-500">Passed</p><p className="font-bold text-slate-800">{result.calculations.totalUnitsPassed}</p></div>
+                            <div><p className="text-xs text-slate-500">WGP</p><p className="font-bold text-slate-800">{result.calculations.totalWGP}</p></div>
+                            <div><p className="text-xs text-slate-500">CGPA</p><p className="font-bold text-emerald-700">{result.calculations.cgpa}</p></div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button size="sm" onClick={() => setPreviewResult(result)} className="bg-blue-600 text-white hover:bg-blue-700">
+                            <Eye className="mr-1.5 h-4 w-4" /> Preview
+                          </Button>
+                          <Button size="sm" onClick={() => handleDownload(result)} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                            <Download className="mr-1.5 h-4 w-4" /> PDF
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+
+                {filteredPgStudents.length > 10 && (
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-4">
+                    <p className="text-sm text-slate-500">
+                      Showing {(pgPage - 1) * 10 + 1}-{Math.min(pgPage * 10, filteredPgStudents.length)} of {filteredPgStudents.length}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPgPage(page => Math.max(1, page - 1))}
+                        disabled={pgPage === 1}
+                        aria-label="Previous results page"
+                        title="Previous page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="min-w-20 text-center text-sm font-medium text-slate-700">
+                        Page {pgPage} of {pgTotalPages}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPgPage(page => Math.min(pgTotalPages, page + 1))}
+                        disabled={pgPage === pgTotalPages}
+                        aria-label="Next results page"
+                        title="Next page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          {!isPgRecords && previewTranscript && (
             <TranscriptDisplay
               transcript={previewTranscript}
               onReset={() => setPreviewTranscript(null)}
             />
           )}
 
-          {!previewResult && !previewTranscript && drill.level === "departments" && (
+          {!isPgRecords && !previewResult && !previewTranscript && drill.level === "departments" && (
             departments.length === 0 ? (
               <Card><CardContent className="py-12 text-center">
                 <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-600 dark:text-slate-400 dark:text-slate-500 text-lg">No saved results yet</p>
+                <p className="text-slate-600 dark:text-slate-400 dark:text-slate-500 text-base">
+                  {isPgRecords && !filterReady ? "Select a department, degree and session to view results" : "No processed results match these filters"}
+                </p>
               </CardContent></Card>
             ) : (
               <div className="space-y-4">
@@ -547,7 +1068,7 @@ export function SavedResultsView({
           )}
 
           {/* ── LEVEL 2: SESSIONS — with Semester / Session toggle ────────── */}
-          {!previewResult && !previewTranscript && drill.level === "sessions" && currentDept && (
+          {!isPgRecords && !previewResult && !previewTranscript && drill.level === "sessions" && currentDept && (
             <div className="space-y-4">
               {currentDept.sessions.map((session) => (
                 <Card key={session.id} className="border-slate-200 dark:border-slate-700">
@@ -623,7 +1144,7 @@ export function SavedResultsView({
           )}
 
           {/* ── LEVEL 3: SEMESTERS ────────────────────────────────────────── */}
-          {!previewResult && !previewTranscript && drill.level === "semesters" && currentSession && (
+          {!isPgRecords && !previewResult && !previewTranscript && drill.level === "semesters" && currentSession && (
             <div className="grid md:grid-cols-3 gap-4">
               {currentSession.semesters.map((sem) => (
                 <button key={sem.name} onClick={() => setDrill({ level: "levels", departmentId: drill.departmentId, departmentName: drill.departmentName, sessionId: drill.sessionId, sessionName: drill.sessionName, semesterName: sem.name })} className="text-left">
@@ -655,7 +1176,7 @@ export function SavedResultsView({
           )}
 
           {/* ── LEVEL 4: LEVELS ───────────────────────────────────────────── */}
-          {!previewResult && !previewTranscript && drill.level === "levels" && currentSemester && (
+          {!isPgRecords && !previewResult && !previewTranscript && drill.level === "levels" && currentSemester && (
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {availableLevels.length === 0 ? (
                 <Card className="col-span-full"><CardContent className="py-12 text-center">
@@ -689,7 +1210,7 @@ export function SavedResultsView({
           )}
 
           {/* ── LEVEL 5a: SEMESTER STUDENTS ───────────────────────────────── */}
-          {!previewResult && !previewTranscript && drill.level === "students" && (
+          {!isPgRecords && !previewResult && !previewTranscript && drill.level === "students" && (
             <div className="space-y-4">
               <Card className="border-slate-200 dark:border-slate-700">
                 <CardContent className="pt-5 pb-4">
@@ -752,7 +1273,7 @@ export function SavedResultsView({
           )}
 
           {/* ── LEVEL 5b: SESSION TRANSCRIPTS ─────────────────────────────── */}
-          {!previewResult && !previewTranscript && drill.level === "session-students" && (
+          {!isPgRecords && !previewResult && !previewTranscript && drill.level === "session-students" && (
             <div className="space-y-4">
               {/* Info banner */}
               <div className="flex items-center gap-2 px-1">

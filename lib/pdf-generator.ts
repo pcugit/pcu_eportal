@@ -58,7 +58,7 @@ function scoreToGrade(score: number): string {
 
 export async function generatePDF(
   data: PDFData,
-  options?: { returnBlob?: boolean }
+  options?: { returnBlob?: boolean; programmeLabel?: string }
 ): Promise<Blob | void> {
   const doc = new jsPDF() as jsPDF & {
     autoTable: (options: any) => void;
@@ -69,7 +69,7 @@ export async function generatePDF(
   const darkText: [number, number, number] = [15, 23, 42];
 
   try {
-    const logoBase64 = await loadImageAsBase64("/logo.png");
+    const logoBase64 = await loadImageAsBase64("/e-portal/images/logo new.png");
     doc.addImage(logoBase64, "PNG", 20, 15, 25, 25);
   } catch (err) {
     console.warn("Logo failed to load:", err);
@@ -80,7 +80,7 @@ export async function generatePDF(
   doc.text("PRECIOUS CORNERSTONE UNIVERSITY", 105, 22, { align: "center" });
   doc.setFontSize(11);
   doc.setFont("times", "normal");
-  doc.text("PART-TIME PROGRAMME", 105, 30, { align: "center" });
+  doc.text(options?.programmeLabel || "UNDERGRADUATE PROGRAMME", 105, 30, { align: "center" });
   doc.setFontSize(12);
   doc.setFont("times", "bold");
   doc.text("STUDENT PERSONAL ACADEMIC RECORD", 105, 38, { align: "center" });

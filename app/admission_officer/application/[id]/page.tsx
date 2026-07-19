@@ -967,11 +967,22 @@ function ApplicationDetailContent() {
   // Keep applicantId as a string — it's a UUID, not an integer
   const applicantId = (params?.id as string) || "";
   const returnStatus = searchParams.get("status");
+  const returnPage = searchParams.get("page") || "1";
+  const validReturnStatuses = [
+    "all",
+    "submitted",
+    "screening",
+    "recommended",
+    "accepted_recommendation",
+    "applicant_recommended",
+    "admitted",
+    "rejected",
+    "started",
+  ];
   const applicationsHref =
-    returnStatus &&
-    ["submitted", "screening", "recommended", "admitted", "rejected"].includes(returnStatus)
-      ? `/admission_officer/applications?status=${returnStatus}`
-      : "/admission_officer/applications";
+    returnStatus && validReturnStatuses.includes(returnStatus)
+      ? `/admission_officer/applications?status=${encodeURIComponent(returnStatus)}&page=${encodeURIComponent(returnPage)}`
+      : "/admission_officer/applications?status=submitted&page=1";
 
   const { user, isAuthenticated, logout } = useAuth();
 

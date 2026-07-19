@@ -14,12 +14,14 @@ export function MasterListDownload({
   description,
   downloadLabel = "Download Master List",
   dark = false,
+  compactHeader = false,
 }: {
   sources: Source[]
   title: string
   description: string
   downloadLabel?: string
   dark?: boolean
+  compactHeader?: boolean
 }) {
   const [sourceIndex, setSourceIndex] = useState(0)
   const [periods, setPeriods] = useState<Period[]>([])
@@ -97,15 +99,19 @@ export function MasterListDownload({
 
   return (
     <section style={{ maxWidth: "52rem" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: "0.85rem", marginBottom: "1.5rem" }}>
-        <div style={{ width: "2.5rem", height: "2.5rem", display: "grid", placeItems: "center", background: dark ? "rgba(37,99,235,0.18)" : "#eff6ff", color: "#2563eb", borderRadius: "0.5rem" }}>
-          <FileSpreadsheet size={20} />
+      {compactHeader ? (
+        <p style={{ margin: "0 0 1.5rem", color: muted, fontSize: "0.9rem" }}>{description}</p>
+      ) : (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.85rem", marginBottom: "1.5rem" }}>
+          <div style={{ width: "2.5rem", height: "2.5rem", display: "grid", placeItems: "center", background: dark ? "rgba(37,99,235,0.18)" : "#eff6ff", color: "#2563eb", borderRadius: "0.5rem" }}>
+            <FileSpreadsheet size={20} />
+          </div>
+          <div>
+            <h2 style={{ margin: 0, color: foreground, fontSize: "1.35rem" }}>{title}</h2>
+            <p style={{ margin: "0.35rem 0 0", color: muted, fontSize: "0.88rem" }}>{description}</p>
+          </div>
         </div>
-        <div>
-          <h2 style={{ margin: 0, color: foreground, fontSize: "1.35rem" }}>{title}</h2>
-          <p style={{ margin: "0.35rem 0 0", color: muted, fontSize: "0.88rem" }}>{description}</p>
-        </div>
-      </div>
+      )}
 
       <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: "0.5rem", padding: "1.25rem" }}>
         {sources.length > 1 && (

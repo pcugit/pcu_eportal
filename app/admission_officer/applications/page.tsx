@@ -267,7 +267,7 @@ function ApplicationsContent() {
               }
 
               return (
-                <Link key={app.id} href={`/admission_officer/application/${app.id}?status=${status}`} className="block">
+                <Link key={app.id} href={`/admission_officer/application/${app.id}?status=${status}&page=${page}`} className="block">
                   {cardContent}
                 </Link>
               );

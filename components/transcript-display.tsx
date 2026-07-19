@@ -71,7 +71,7 @@ export function TranscriptDisplay({
           <div className="flex flex-col items-center space-y-4 relative z-10">
             {/* LOGO */}
             <img
-              src="/logo.png"
+              src="/e-portal/images/logo new.png"
               alt="Precious Cornerstone University Logo"
               className="h-20 w-20 object-contain"
             />

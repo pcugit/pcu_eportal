@@ -93,11 +93,16 @@ function ApplicationsContent() {
   const [totalCount, setTotalCount] = useState<number>(0);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    if (searchQuery === debouncedSearch) return;
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setPage(1);
+      router.replace(`/ptadmin/applications?status=${status}&page=1`, {
+        scroll: false,
+      });
+    }, 400);
     return () => clearTimeout(t);
-  }, [searchQuery]);
-
-  useEffect(() => { setPage(1); }, [status, debouncedSearch]);
+  }, [searchQuery, debouncedSearch, router, status]);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "ptadmin") {
@@ -133,6 +138,14 @@ function ApplicationsContent() {
     const end = Math.min(totalPages, page + 2);
     for (let i = start; i <= end; i++) pages.push(i);
     return pages;
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    const boundedPage = Math.max(1, Math.min(totalPages, nextPage));
+    setPage(boundedPage);
+    router.replace(`/ptadmin/applications?status=${status}&page=${boundedPage}`, {
+      scroll: false,
+    });
   };
 
   return (
@@ -173,7 +186,14 @@ function ApplicationsContent() {
 
         {/* Search */}
         <form
-          onSubmit={(e) => { e.preventDefault(); setDebouncedSearch(searchQuery); }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setDebouncedSearch(searchQuery);
+            setPage(1);
+            router.replace(`/ptadmin/applications?status=${status}&page=1`, {
+              scroll: false,
+            });
+          }}
           className="mb-5 flex flex-col sm:flex-row sm:items-center gap-2"
         >
           <div className="relative flex-1 max-w-md">
@@ -282,7 +302,7 @@ function ApplicationsContent() {
                 return <div key={app.id} className="block">{cardContent}</div>;
               }
               return (
-                <Link key={app.id} href={`/ptadmin/application/${app.id}?status=${status}`} className="block">
+                <Link key={app.id} href={`/ptadmin/application/${app.id}?status=${status}&page=${page}`} className="block">
                   {cardContent}
                 </Link>
               );
@@ -296,7 +316,7 @@ function ApplicationsContent() {
                 </p>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    onClick={() => handlePageChange(page - 1)}
                     disabled={page === 1}
                     className="p-2 rounded-lg border border-gray-200 bg-white text-slate-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
@@ -305,7 +325,7 @@ function ApplicationsContent() {
                   {getPageNumbers().map((p) => (
                     <button
                       key={p}
-                      onClick={() => setPage(p)}
+                      onClick={() => handlePageChange(p)}
                       className={`min-w-[36px] h-9 rounded-lg text-sm font-semibold transition-all ${
                         p === page ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-gray-200 hover:bg-gray-50"
                       }`}
@@ -314,7 +334,7 @@ function ApplicationsContent() {
                     </button>
                   ))}
                   <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => handlePageChange(page + 1)}
                     disabled={page === totalPages}
                     className="p-2 rounded-lg border border-gray-200 bg-white text-slate-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >

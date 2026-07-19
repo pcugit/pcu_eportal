@@ -225,7 +225,7 @@ export async function downloadMasterList(options: MasterListDownload) {
   workbook.created = new Date()
   let logoImageId: number | undefined
   try {
-    const response = await fetch("/logo.png")
+    const response = await fetch("/e-portal/images/logo new.png")
     if (response.ok) {
       logoImageId = workbook.addImage({ buffer: await response.arrayBuffer(), extension: "png" })
     }

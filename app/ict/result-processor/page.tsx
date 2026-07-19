@@ -308,11 +308,19 @@ function parseExcelSheet(sheet: XLSX.WorkSheet, currentSettings?: any): ExcelDat
 }
 
 // --- Main Component ---
+type ProcessorView = "upload" | "processing" | "results" | "saved" | "master-list" | "converter" | "pending";
+
 export default function ModernResultSystem() {
   const pathname = usePathname();
   const isPgProcessor = pathname?.startsWith("/pgadmin") ?? false;
-  const processorLandingView = isPgProcessor ? "pending" : "upload";
-  const [view, setView] = useState<"upload" | "processing" | "results" | "saved" | "converter" | "pending">(processorLandingView);
+  const processorLandingView: ProcessorView = isPgProcessor
+    ? pathname?.endsWith("/master-list")
+      ? "master-list"
+      : pathname?.endsWith("/records")
+        ? "saved"
+        : "pending"
+    : "upload";
+  const [view, setView] = useState<ProcessorView>(processorLandingView);
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [sheets, setSheets] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -338,6 +346,15 @@ export default function ModernResultSystem() {
   const resultApiBase = isPgProcessor ? "/pg-results" : "/results";
   const processorHome = isPgProcessor ? "/pgadmin/dashboard" : "/ict/dashboard";
   const processorOwner = isPgProcessor ? "PG Admin" : "ICT";
+  const pgPageTitle = view === "master-list"
+    ? "PG Master List"
+    : view === "saved"
+      ? "PG Result Records"
+      : "Result Submission";
+
+  useEffect(() => {
+    if (isPgProcessor) setView(processorLandingView);
+  }, [isPgProcessor, pathname, processorLandingView]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -1143,7 +1160,7 @@ export default function ModernResultSystem() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-hidden font-sans">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-clip font-sans">
       <Toaster position="top-right" richColors />
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && closeDeleteConfirmation()}>
@@ -1333,14 +1350,70 @@ export default function ModernResultSystem() {
         <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] bg-emerald-50 dark:bg-emerald-900/20 rounded-full blur-[100px] opacity-40"></div>
       </div>
 
-      <div className="relative z-10 container mx-auto px-4 py-12 max-w-6xl">
+      {isPgProcessor && (
+        <header className="sticky top-16 z-40 border-b border-[#e8dfd2] bg-[#f8f3ea]/95 backdrop-blur lg:top-0">
+          <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-2.5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-4">
+            <div className="flex min-w-0 items-center gap-3">
+              {view !== "pending" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView("pending");
+                    router.push("/pgadmin/result-processor");
+                    void fetchPendingSubmissions();
+                  }}
+                  aria-label="Back to result submissions"
+                  title="Back to result submissions"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-[#d8c29a] bg-white text-slate-700 transition-colors hover:bg-[#ead6aa]"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              )}
+              <h1 className="truncate text-base font-semibold uppercase text-slate-900 sm:text-lg">
+                {pgPageTitle}
+              </h1>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={view === "master-list" ? "default" : "outline"}
+                onClick={() => router.push("/pgadmin/result-processor/master-list")}
+                className={view === "master-list" ? "bg-slate-900 text-white hover:bg-black" : "border-slate-300 bg-white text-slate-700"}
+              >
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Master List
+              </Button>
+              <Button
+                variant={view === "saved" ? "default" : "outline"}
+                onClick={() => router.push("/pgadmin/result-processor/records")}
+                className={view === "saved" ? "bg-slate-900 text-white hover:bg-black" : "border-slate-300 bg-white text-slate-700"}
+              >
+                <Database className="mr-2 h-4 w-4" />
+                Result Records
+              </Button>
+              <Button
+                onClick={() => processSubmissionBatch(pendingSubmissions, "all PG departments")}
+                disabled={processingBatch !== null || pendingSubmissions.length === 0}
+                className="bg-slate-900 text-white hover:bg-black"
+              >
+                {processingBatch === "all PG departments"
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Process All Results
+              </Button>
+            </div>
+          </div>
+        </header>
+      )}
+
+      <div className="relative z-10 container mx-auto px-4 py-8 max-w-6xl">
         {!isPgProcessor && <header className="flex flex-col md:flex-row justify-between items-center mb-16 space-y-4 md:space-y-0">
           <motion.div 
             initial={{ opacity:0, x:-20 }} animate={{ opacity:1, x:0 }}
             className="flex items-center gap-4"
           >
             <div className="bg-white dark:bg-slate-950 p-2.5 rounded-2xl shadow-indigo-100 dark:shadow-indigo-900/20 shadow-xl border border-slate-100 dark:border-slate-800">
-              <img src="/logo.png" alt="PCU Logo" className="h-12 w-12" />
+              <img src="/e-portal/images/logo new.png" alt="PCU Logo" className="h-12 w-12" />
             </div>
             <div>
               <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-700 to-indigo-900">
@@ -1655,9 +1728,9 @@ export default function ModernResultSystem() {
             </motion.div>
           )}
 
-          {view === "saved" && (
+          {view === "master-list" && (
             <motion.div 
-              key="saved"
+              key="master-list"
               initial={{ opacity:0, x:20 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:-20 }}
               className="space-y-8"
             >
@@ -1671,13 +1744,36 @@ export default function ModernResultSystem() {
                 description={isPgProcessor
                   ? "Download one Excel workbook containing every PG department for the selected academic session and semester. Departments and levels are organised into separate worksheets."
                   : "Download the complete undergraduate master list for a selected academic session and semester."}
-                downloadLabel={isPgProcessor ? "Download All PG Master Lists" : "Download Master List"}
+                downloadLabel={isPgProcessor ? "Download" : "Download List"}
+                compactHeader={isPgProcessor}
               />
+            </motion.div>
+          )}
+
+          {view === "saved" && (
+            <motion.div
+              key="saved"
+              initial={{ opacity:0, x:20 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:-20 }}
+              className="space-y-8"
+            >
+              {!isPgProcessor && (
+                <MasterListDownload
+                  sources={[{
+                    label: "Undergraduate",
+                    programme: "UG",
+                    apiBase: "/results",
+                  }]}
+                  title="Overall Master List"
+                  description="Download the complete undergraduate master list for a selected academic session and semester."
+                  downloadLabel="Download Master List"
+                />
+              )}
               <SavedResultsView
                 onBack={() => setView(processorLandingView)}
                 resultApiBase={isPgProcessor ? resultApiBase : undefined}
                 readOnly={isPgProcessor}
                 title={isPgProcessor ? "PG Result Records" : "Academic Records"}
+                compactHeader={isPgProcessor}
               />
             </motion.div>
           )}
@@ -1789,35 +1885,21 @@ export default function ModernResultSystem() {
               initial={{ opacity:0, x:20 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:-20 }}
               className="space-y-8"
             >
-              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="space-y-1">
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight">
-                    {isPgProcessor ? "Staff Submission" : "Staff Submissions"}
-                  </h2>
-                  {!isPgProcessor && (
-                    <p className="text-slate-500 dark:text-slate-400 font-medium">Verify and process results submitted by lecturers and HODs for {processorOwner}.</p>
-                  )}
-                </div>
-                {isPgProcessor ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => setView("saved")} className="rounded-xl border-slate-200">
-                      <Database className="mr-2 h-4 w-4 text-blue-600 dark:text-blue-400" /> {isPgProcessor ? "Master List & Records" : "Result Records"}
-                    </Button>
-                    <Button
-                      onClick={() => processSubmissionBatch(pendingSubmissions, "all PG departments")}
-                      disabled={processingBatch !== null || pendingSubmissions.length === 0}
-                      className="bg-slate-900 text-white hover:bg-black"
-                    >
-                      {processingBatch === "all PG departments" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Process All PG Results
-                    </Button>
+              {!isPgProcessor && (
+                <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
+                  <div className="space-y-1">
+                    <h2 className="text-3xl font-bold uppercase tracking-tight text-slate-900 dark:text-slate-100">
+                      Staff Submissions
+                    </h2>
+                    <p className="font-medium text-slate-500 dark:text-slate-400">
+                      Verify and process results submitted by lecturers and HODs for {processorOwner}.
+                    </p>
                   </div>
-                ) : (
                   <Button variant="outline" onClick={() => setView("upload")} className="rounded-xl border-slate-200">
                     <Upload className="mr-2 h-4 w-4" /> Back to Upload
                   </Button>
-                )}
-              </div>
+                </div>
+              )}
 
               <Tabs
                 value={submissionTab}

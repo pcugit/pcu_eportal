@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -1262,7 +1262,11 @@ function ReviewTab({
 export default function PgApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const applicationId = (params?.id as string) || "";
+  const returnStatus = searchParams.get("status") || "submitted";
+  const returnPage = searchParams.get("page") || "1";
+  const applicationsHref = `/pgadmin/applications?status=${encodeURIComponent(returnStatus)}&page=${encodeURIComponent(returnPage)}`;
 
   const { user, isAuthenticated } = useAuth();
   const [application, setApplication] = useState<ApplicationDetail | null>(
@@ -1379,7 +1383,7 @@ export default function PgApplicationDetailPage() {
           </p>
           <p className="text-slate-400 text-sm mb-4">{error}</p>
           <Link
-            href="/pgadmin/applications"
+            href={applicationsHref}
             className="text-slate-500 hover:text-slate-700 font-semibold transition-colors text-sm"
           >
             ← Back to Applications
@@ -1398,7 +1402,7 @@ export default function PgApplicationDetailPage() {
       <div className="sticky top-0 z-50 border-b border-gray-200 bg-gray-50/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <Link
-            href="/pgadmin/applications"
+            href={applicationsHref}
             className="text-slate-400 hover:text-slate-600 text-sm transition-colors"
           >
             ← Back to Applications

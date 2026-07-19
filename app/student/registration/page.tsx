@@ -34,6 +34,7 @@ export default function CourseRegistration() {
   const [secondCourses, setSecondCourses] = useState<CourseData[]>([]);
   const [ptCourses, setPtCourses] = useState<CourseData[]>([]);
   const [availableCourses, setAvailableCourses] = useState<CourseData[]>([]); // electives + required
+  const [outstandingCourses, setOutstandingCourses] = useState<CourseData[]>([]);
 
   const [firstSelectedIds, setFirstSelectedIds] = useState<number[]>([]);
   const [secondSelectedIds, setSecondSelectedIds] = useState<number[]>([]);
@@ -98,6 +99,11 @@ export default function CourseRegistration() {
       setIsPgRegistration(isPgMode);
       setActiveSemesterName(activeName);
       setInitialRegisteredIds(registeredIds);
+      const carryovers = ((data as any).outstanding_courses ?? []).map(norm);
+      const activeCarryoverIds = carryovers
+        .filter((course: CourseData) => course.available_for_registration !== false)
+        .map((course: CourseData) => course.id);
+      setOutstandingCourses(carryovers);
 
       const firstSem = sems["First semester"] ?? { compulsory: [], core: [] };
       const secondSem = sems["Second semester"] ?? { compulsory: [], core: [] };
@@ -139,11 +145,10 @@ export default function CourseRegistration() {
               .slice(0, 5)
               .map((c) => c.id);
 
-        setPtSelectedIds(
-          registeredPtIds.length > 0
-            ? registeredPtIds
-            : defaultSelectedIds,
-        );
+        setPtSelectedIds(Array.from(new Set([
+          ...(registeredPtIds.length > 0 ? registeredPtIds : defaultSelectedIds),
+          ...activeCarryoverIds,
+        ])));
         return;
       }
 
@@ -185,9 +190,21 @@ export default function CourseRegistration() {
                     MANDATORY.has((c.category || "").toLowerCase()),
                   )
                   .map((c) => c.id),
+                ...carryovers
+                  .filter((c: CourseData) =>
+                    c.available_for_registration !== false &&
+                    (c.semester ?? "").toLowerCase().startsWith("first"),
+                  )
+                  .map((c: CourseData) => c.id),
               ]),
             );
-      setFirstSelectedIds(firstInitialSelected);
+      const firstCarryoverIds = carryovers
+        .filter((c: CourseData) =>
+          c.available_for_registration !== false &&
+          (c.semester ?? "").toLowerCase().startsWith("first"),
+        )
+        .map((c: CourseData) => c.id);
+      setFirstSelectedIds(Array.from(new Set([...firstInitialSelected, ...firstCarryoverIds])));
 
       const secondInitialSelected =
         regStatusBySem["Second"] === "submitted"
@@ -204,9 +221,21 @@ export default function CourseRegistration() {
                     MANDATORY.has((c.category || "").toLowerCase()),
                   )
                   .map((c) => c.id),
+                ...carryovers
+                  .filter((c: CourseData) =>
+                    c.available_for_registration !== false &&
+                    (c.semester ?? "").toLowerCase().startsWith("second"),
+                  )
+                  .map((c: CourseData) => c.id),
               ]),
             );
-      setSecondSelectedIds(secondInitialSelected);
+      const secondCarryoverIds = carryovers
+        .filter((c: CourseData) =>
+          c.available_for_registration !== false &&
+          (c.semester ?? "").toLowerCase().startsWith("second"),
+        )
+        .map((c: CourseData) => c.id);
+      setSecondSelectedIds(Array.from(new Set([...secondInitialSelected, ...secondCarryoverIds])));
     } catch (err: any) {
       console.error("Error loading courses:", err);
       // Handle 402 payment required
@@ -270,7 +299,9 @@ export default function CourseRegistration() {
   const toggleFirstCourse = (courseId: number, isCompulsory: boolean) => {
     if (isFirstLocked) return;
     setFirstSelectedIds((prev) =>
-      prev.includes(courseId)
+      prev.includes(courseId) && outstandingCourses.some(course => course.id === courseId)
+        ? prev
+        : prev.includes(courseId)
         ? prev.filter((id) => id !== courseId)
         : [...prev, courseId],
     );
@@ -279,7 +310,9 @@ export default function CourseRegistration() {
   const toggleSecondCourse = (courseId: number, isCompulsory: boolean) => {
     if (isSecondLocked) return;
     setSecondSelectedIds((prev) =>
-      prev.includes(courseId)
+      prev.includes(courseId) && outstandingCourses.some(course => course.id === courseId)
+        ? prev
+        : prev.includes(courseId)
         ? prev.filter((id) => id !== courseId)
         : [...prev, courseId],
     );
@@ -288,7 +321,9 @@ export default function CourseRegistration() {
   const togglePtCourse = (courseId: number, isCompulsory: boolean) => {
     if (isGlobalLocked || isDeadlinePassed) return;
     setPtSelectedIds((prev) =>
-      prev.includes(courseId)
+      prev.includes(courseId) && outstandingCourses.some(course => course.id === courseId)
+        ? prev
+        : prev.includes(courseId)
         ? prev.filter((id) => id !== courseId)
         : [...prev, courseId],
     );
@@ -473,9 +508,11 @@ export default function CourseRegistration() {
   }) => {
     const cat = (course.category || "").toLowerCase();
     const isMandatory =
-      cat === "compulsory" || cat === "compulsary" || cat === "core";
+      course.is_carryover || cat === "carryover" || cat === "compulsory" || cat === "compulsary" || cat === "core";
     const categoryLabel =
-      cat === "compulsory" || cat === "compulsary"
+      course.is_carryover || cat === "carryover"
+        ? "Carryover"
+        : cat === "compulsory" || cat === "compulsary"
         ? "Compulsory"
         : cat === "core"
         ? "Core"
@@ -485,7 +522,9 @@ export default function CourseRegistration() {
         ? "Elective"
         : (course.category ?? "Elective");
     const categoryColor =
-      isMandatory
+      course.is_carryover || cat === "carryover"
+        ? "bg-red-100 text-red-700"
+        : isMandatory
         ? "bg-blue-100 text-blue-700"
         : cat === "required"
         ? "bg-amber-100 text-amber-700"
@@ -760,6 +799,36 @@ export default function CourseRegistration() {
             </div>
           )}
         </div>
+
+        {outstandingCourses.length > 0 && (
+          <section className="border-l-4 border-red-600 bg-red-50 px-4 py-4 text-red-950">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-700" />
+              <div className="min-w-0 flex-1">
+                <h2 className="font-bold">Outstanding Courses</h2>
+                <p className="mt-1 text-xs text-red-800">
+                  Carryover courses are added automatically when offered and must remain in a submitted registration.
+                </p>
+                <div className="mt-3 divide-y divide-red-200 border-y border-red-200">
+                  {outstandingCourses.map((course) => (
+                    <div key={`${course.id}-${course.failed_session}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                      <div>
+                        <span className="font-bold">{course.course_code}</span>
+                        <span className="ml-2">{course.course_title}</span>
+                        <span className="ml-2 text-xs text-red-700">
+                          Failed: {course.failed_session || "Previous session"} {course.failed_semester || ""} ({course.failed_score ?? 0})
+                        </span>
+                      </div>
+                      <Badge className={course.available_for_registration !== false ? "bg-red-700 text-white" : "bg-white text-red-800"}>
+                        {course.available_for_registration !== false ? "Required now" : `Offered in ${course.semester || "another semester"}`}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {isPtRegistration || isPgRegistration ? (
           <div className="flex flex-col md:flex-row gap-6 relative z-10">
